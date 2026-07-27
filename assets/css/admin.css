@@ -1,0 +1,1837 @@
+.wps-app {
+	--wps-ink: #17202a;
+	--wps-muted: #667085;
+	--wps-line: rgba(20, 32, 45, .1);
+	--wps-panel: rgba(255, 255, 255, .9);
+	--wps-good: #16815d;
+	--wps-warn: #b45f06;
+	--wps-bad: #bf2f45;
+	--wps-blue: #1e6ba8;
+	color: var(--wps-ink);
+	margin-top: 22px !important;
+	max-width: 1180px !important;
+}
+
+.wps-app * {
+	box-sizing: border-box;
+	letter-spacing: 0 !important;
+}
+
+.wps-app > h1 {
+	align-items: center !important;
+	background:
+		linear-gradient(135deg, rgba(18, 99, 104, .96), rgba(34, 90, 166, .91) 48%, rgba(181, 64, 94, .9)),
+		radial-gradient(circle at top left, rgba(255,255,255,.22), transparent 36%);
+	border: 1px solid rgba(255,255,255,.32);
+	border-radius: 22px;
+	box-shadow: 0 20px 48px rgba(23, 32, 42, .16);
+	color: #fff;
+	display: flex !important;
+	font-size: 28px !important;
+	font-weight: 700 !important;
+	gap: 12px !important;
+	line-height: 1.16 !important;
+	margin: 0 0 16px !important;
+	min-height: 96px;
+	padding: 24px !important;
+}
+
+.wps-app > h1::after {
+	color: rgba(255,255,255,.75);
+	content: "Forensic WordPress malware defence.";
+	display: block;
+	font-size: 13px;
+	font-weight: 500;
+	margin-left: auto;
+	max-width: 240px;
+	text-align: right;
+}
+
+/* 1.3.64: rescoped from `.wps-app > h1 span` to `.wps-app > h1 .wps-version-pill`.
+   The previous selector matched every <span> child of the header <h1>, which
+   meant both the version pill AND the issue alert received the same white-
+   gradient pill styling. Combined with the !important declarations on
+   background, color, font-size, font-weight, and padding, this silently
+   overrode the 1.3.63 severity-aware issue-alert design  the issue pill
+   ended up rendering identically to the version pill regardless of the
+   `.wps-issue-alert` and `.wps-sev-*` rules added at the bottom of this
+   file. The rescope leaves the version pill's existing visual unchanged
+   (white-gradient pill, teal text  the look that was working) and lets
+   the 1.3.63 issue-alert rules take effect without competition. */
+.wps-app > h1 .wps-version-pill {
+	backdrop-filter: blur(10px);
+	background: linear-gradient(135deg, #ffffff, #dff7f4) !important;
+	border: 1px solid rgba(255,255,255,.82);
+	border-radius: 999px !important;
+	box-shadow: 0 10px 24px rgba(0,0,0,.16);
+	color: #14565d !important;
+	font-size: 12px !important;
+	font-weight: 800 !important;
+	padding: 5px 12px !important;
+}
+
+/* The 1.3.x version of this stylesheet contained an attribute selector
+   `.wps-app > h1 span[style*="background:#c00"]` that overrode the old
+   inline-styled issue pill's red `#c00` background with a translucent
+   pink, producing the lavender appearance visible in pre-1.3.63 screenshots.
+   That selector was removed in 1.3.64 alongside the specificity fix because
+   the 1.3.63 markup conversion eliminated all inline `style=""` attributes
+   on header pills, leaving the attribute selector dead and unable to match. */
+
+.wps-app .notice {
+	border-radius: 12px !important;
+	border-width: 1px !important;
+	box-shadow: none !important;
+}
+
+.wps-app .nav-tab-wrapper {
+	background: rgba(255,255,255,.78);
+	border: 1px solid var(--wps-line) !important;
+	border-radius: 16px;
+	display: flex;
+	gap: 6px;
+	margin: 0 0 18px !important;
+	overflow-x: auto;
+	padding: 6px;
+}
+
+.wps-app .nav-tab {
+	background: transparent !important;
+	border: 0 !important;
+	border-radius: 12px !important;
+	color: var(--wps-muted) !important;
+	cursor: pointer;
+	font-size: 13px;
+	font-weight: 650;
+	margin: 0 !important;
+	padding: 9px 12px !important;
+	transition: background-color .15s ease, color .15s ease, box-shadow .18s ease;
+	white-space: nowrap;
+}
+
+/* 1.3.66: hover state on non-active tabs. The pre-1.3.66 styling was so flat
+   that operators could not tell tabs were clickable until the cursor changed.
+   Light treatment: subtle background tint, text colour shifts toward
+   --wps-ink, transition smooths the change. The :not(.nav-tab-active) guard
+   prevents the hover state from competing with the active state's stronger
+   gradient background. */
+.wps-app .nav-tab:not(.nav-tab-active):hover,
+.wps-app .nav-tab:not(.nav-tab-active):focus-visible {
+	background: rgba(20, 32, 45, .055) !important;
+	color: var(--wps-ink) !important;
+}
+
+/* 1.3.66: group-start tabs (the first tab of each functional band after the
+   leading band  Diagnostics, Settings) get a small left margin and an
+   inset 1px line at the left edge to mark the boundary between functional
+   groups. The line uses --wps-line which is rgba(20,32,45,.1)  visible but
+   subtle, matching the rest of the panel borders. The inset shadow approach
+   avoids any clipping issues with the rounded outer container. */
+.wps-app .nav-tab.wps-tab-group-start {
+	margin-left: 14px !important;
+	box-shadow: inset 1px 0 0 var(--wps-line);
+	padding-left: 18px !important;
+}
+
+.wps-app .nav-tab-active {
+	background: linear-gradient(135deg, #ffffff, #eef8f6) !important;
+	box-shadow: 0 8px 22px rgba(23,32,42,.08), inset 0 -2px 0 #14565d;
+	color: var(--wps-ink) !important;
+}
+
+/* 1.3.66: when an active tab is also a group-start tab, both inset shadows
+   need to combine  the left-edge group separator AND the bottom accent line.
+   Without this combined rule the .nav-tab-active rule's box-shadow would
+   override the group-start rule's box-shadow because they target the same
+   property. */
+.wps-app .nav-tab-active.wps-tab-group-start {
+	box-shadow: 0 8px 22px rgba(23,32,42,.08), inset 0 -2px 0 #14565d, inset 1px 0 0 var(--wps-line);
+}
+
+.wps-app div[style*="background:#fff"],
+.wps-app div[style*="background:#fcebeb"],
+.wps-app div[style*="background:#eaf3de"],
+.wps-app div[style*="background:#faeeda"],
+.wps-app div[style*="background:#e6f1fb"],
+.wps-app div[style*="background:#fff9de"] {
+	border-color: var(--wps-line) !important;
+	border-radius: 18px !important;
+	box-shadow: 0 12px 34px rgba(23, 32, 42, .075);
+	transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+
+.wps-app div[style*="background:#fff"]:hover,
+.wps-app div[style*="background:#fcebeb"]:hover,
+.wps-app div[style*="background:#eaf3de"]:hover,
+.wps-app div[style*="background:#faeeda"]:hover,
+.wps-app div[style*="background:#e6f1fb"]:hover,
+.wps-app div[style*="background:#fff9de"]:hover {
+	border-color: rgba(20,32,45,.16) !important;
+	box-shadow: 0 16px 42px rgba(23, 32, 42, .1);
+}
+
+.wps-app div[style*="background:#fff"] {
+	background: var(--wps-panel) !important;
+}
+
+.wps-app div[style*="background:#fcebeb"] {
+	background: linear-gradient(135deg, #fff5f6, #ffeef1) !important;
+}
+
+.wps-app div[style*="background:#eaf3de"] {
+	background: linear-gradient(135deg, #f3fbef, #e7f8ee) !important;
+}
+
+.wps-app div[style*="background:#faeeda"],
+.wps-app div[style*="background:#fff9de"] {
+	background: linear-gradient(135deg, #fff8e8, #fff1d7) !important;
+}
+
+.wps-app div[style*="background:#e6f1fb"] {
+	background: linear-gradient(135deg, #eef8ff, #eef5ff) !important;
+}
+
+.wps-app .button {
+	border-color: rgba(23,32,42,.16) !important;
+	border-radius: 999px !important;
+	box-shadow: none !important;
+	font-weight: 650;
+	min-height: 34px;
+	padding: 3px 14px !important;
+	transition: background .18s ease, border-color .18s ease, color .18s ease, transform .18s ease;
+}
+
+.wps-app .button:hover {
+	transform: translateY(-1px);
+}
+
+.wps-app .button-primary,
+.wps-app button[type="submit"] {
+	background: linear-gradient(135deg, #147d7f, #245aa6) !important;
+	border-color: transparent !important;
+	color: #fff !important;
+}
+
+.wps-app .button[style*="color:#a00"] {
+	background: linear-gradient(135deg, #fff5f6, #fff) !important;
+	border-color: rgba(191,47,69,.32) !important;
+	color: var(--wps-bad) !important;
+}
+
+.wps-findings-panel {
+	background: linear-gradient(135deg, #fff7f8, #fff1f3) !important;
+	border: 1px solid rgba(191, 47, 69, .2) !important;
+	border-radius: 18px !important;
+	box-shadow: 0 14px 36px rgba(93, 18, 30, .08);
+	margin-bottom: 18px;
+	padding: 16px;
+}
+
+.wps-findings-head {
+	align-items: center;
+	display: flex;
+	gap: 14px;
+	justify-content: space-between;
+	margin-bottom: 12px;
+}
+
+.wps-findings-title {
+	color: #9f2636;
+	font-size: 14px;
+	font-weight: 750;
+	line-height: 1.25;
+}
+
+.wps-findings-subtitle {
+	color: #7a4a52;
+	font-size: 12px;
+	line-height: 1.45;
+	margin-top: 3px;
+}
+
+.wps-findings-count,
+.wps-resolution {
+	align-items: center;
+	border-radius: 999px;
+	display: inline-flex;
+	font-size: 11px;
+	font-weight: 750;
+	line-height: 1.15;
+	min-height: 28px;
+	padding: 6px 10px;
+	white-space: nowrap;
+}
+
+.wps-findings-count {
+	background: #fff;
+	border: 1px solid rgba(191, 47, 69, .22);
+	color: #9f2636;
+}
+
+.wps-finding-list {
+	display: grid;
+	gap: 8px;
+}
+
+.wps-finding-card {
+	align-items: start;
+	background: rgba(255, 255, 255, .78);
+	border: 1px solid rgba(191, 47, 69, .14);
+	border-radius: 14px;
+	display: grid;
+	gap: 14px;
+	grid-template-columns: 96px minmax(260px, 1fr) minmax(210px, 280px);
+	padding: 12px;
+}
+
+.wps-finding-severity {
+	align-items: center;
+	border-radius: 999px;
+	display: inline-flex;
+	font-size: 10px;
+	font-weight: 800;
+	justify-content: center;
+	letter-spacing: 0 !important;
+	min-height: 28px;
+	padding: 6px 9px;
+	text-align: center;
+	white-space: nowrap;
+}
+
+.wps-finding-severity.is-critical {
+	background: #ffe8ec;
+	color: #a3192d;
+}
+
+.wps-finding-severity.is-high {
+	background: #fff2d8;
+	color: #854f0b;
+}
+
+.wps-finding-severity.is-medium,
+.wps-finding-severity.is-low,
+.wps-finding-severity.is-unknown {
+	background: #eef4ff;
+	color: #245aa6;
+}
+
+.wps-finding-main {
+	min-width: 0;
+}
+
+.wps-finding-type {
+	color: var(--wps-ink);
+	font-size: 13px;
+	font-weight: 700;
+	line-height: 1.35;
+}
+
+.wps-finding-subject {
+	color: #344054;
+	font-family: Consolas, Monaco, monospace;
+	font-size: 12px;
+	line-height: 1.45;
+	margin-top: 4px;
+	overflow-wrap: anywhere;
+}
+
+.wps-match-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 8px;
+}
+
+.wps-match-list code,
+.wps-match-more {
+	background: #f7f9fb !important;
+	border: 1px solid rgba(23, 32, 42, .1);
+	border-radius: 999px !important;
+	color: #1f2937;
+	display: inline-flex;
+	font-size: 11px;
+	line-height: 1.2;
+	max-width: 100%;
+	overflow-wrap: anywhere;
+	padding: 5px 8px;
+	white-space: normal;
+}
+
+.wps-match-more {
+	color: var(--wps-muted);
+	font-weight: 700;
+}
+
+.wps-finding-action {
+	color: #475467;
+	font-size: 12px;
+	line-height: 1.45;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.wps-finding-action .wps-resolution {
+	margin-bottom: 7px;
+}
+
+.wps-resolution.is-done {
+	background: #eaf8f0;
+	border: 1px solid rgba(22, 129, 93, .22);
+	color: var(--wps-good);
+}
+
+.wps-resolution.is-done::before {
+	background: var(--wps-good);
+	border-radius: 999px;
+	content: "";
+	height: 7px;
+	margin-right: 7px;
+	width: 7px;
+}
+
+.wps-resolution.is-warn {
+	background: #fff6e6;
+	border: 1px solid rgba(180, 95, 6, .22);
+	color: var(--wps-warn);
+}
+
+.wps-resolution.is-alert {
+	background: #fff;
+	border: 1px solid rgba(191, 47, 69, .24);
+	color: var(--wps-bad);
+}
+
+.wps-hardening-actions {
+	align-items: center;
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	justify-content: flex-end;
+	max-width: 100%;
+}
+
+.wps-action-status {
+	align-items: center;
+	border: 1px solid rgba(22, 129, 93, .22);
+	border-radius: 999px;
+	display: none;
+	font-size: 12px;
+	font-weight: 700;
+	line-height: 1.2;
+	min-height: 32px;
+	padding: 7px 11px;
+	white-space: nowrap;
+}
+
+.wps-action-status.is-visible {
+	display: inline-flex;
+}
+
+.wps-action-status.is-ok {
+	background: linear-gradient(135deg, #edf9f2, #ffffff);
+	color: var(--wps-good);
+}
+
+.wps-action-status.is-ok::before {
+	content: "";
+	background: var(--wps-good);
+	border-radius: 999px;
+	height: 7px;
+	margin-right: 7px;
+	width: 7px;
+}
+
+.wps-action-status.is-error {
+	background: linear-gradient(135deg, #fff5f6, #ffffff);
+	border-color: rgba(191, 47, 69, .28);
+	color: var(--wps-bad);
+	max-width: 220px;
+	white-space: normal;
+}
+
+.wps-app td[style*="text-align:right"] {
+	min-width: 172px;
+}
+
+.wps-app table {
+	border-radius: 14px;
+	overflow: hidden;
+}
+
+.wps-inline-success {
+	color: #1a7f37;
+	font-size: 11px;
+	font-weight: 600;
+}
+
+.wps-source-trace {
+	background:
+		linear-gradient(135deg, rgba(255, 255, 255, .96), rgba(247, 251, 252, .94)),
+		radial-gradient(circle at top left, rgba(20, 125, 127, .08), transparent 36%);
+	border: 1px solid rgba(23, 32, 42, .1);
+	border-radius: 18px;
+	box-shadow: 0 14px 36px rgba(23, 32, 42, .08);
+	margin: 0 0 14px;
+	padding: 16px;
+}
+
+.wps-source-trace-head {
+	align-items: flex-start;
+	display: flex;
+	gap: 16px;
+	justify-content: space-between;
+	margin-bottom: 12px;
+}
+
+.wps-source-trace h3 {
+	font-size: 14px;
+	margin: 0 0 5px;
+}
+
+.wps-source-trace p {
+	color: var(--wps-muted);
+	font-size: 12px;
+	line-height: 1.45;
+	margin: 0;
+	max-width: 720px;
+}
+
+.wps-source-trace-badges {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 7px;
+	justify-content: flex-end;
+}
+
+.wps-source-trace-badges span,
+.wps-source-signal span {
+	align-items: center;
+	background: #eef4ff;
+	border: 1px solid rgba(36, 90, 166, .16);
+	border-radius: 999px;
+	color: #245aa6;
+	display: inline-flex;
+	font-size: 11px;
+	font-weight: 750;
+	line-height: 1.15;
+	min-height: 28px;
+	padding: 6px 10px;
+	white-space: nowrap;
+}
+
+.wps-source-trace-badges .is-good {
+	background: #eaf8f0;
+	border-color: rgba(22, 129, 93, .22);
+	color: var(--wps-good);
+}
+
+.wps-source-trace-badges .is-warn {
+	background: #fff6e6;
+	border-color: rgba(180, 95, 6, .22);
+	color: var(--wps-warn);
+}
+
+.wps-source-note,
+.wps-source-empty {
+	background: #f7f9fb;
+	border: 1px solid rgba(23, 32, 42, .08);
+	border-radius: 14px;
+	color: #475467;
+	font-size: 12px;
+	line-height: 1.45;
+	margin: 0 0 12px;
+	padding: 10px 12px;
+}
+
+.wps-source-list {
+	display: grid;
+	gap: 8px;
+}
+
+.wps-source-row {
+	background: rgba(255, 255, 255, .76);
+	border: 1px solid rgba(23, 32, 42, .08);
+	border-left-width: 4px;
+	border-radius: 14px;
+	display: grid;
+	gap: 12px;
+	grid-template-columns: 152px minmax(0, 1fr) minmax(130px, 190px);
+	padding: 12px;
+}
+
+.wps-source-row.is-critical {
+	border-left-color: var(--wps-bad);
+}
+
+.wps-source-row.is-high {
+	border-left-color: var(--wps-warn);
+}
+
+.wps-source-row.is-medium {
+	border-left-color: var(--wps-blue);
+}
+
+.wps-source-row.is-low {
+	border-left-color: var(--wps-good);
+}
+
+.wps-source-time,
+.wps-source-origin,
+.wps-source-detail {
+	color: var(--wps-muted);
+	font-family: Consolas, Monaco, monospace;
+	font-size: 11px;
+	line-height: 1.45;
+	overflow-wrap: anywhere;
+}
+
+.wps-source-signal {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 7px;
+	margin-bottom: 6px;
+}
+
+.wps-source-signal strong {
+	font-size: 12px;
+	line-height: 1.3;
+}
+
+.wps-source-row.is-critical .wps-source-signal span {
+	background: #ffe8ec;
+	border-color: rgba(191, 47, 69, .2);
+	color: var(--wps-bad);
+}
+
+.wps-source-row.is-high .wps-source-signal span {
+	background: #fff2d8;
+	border-color: rgba(180, 95, 6, .2);
+	color: var(--wps-warn);
+}
+
+.wps-source-evidence {
+	color: var(--wps-ink);
+	font-family: Consolas, Monaco, monospace;
+	font-size: 12px;
+	line-height: 1.45;
+	overflow-wrap: anywhere;
+}
+
+.wps-source-detail {
+	margin-top: 5px;
+}
+
+.wps-source-next {
+	color: #475467;
+	font-size: 12px;
+	line-height: 1.45;
+	margin-top: 8px;
+}
+
+.wps-source-origin {
+	text-align: right;
+}
+
+.wps-source-commands {
+	border-top: 1px solid rgba(23, 32, 42, .08);
+	margin-top: 14px;
+	padding-top: 12px;
+}
+
+.wps-source-commands summary {
+	color: var(--wps-ink);
+	cursor: pointer;
+	font-size: 12px;
+	font-weight: 750;
+}
+
+.wps-source-command-list {
+	display: grid;
+	gap: 10px;
+	margin-top: 10px;
+}
+
+.wps-source-command-label {
+	color: #475467;
+	font-size: 11px;
+	font-weight: 700;
+	margin-bottom: 4px;
+}
+
+.wps-source-command-box {
+	align-items: stretch;
+	background: #f7f9fb;
+	border: 1px solid rgba(23, 32, 42, .1);
+	border-radius: 12px;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	overflow: hidden;
+}
+
+.wps-source-command-box code {
+	background: transparent !important;
+	border: 0;
+	color: #1f2937;
+	display: block;
+	font-family: Consolas, Monaco, monospace;
+	font-size: 11px;
+	line-height: 1.45;
+	overflow-wrap: anywhere;
+	padding: 10px 12px;
+}
+
+.wps-source-command-box button {
+	background: #fff;
+	border: 0;
+	border-left: 1px solid rgba(23, 32, 42, .1);
+	color: var(--wps-blue);
+	cursor: pointer;
+	font-size: 11px;
+	font-weight: 750;
+	padding: 0 12px;
+}
+
+.wps-app th {
+	background: rgba(255,255,255,.52);
+	color: #475467 !important;
+	font-size: 11px;
+	text-transform: uppercase;
+}
+
+.wps-app code,
+.wps-app textarea {
+	border-radius: 10px !important;
+}
+
+.wps-app textarea {
+	border-color: rgba(23,32,42,.14) !important;
+	padding: 10px 12px;
+}
+
+@media (max-width: 782px) {
+	.wps-app {
+		margin-right: 10px !important;
+	}
+
+	.wps-app > h1 {
+		align-items: flex-start !important;
+		display: block !important;
+		min-height: 0;
+	}
+
+	.wps-app > h1::after {
+		margin: 10px 0 0;
+		text-align: left;
+	}
+
+	.wps-app > h1 span {
+		display: inline-flex;
+		margin-top: 12px;
+	}
+
+	.wps-findings-head,
+	.wps-finding-card {
+		display: block;
+	}
+
+	.wps-findings-count,
+	.wps-finding-severity,
+	.wps-finding-action {
+		margin-top: 10px;
+	}
+
+	.wps-app div[style*="grid-template-columns:1fr 1fr"] {
+		grid-template-columns: 1fr !important;
+	}
+
+	.wps-source-trace-head,
+	.wps-source-row {
+		display: block;
+	}
+
+	.wps-source-trace-badges,
+	.wps-source-origin {
+		justify-content: flex-start;
+		margin-top: 10px;
+		text-align: left;
+	}
+
+	.wps-source-main {
+		margin-top: 10px;
+	}
+
+	.wps-source-command-box {
+		grid-template-columns: 1fr;
+	}
+
+	.wps-source-command-box button {
+		border-left: 0;
+		border-top: 1px solid rgba(23, 32, 42, .1);
+		min-height: 34px;
+	}
+}
+
+/* 1.3.61: inline "Delete this path" button rendered on Overview finding cards
+   when the scanner has confirmed the path is inside WP_PLUGIN_DIR. The scanner
+   does not set `delete_path` for findings outside that safe boundary, so the
+   button is only ever offered for paths that the existing wps_delete_file
+   AJAX handler will accept.
+
+   The button posture is destructive (red) but understated (small, secondary
+   placement under the action description) so it does not visually compete
+   with the primary "Run scan now" / "Diagnostics" / "Events" affordances at
+   the top of the page. */
+.wps-finding-delete-btn {
+	margin-top: 6px;
+	font-size: 11px;
+	height: 24px;
+	line-height: 22px;
+	padding: 0 8px;
+	color: #a00;
+	border-color: #a00;
+}
+
+.wps-finding-delete-btn:hover {
+	color: #fff;
+	background: #a00;
+	border-color: #a00;
+}
+
+.wps-finding-delete-btn:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+
+/* 1.3.67: Clean injection button. Coloured amber to visually distinguish
+   surgical edit (modify file in place, backup created, reversible) from
+   delete (destructive, irreversible). Sits inline alongside the delete
+   button with the same dimensions so finding cards stay visually consistent. */
+.wps-finding-clean-btn {
+	margin-top: 6px;
+	margin-left: 6px;
+	font-size: 11px;
+	height: 24px;
+	line-height: 22px;
+	padding: 0 8px;
+	color: #b45f06;
+	border-color: #b45f06;
+}
+
+.wps-finding-clean-btn:hover {
+	color: #fff;
+	background: #b45f06;
+	border-color: #b45f06;
+}
+
+.wps-finding-clean-btn:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+
+/* Success-state replacement injected by wpsForensicAct when delete succeeds */
+.wps-inline-success {
+	color: #1a7f37;
+	font-weight: 500;
+	font-size: 12px;
+	display: inline-block;
+	margin-top: 6px;
+}
+
+/* 1.3.63: header pill restyling. The 1.3.60-and-earlier inline styles gave
+   the version pill and the issue-count pill identical pill shapes at near-
+   identical sizes, which made them read as equal-weight metadata even though
+   one is informational (the version) and the other is actionable (issues
+   need attention). The previous `#c00` red on the magenta-tinted right
+   portion of the gradient header also rendered as muted lavender after JPEG
+   compression, defeating the alert intent.
+
+   The redesign:
+   - Version pill: muted, slightly smaller, rounded-corner rectangle, gray
+     palette  reads clearly as metadata.
+   - Issue alert: severity-aware colour (red/orange/amber/blue depending on
+     the highest severity in the findings array), bolder weight, larger
+     padding, drop shadow for depth on the gradient background, and a
+     pulsing dot to draw attention without becoming irritating.
+   - The two pills now have visibly different shapes (version is square-ish
+     rounded rectangle, issue is pill-shaped) so the visual hierarchy
+     matches the information hierarchy.
+*/
+.wps-app-title {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 4px;
+}
+
+/* Note: the .wps-version-pill rule lives further up this file at
+   `.wps-app > h1 .wps-version-pill` (rescoped in 1.3.64 from the original
+   `.wps-app > h1 span`). The version pill keeps its 1.3.x white-gradient
+   pill styling. The block here intentionally only covers the issue alert,
+   the alert dot, and the title flex container. */
+
+.wps-issue-alert {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 13px;
+	font-weight: 600;
+	color: #fff;
+	padding: 4px 12px 4px 10px;
+	border-radius: 999px;
+	margin-left: 6px;
+	vertical-align: middle;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+	letter-spacing: 0.01em;
+}
+
+/* Severity-aware backgrounds. The colour palette stays inside the
+   conventional security-UX vocabulary: red for critical, orange for high,
+   amber for medium, blue for low/info. These colours are intentionally
+   saturated so they survive JPEG compression on screenshots without bleeding
+   toward the surrounding gradient. */
+.wps-issue-alert.wps-sev-critical { background: #dc2626; }
+.wps-issue-alert.wps-sev-high     { background: #ea580c; }
+.wps-issue-alert.wps-sev-medium   { background: #ca8a04; }
+.wps-issue-alert.wps-sev-low      { background: #2563eb; }
+/* Fallback for findings without a severity field. Default to medium-amber
+   rather than red so we do not over-claim severity when the data is missing. */
+.wps-issue-alert:not([class*="wps-sev-"]) { background: #ca8a04; }
+
+.wps-issue-dot {
+	width: 7px;
+	height: 7px;
+	background: rgba(255, 255, 255, 0.95);
+	border-radius: 50%;
+	box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
+	flex-shrink: 0;
+	animation: wps-issue-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes wps-issue-pulse {
+	0%, 100% { opacity: 1;   transform: scale(1); }
+	50%      { opacity: 0.55; transform: scale(0.85); }
+}
+
+/* Honour reduced-motion preferences. The pulse is decorative; users who
+   request reduced motion at the OS level should not see it. */
+@media (prefers-reduced-motion: reduce) {
+	.wps-issue-dot { animation: none; }
+}
+
+/* ============================================================
+   1.3.95-r (1.3.96) design tokens + component layer, value-exact.
+   Every light value below is the byte-exact colour the 1.3.94 PHP
+   inline styles used at the sites the class replaced. Tokenisation
+   is value-preserving: light mode renders identically to 1.3.94.
+   The dark block remaps tokens; dark is opt-in (Appearance).
+   Legacy names --wps-good/warn/bad/blue above are legacy-owned and
+   untouched.
+   ============================================================ */
+
+.wps-app {
+	--wps-bg-card: #fff;
+	--wps-bg-soft: #f9f9f9;
+	--wps-bg-zebra: #fafafa;
+	--wps-bg-code: #f5f5f5;
+	--wps-line-mid: #ddd;
+	--wps-line-soft: #eee;
+	--wps-line-softer: #f0f0f0;
+	--wps-line-ccc: #ccc;
+	--wps-text: var(--wps-ink);
+	--wps-text-2: #666;
+	--wps-text-3: #888;
+	--wps-ok: #1a7f37;
+	--wps-ok2: #16815d;
+	--wps-ok-deep: #3b6d11;
+	--wps-warn-t: #854f0b;
+	--wps-warn-deep: #7a5e00;
+	--wps-alert-t: #a32d2d;
+	--wps-alert2: #bf2f45;
+	--wps-kpibad: #c00;
+	--wps-blue-t: #185fa5;
+	--wps-danger-t: #a00;
+	--wps-err-text: #7a2a2a;
+	--wps-red-line: #e24b4a;
+	--wps-yellow-line: #d4af00;
+	--wps-tint-yellow: #fff9de;
+	--wps-tint-alert: #fff8f8;
+	--wps-tint-alert2: #fff5f5;
+	--wps-tint-ok: #f6fbf0;
+	--wps-tint-warm: #fff8f0;
+	--wps-tint-bad: #fcebeb;
+	--wps-tint-bad2: #fbeaea;
+	--wps-tint-chip: #fce8e8;
+	--wps-line-bad: #e4b9b9;
+	--wps-line-bad2: #e0b4b4;
+	--wps-tint-amber: #faeeda;
+	--wps-line-amber: #ef9f27;
+	--wps-tint-warn: #fff8e6;
+	--wps-line-warn: #f0c46a;
+	--wps-tint-good: #eaf3de;
+	--wps-line-good: #639922;
+	--wps-tint-info: #e6f1fb;
+	--wps-mono: Consolas, Monaco, 'Andale Mono', monospace;
+}
+
+/* --- dark scheme (opt-in via Appearance; auto follows the OS) --- */
+.wps-app[data-wps-scheme="dark"] {
+	--wps-ink: #e6eaf0;
+	--wps-muted: #9aa4b2;
+	--wps-bg-card: #1c2128;
+	--wps-bg-soft: #22272e;
+	--wps-bg-zebra: #20252c;
+	--wps-bg-code: #161b22;
+	--wps-line-mid: #3a414a;
+	--wps-line-soft: #2d333b;
+	--wps-line-softer: #262c33;
+	--wps-line-ccc: #3a414a;
+	--wps-text-2: #adb6c2;
+	--wps-text-3: #8b949e;
+	--wps-ok: #4cae8a; --wps-ok2: #4cae8a; --wps-ok-deep: #6cbf7d;
+	--wps-warn-t: #d9a03f; --wps-warn-deep: #c9a227;
+	--wps-alert-t: #e5697f; --wps-alert2: #e5697f; --wps-kpibad: #ff7b8a;
+	--wps-blue-t: #58a6d6; --wps-danger-t: #e5697f; --wps-err-text: #e5a2ac;
+	--wps-red-line: #a14954; --wps-yellow-line: #7a6a1e;
+	--wps-tint-yellow: #2e2a18; --wps-tint-alert: #2b1e22; --wps-tint-alert2: #2b1e22;
+	--wps-tint-ok: #1d2b22; --wps-tint-warm: #2c2620;
+	--wps-tint-bad: #2e1c20; --wps-tint-bad2: #2e1c20; --wps-tint-chip: #3a2328;
+	--wps-line-bad: #58323a; --wps-line-bad2: #58323a;
+	--wps-tint-amber: #2e2818; --wps-line-amber: #5c4a1e;
+	--wps-tint-warn: #2e2818; --wps-line-warn: #5c4a1e;
+	--wps-tint-good: #1d2e25; --wps-line-good: #2f5140;
+	--wps-tint-info: #1a2733;
+}
+@media (prefers-color-scheme: dark) {
+	.wps-app[data-wps-scheme="auto"] {
+		--wps-ink: #e6eaf0; --wps-muted: #9aa4b2;
+		--wps-bg-card: #1c2128; --wps-bg-soft: #22272e; --wps-bg-zebra: #20252c; --wps-bg-code: #161b22;
+		--wps-line-mid: #3a414a; --wps-line-soft: #2d333b; --wps-line-softer: #262c33; --wps-line-ccc: #3a414a;
+		--wps-text-2: #adb6c2; --wps-text-3: #8b949e;
+		--wps-ok: #4cae8a; --wps-ok2: #4cae8a; --wps-ok-deep: #6cbf7d;
+		--wps-warn-t: #d9a03f; --wps-warn-deep: #c9a227;
+		--wps-alert-t: #e5697f; --wps-alert2: #e5697f; --wps-kpibad: #ff7b8a;
+		--wps-blue-t: #58a6d6; --wps-danger-t: #e5697f; --wps-err-text: #e5a2ac;
+		--wps-red-line: #a14954; --wps-yellow-line: #7a6a1e;
+		--wps-tint-yellow: #2e2a18; --wps-tint-alert: #2b1e22; --wps-tint-alert2: #2b1e22;
+		--wps-tint-ok: #1d2b22; --wps-tint-warm: #2c2620;
+		--wps-tint-bad: #2e1c20; --wps-tint-bad2: #2e1c20; --wps-tint-chip: #3a2328;
+		--wps-line-bad: #58323a; --wps-line-bad2: #58323a;
+		--wps-tint-amber: #2e2818; --wps-line-amber: #5c4a1e;
+		--wps-tint-warn: #2e2818; --wps-line-warn: #5c4a1e;
+		--wps-tint-good: #1d2e25; --wps-line-good: #2f5140;
+		--wps-tint-info: #1a2733;
+	}
+}
+.wps-app[data-wps-scheme="dark"],
+.wps-app[data-wps-scheme="dark"] p,
+.wps-app[data-wps-scheme="dark"] td,
+.wps-app[data-wps-scheme="dark"] th,
+.wps-app[data-wps-scheme="dark"] label { color: var(--wps-text); }
+.wps-app[data-wps-scheme="dark"] .nav-tab { background: var(--wps-bg-soft); color: var(--wps-text-2); border-color: var(--wps-line-mid); }
+.wps-app[data-wps-scheme="dark"] .nav-tab-active { background: var(--wps-bg-card); color: var(--wps-text); }
+
+/* --- structure --- */
+.wps-tab { padding-top: 18px; }
+.wps-card { background: var(--wps-bg-card); border: 1px solid var(--wps-line-mid); border-radius: 6px; padding: 18px; margin-bottom: 14px; }
+.wps-card--flush { padding: 0; overflow: hidden; }
+.wps-card--pad-lg { padding: 20px; }
+.wps-card--alert { background: var(--wps-tint-alert); border-color: var(--wps-red-line); }
+.wps-card-body { padding: 14px 16px; }
+.wps-card-h { margin: 0 0 12px; font-size: 14px; font-weight: 600; color: var(--wps-text); }
+.wps-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--wps-line-soft); }
+.wps-card-head .wps-card-h { margin: 0; }
+.wps-card--flush .wps-card-head { margin: 0; padding: 10px 16px; font-weight: 600; font-size: 14px; }
+.wps-scroll-x { overflow-x: auto; }
+.wps-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.wps-table--md { font-size: 13px; }
+.wps-table--w360 { min-width: 360px; } .wps-table--w400 { min-width: 400px; }
+.wps-table--w520 { min-width: 520px; } .wps-table--w560 { min-width: 560px; } .wps-table--w620 { min-width: 620px; }
+.wps-table thead tr { background: var(--wps-bg-soft); }
+.wps-table th { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--wps-line-mid); font-weight: 600; color: var(--wps-text); white-space: nowrap; }
+.wps-table td { padding: 6px 10px; border-bottom: 1px solid var(--wps-line-softer); vertical-align: top; color: var(--wps-text); }
+.wps-table tr:last-child td { border-bottom: 0; }
+.wps-table--zebra tbody tr:nth-child(even) { background: var(--wps-bg-zebra); }
+
+/* --- text --- */
+.wps-muted { color: var(--wps-text-2); } .wps-dim { color: var(--wps-text-3); }
+.wps-sm { font-size: 12px; } .wps-xs { font-size: 11px; } .wps-md { font-size: 14px; }
+.wps-mono { font-family: var(--wps-mono); } .wps-strong { font-weight: 600; }
+.wps-nowrap { white-space: nowrap; } .wps-break { word-break: break-all; } .wps-right { text-align: right; }
+.wps-good-t { color: var(--wps-ok); } .wps-good2-t { color: var(--wps-ok2); }
+.wps-warn-t { color: var(--wps-warn-t); } .wps-warn-deep-t { color: var(--wps-warn-deep); }
+.wps-bad-t { color: var(--wps-alert-t); } .wps-bad2-t { color: var(--wps-alert2); }
+.wps-kpi-bad-t { color: var(--wps-kpibad); }
+.wps-p { margin: 0 0 10px; } .wps-p0 { margin: 0; }
+.wps-label { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.wps-upper { text-transform: uppercase; letter-spacing: .06em; }
+.wps-big { font-size: 28px; }
+
+/* --- notes / callouts / status --- */
+.wps-note { background: var(--wps-tint-info); border: 1px solid var(--wps-line-warn); border-radius: 5px; padding: 10px 12px; font-size: 12px; color: var(--wps-text); }
+.wps-note--good { background: var(--wps-tint-good); border-color: var(--wps-line-good); }
+.wps-note--warn { background: var(--wps-tint-warn); border-color: var(--wps-line-warn); }
+.wps-note--amber { background: var(--wps-tint-amber); border-color: var(--wps-line-amber); }
+.wps-note--bad { background: var(--wps-tint-bad2); border-color: var(--wps-line-bad2); color: var(--wps-err-text); }
+.wps-note--outline-bad { background: transparent; border-color: var(--wps-line-bad); }
+.wps-box-soft { background: var(--wps-bg-soft); border: 1px solid var(--wps-line-soft); border-radius: 4px; padding: 8px 10px; }
+.wps-box-alert { background: var(--wps-tint-alert); border: 1px solid var(--wps-red-line); border-radius: 4px; padding: 8px 10px; }
+.wps-callout-bad { background: var(--wps-tint-alert2); border-left: 3px solid var(--wps-red-line); padding: 8px 10px; border-radius: 0 4px 4px 0; font-size: 12px; display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.wps-callout-warn { background: var(--wps-tint-yellow); border-left: 3px solid var(--wps-yellow-line); padding: 8px 10px; border-radius: 0 4px 4px 0; font-size: 12px; display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.wps-status { display: none; padding: 9px 13px; border-radius: 4px; background: var(--wps-tint-yellow); border: 1px solid var(--wps-yellow-line); font-size: 13px; color: var(--wps-warn-deep); margin-bottom: 12px; }
+
+/* --- pills / dots / bars --- */
+.wps-badge { margin-left: auto; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; background: var(--wps-tint-info); color: var(--wps-blue-t); }
+.wps-badge--warn { background: var(--wps-tint-amber); color: var(--wps-warn-t); }
+.wps-badge--bad { background: var(--wps-tint-bad); color: var(--wps-alert-t); }
+.wps-chip { font-size: 11px; background: var(--wps-tint-chip); padding: 1px 4px; border-radius: 3px; font-family: var(--wps-mono); }
+.wps-chip--plain { background: var(--wps-bg-card); }
+.wps-dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; background: var(--wps-text-3); }
+.wps-dot--good { background: var(--wps-ok2); } .wps-dot--bad { background: var(--wps-alert2); }
+.wps-num-dot { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; background: var(--wps-tint-good); color: var(--wps-ok-deep); }
+.wps-num-dot--bad { background: var(--wps-tint-bad); color: var(--wps-alert-t); }
+.wps-num-dot--warn { background: var(--wps-tint-amber); color: var(--wps-warn-t); }
+.wps-num-dot--info { background: var(--wps-tint-info); color: var(--wps-blue-t); }
+.wps-bar { display: inline-block; max-width: 160px; height: 8px; background: var(--wps-red-line); border-radius: 999px; margin-right: 8px; vertical-align: middle; }
+.wps-tr-alert { background: var(--wps-tint-alert); } .wps-tr-ok { background: var(--wps-tint-ok); } .wps-tr-warn { background: var(--wps-tint-warm); }
+
+/* --- controls --- */
+.wps-btn-sm { font-size: 11px !important; height: 24px !important; line-height: 22px !important; padding: 0 8px !important; }
+.wps-btn-danger { color: var(--wps-danger-t) !important; border-color: var(--wps-danger-t) !important; }
+.wps-app .button:focus-visible, .wps-app .nav-tab:focus-visible { outline: 2px solid var(--wps-blue-t); outline-offset: 1px; }
+.wps-toggle-row { display: flex; align-items: flex-start; gap: 8px; max-width: 760px; }
+.wps-icon { vertical-align: text-bottom; margin-right: 4px; }
+.wps-icon.dashicons { font-size: 16px; width: 16px; height: 16px; color: inherit; }
+.wps-copy-btn { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 10px !important; height: 20px !important; line-height: 18px !important; padding: 0 8px !important; background: var(--wps-bg-card) !important; border: 1px solid var(--wps-line-ccc) !important; border-radius: 3px !important; }
+.wps-cmdbox { background: var(--wps-bg-code); border: 1px solid var(--wps-line-mid); border-radius: 4px; padding: 7px 80px 7px 10px; font-family: var(--wps-mono); font-size: 11px; position: relative; word-break: break-all; }
+.wps-code-block { background: var(--wps-bg-code); padding: 4px 7px; border-radius: 3px; border: 1px solid var(--wps-line-mid); display: inline-block; }
+.wps-terminal { max-height: 460px; overflow: auto; background: #1d2327; color: #e6e6e6; padding: 12px; border-radius: 4px; line-height: 1.5; white-space: pre-wrap; }
+
+/* --- layout utilities --- */
+.wps-mt8 { margin-top: 8px; } .wps-mt10 { margin-top: 10px; } .wps-mt14 { margin-top: 14px; }
+.wps-mb6 { margin-bottom: 6px; } .wps-mb10 { margin-bottom: 10px; }
+.wps-ml10 { margin-left: 10px; } .wps-mlauto { margin-left: auto; }
+.wps-row { display: flex; align-items: center; gap: 10px; }
+.wps-between { display: flex; align-items: center; justify-content: space-between; }
+.wps-flexwrap { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.wps-flex1 { flex: 1; } .wps-minw280 { flex: 1; min-width: 280px; }
+.wps-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+.wps-grid-2--tight { gap: 8px; }
+.wps-grid-2--cells { gap: 0; }
+.wps-grid-2--cells > div { padding: 10px 16px; border-bottom: 1px solid var(--wps-line-softer); }
+.wps-grid-2--cells > div:nth-child(odd) { border-right: 1px solid var(--wps-line-softer); }
+.wps-kpis { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; margin-bottom: 14px; }
+.wps-kpi { background: var(--wps-bg-card); border: 1px solid var(--wps-line-mid); border-radius: 6px; padding: 10px 14px; min-width: 240px; }
+.wps-kpi--sm { padding: 10px 18px; min-width: 160px; }
+.wps-kpi-label { font-size: 11px; color: var(--wps-text-3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+.wps-kpi-value { font-size: 24px; line-height: 1.1; font-weight: 700; }
+.wps-check-row { display: flex; gap: 8px; align-items: center; border: 1px solid var(--wps-line-soft); border-radius: 5px; padding: 8px 10px; }
+.wps-listrow { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--wps-line-softer); flex-wrap: wrap; }
+.wps-scroll-box { overflow: auto; max-height: 160px; }
+.wps-scroll-y300 { max-height: 300px; overflow: auto; border: 1px solid var(--wps-line-soft); border-radius: 4px; }
+.wps-hr-top { margin-top: 16px; border-top: 1px solid var(--wps-line-soft); padding-top: 12px; }
+.wps-empty { padding: 20px 16px; }
+.wps-app .nav-tab-wrapper { margin-bottom: 0; border-bottom: 1px solid var(--wps-line-ccc); }
+.wps-app .nav-tab { text-decoration: none; }
+
+/* ---- 1.4.2: documentation viewer ------------------------------------- *
+ * Prose styling for rendered markdown. Every colour resolves through an
+ * EXISTING token - no new palette values are introduced here, per the
+ * value-preserving tokenisation rule. Layout only otherwise.               */
+
+.wps-app .wps-doc-nav {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin: 0 0 14px;
+}
+.wps-app .wps-doc-navlink {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	flex: 1 1 200px;
+	padding: 9px 12px;
+	border: 1px solid var(--wps-line);
+	border-radius: 6px;
+	background: var(--wps-bg-soft);
+	text-decoration: none;
+	color: var(--wps-ink);
+	line-height: 1.35;
+}
+.wps-app .wps-doc-navlink:hover,
+.wps-app .wps-doc-navlink:focus {
+	border-color: var(--wps-line-mid);
+	background: var(--wps-bg-card);
+}
+.wps-app .wps-doc-navlink.is-active {
+	border-color: var(--wps-blue);
+	background: var(--wps-bg-card);
+	box-shadow: inset 3px 0 0 var(--wps-blue);
+}
+.wps-app .wps-doc-navlink.is-active .wps-strong { color: var(--wps-blue-t); }
+
+.wps-app .wps-doc {
+	max-height: 640px;
+	overflow-y: auto;
+	padding: 4px 18px 4px 2px;
+	border-top: 1px solid var(--wps-line-soft);
+	color: var(--wps-ink);
+	line-height: 1.62;
+	font-size: 13.5px;
+}
+.wps-app .wps-doc h1,
+.wps-app .wps-doc h2,
+.wps-app .wps-doc h3,
+.wps-app .wps-doc h4 {
+	line-height: 1.3;
+	margin: 1.5em 0 .5em;
+	color: var(--wps-ink);
+}
+.wps-app .wps-doc h1 { font-size: 20px; margin-top: .7em; }
+.wps-app .wps-doc h2 {
+	font-size: 16px;
+	padding-bottom: 5px;
+	border-bottom: 1px solid var(--wps-line-softer);
+}
+.wps-app .wps-doc h3 { font-size: 14px; }
+.wps-app .wps-doc h4 { font-size: 13px; color: var(--wps-muted); }
+.wps-app .wps-doc p { margin: .65em 0; }
+.wps-app .wps-doc ul,
+.wps-app .wps-doc ol { margin: .6em 0 .6em 1.4em; }
+.wps-app .wps-doc li { margin: .25em 0; }
+.wps-app .wps-doc code {
+	font-family: var(--wps-mono);
+	font-size: 12px;
+	padding: 1px 5px;
+	border-radius: 3px;
+	background: var(--wps-bg-code);
+}
+.wps-app .wps-doc pre {
+	margin: .8em 0;
+	padding: 11px 13px;
+	overflow-x: auto;
+	border: 1px solid var(--wps-line-soft);
+	border-radius: 5px;
+	background: var(--wps-bg-code);
+}
+.wps-app .wps-doc pre code { padding: 0; background: none; }
+.wps-app .wps-doc blockquote {
+	margin: .8em 0;
+	padding: 2px 0 2px 13px;
+	border-left: 3px solid var(--wps-line-mid);
+	color: var(--wps-muted);
+}
+.wps-app .wps-doc table {
+	width: 100%;
+	margin: .8em 0;
+	border-collapse: collapse;
+	font-size: 12.5px;
+}
+.wps-app .wps-doc th,
+.wps-app .wps-doc td {
+	padding: 6px 9px;
+	border: 1px solid var(--wps-line-soft);
+	text-align: left;
+}
+.wps-app .wps-doc th { background: var(--wps-bg-soft); }
+.wps-app .wps-doc tbody tr:nth-child(even) { background: var(--wps-bg-zebra); }
+.wps-app .wps-doc a { color: var(--wps-blue-t); }
+.wps-app .wps-doc hr {
+	margin: 1.4em 0;
+	border: 0;
+	border-top: 1px solid var(--wps-line-soft);
+}
+.wps-app .wps-doc img { max-width: 100%; height: auto; }
+.wps-app .wps-doc-raw {
+	max-height: 640px;
+	overflow: auto;
+	padding: 12px;
+	border: 1px solid var(--wps-line-soft);
+	border-radius: 5px;
+	background: var(--wps-bg-code);
+	font-family: var(--wps-mono);
+	font-size: 12px;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+/* ------------------------------------------------------------------ *
+ * Security events table (1.4.16)
+ *
+ * The previous table rendered every row identically, so a wp-config.php
+ * hash change carried the same visual weight as an admin screen being
+ * viewed. Severity is now the first thing the eye lands on, via a rail
+ * on the row and a dot beside the label - two channels rather than
+ * colour alone, so the ranking survives a colourblind reader and a
+ * greyscale print.
+ *
+ * Header alignment follows the data underneath it rather than the
+ * browser default, which is what made the old table look untidy.
+ * ------------------------------------------------------------------ */
+
+.wps-cardbar {
+	align-items: center;
+	border-bottom: 1px solid var(--wps-line);
+	display: flex;
+	gap: 10px;
+	justify-content: space-between;
+	padding: 10px 16px;
+}
+
+
+.wps-events {
+	border-collapse: collapse;
+	min-width: 620px;
+	width: 100%;
+}
+
+.wps-events th {
+	color: var(--wps-muted);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: .04em !important;
+	padding: 8px 14px;
+	text-align: left;
+	text-transform: uppercase;
+	white-space: nowrap;
+}
+
+.wps-events td {
+	border-top: 1px solid var(--wps-line);
+	font-size: 13px;
+	padding: 9px 14px;
+	vertical-align: top;
+}
+
+.wps-events tbody tr { transition: background-color .12s ease; }
+.wps-events tbody tr:hover { background: rgba(30, 107, 168, .045); }
+
+/* Severity rail. Transparent by default so routine rows stay quiet and
+   only the ones that matter pull the eye leftward. */
+.wps-events tbody td:first-child {
+	border-left: 3px solid transparent;
+	color: var(--wps-muted);
+	font-variant-numeric: tabular-nums;
+	width: 1%;
+}
+
+.wps-events tbody tr[data-wps-sev="critical"] td:first-child { border-left-color: var(--wps-bad); }
+.wps-events tbody tr[data-wps-sev="high"]     td:first-child { border-left-color: var(--wps-warn); }
+.wps-events tbody tr[data-wps-sev="warning"]  td:first-child { border-left-color: var(--wps-warn); opacity: .85; }
+.wps-events tbody tr[data-wps-sev="ok"]       td:first-child { border-left-color: var(--wps-good); }
+
+.wps-events tbody tr[data-wps-sev="critical"] { background: rgba(191, 47, 69, .04); }
+.wps-events tbody tr[data-wps-sev="critical"]:hover { background: rgba(191, 47, 69, .07); }
+
+/* Second channel: a dot beside the label, so severity is not carried by
+   colour alone. */
+.wps-sev-dot {
+	background: currentColor;
+	border-radius: 50%;
+	display: inline-block;
+	height: 6px;
+	margin-right: 7px;
+	opacity: .32;
+	vertical-align: middle;
+	width: 6px;
+}
+
+.wps-ev-what { font-weight: 500; width: 22%; }
+tr[data-wps-sev="critical"] .wps-ev-what { color: var(--wps-bad); font-weight: 600; }
+tr[data-wps-sev="critical"] .wps-sev-dot { opacity: 1; }
+tr[data-wps-sev="high"]     .wps-ev-what { color: var(--wps-warn); }
+tr[data-wps-sev="high"]     .wps-sev-dot { opacity: .9; }
+tr[data-wps-sev="warning"]  .wps-sev-dot { opacity: .6; }
+tr[data-wps-sev="ok"]       .wps-sev-dot { color: var(--wps-good); opacity: .9; }
+
+/* Detail carries hashes and paths, so it is monospaced - but at a size
+   that reads as prose rather than as a terminal dump. */
+.wps-ev-detail {
+	color: var(--wps-ink);
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 12px;
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+}
+
+.wps-ev-ip {
+	color: var(--wps-muted);
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 12px;
+	text-align: right;
+	width: 1%;
+}
+
+.wps-events .wps-ev-time { width: 1%; }
+th.wps-ev-ip { text-align: right; }
+
+@media (max-width: 782px) {
+	.wps-events th,
+	.wps-events td { padding: 8px 10px; }
+	.wps-ev-what { width: auto; }
+}
+
+/* Events table, dark scheme. The tints are re-stated rather than derived,
+   because the light values are alpha-composited against white and go muddy
+   over a dark panel. */
+@media (prefers-color-scheme: dark) {
+	.wps-app[data-wps-scheme="auto"] .wps-events tbody tr:hover { background: rgba(88, 166, 214, .07); }
+	.wps-app[data-wps-scheme="auto"] .wps-events tbody tr[data-wps-sev="critical"] { background: rgba(229, 105, 127, .07); }
+	.wps-app[data-wps-scheme="auto"] .wps-events tbody tr[data-wps-sev="critical"]:hover { background: rgba(229, 105, 127, .11); }
+	.wps-app[data-wps-scheme="auto"] tr[data-wps-sev="critical"] .wps-ev-what { color: var(--wps-alert-t); }
+	.wps-app[data-wps-scheme="auto"] tr[data-wps-sev="high"] .wps-ev-what { color: var(--wps-warn-t); }
+	.wps-app[data-wps-scheme="auto"] .wps-events tbody tr[data-wps-sev="critical"] td:first-child { border-left-color: var(--wps-alert-t); }
+	.wps-app[data-wps-scheme="auto"] .wps-events tbody tr[data-wps-sev="high"] td:first-child,
+	.wps-app[data-wps-scheme="auto"] .wps-events tbody tr[data-wps-sev="warning"] td:first-child { border-left-color: var(--wps-warn-t); }
+}
+.wps-app[data-wps-scheme="dark"] .wps-events tbody tr:hover { background: rgba(88, 166, 214, .07); }
+.wps-app[data-wps-scheme="dark"] .wps-events tbody tr[data-wps-sev="critical"] { background: rgba(229, 105, 127, .07); }
+.wps-app[data-wps-scheme="dark"] .wps-events tbody tr[data-wps-sev="critical"]:hover { background: rgba(229, 105, 127, .11); }
+.wps-app[data-wps-scheme="dark"] tr[data-wps-sev="critical"] .wps-ev-what { color: var(--wps-alert-t); }
+.wps-app[data-wps-scheme="dark"] tr[data-wps-sev="high"] .wps-ev-what { color: var(--wps-warn-t); }
+.wps-app[data-wps-scheme="dark"] .wps-events tbody tr[data-wps-sev="critical"] td:first-child { border-left-color: var(--wps-alert-t); }
+.wps-app[data-wps-scheme="dark"] .wps-events tbody tr[data-wps-sev="high"] td:first-child,
+.wps-app[data-wps-scheme="dark"] .wps-events tbody tr[data-wps-sev="warning"] td:first-child { border-left-color: var(--wps-warn-t); }
+
+.wps-ev-user {
+	color: var(--wps-muted);
+	font-size: 12px;
+	width: 1%;
+}
+
+/* Incidents table shares the events table's shell but has its own two
+   numeric columns, which read better right-aligned and tabular. */
+.wps-inc-n,
+.wps-inc-risk {
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+	white-space: nowrap;
+	width: 1%;
+}
+
+.wps-events--incidents { min-width: 560px; }
+
+/* ------------------------------------------------------------------ *
+ * Events table, second pass (1.4.21)
+ *
+ * The detail column was monospaced wholesale, so a sentence like
+ * "mtime check: suppressed 7 files at ..." rendered as three lines of
+ * terminal output and pushed every row to triple height. Monospace is
+ * for things you compare character by character - hashes, paths, IP
+ * addresses. Prose is not one of those things.
+ * ------------------------------------------------------------------ */
+
+.wps-events td { padding: 7px 14px; }
+
+.wps-ev-detail {
+	color: var(--wps-ink);
+	font-family: inherit;
+	font-size: 13px;
+	line-height: 1.45;
+	max-width: 620px;
+	overflow-wrap: anywhere;
+}
+
+/* Long opaque tokens inside a detail string still want monospace. */
+.wps-ev-detail code,
+.wps-ev-detail .wps-tok {
+	background: var(--wps-bg-code, rgba(20, 32, 45, .05));
+	border-radius: 3px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 12px;
+	padding: 1px 4px;
+}
+
+.wps-events .wps-ev-time {
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.wps-ev-activity {
+	color: var(--wps-muted);
+	font-size: 12px;
+	line-height: 1.45;
+	max-width: 420px;
+}
+
+/* The event name column was sized for the longest label rather than the
+   common case, leaving a channel of empty space down the middle. */
+.wps-ev-what { width: 1%; white-space: nowrap; }
+
+@media (max-width: 1100px) {
+	.wps-ev-detail { max-width: 380px; }
+	.wps-ev-activity { max-width: 260px; }
+}
+
+/* ------------------------------------------------------------------ *
+ * Server log inspection (1.4.24)
+ *
+ * Previously: a repeated "kind" column carrying no information, two
+ * full-weight buttons per row making the chrome heavier than the data,
+ * and sizes in mixed units and a proportional font, so the 157 MB file
+ * you most want to notice before scanning it looked like every other
+ * row.
+ * ------------------------------------------------------------------ */
+
+.wps-lede { max-width: 68ch; }
+
+.wps-logs {
+	border-collapse: collapse;
+	margin-bottom: 6px;
+	width: 100%;
+}
+
+.wps-logs th {
+	color: var(--wps-muted);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: .04em !important;
+	padding: 6px 12px;
+	text-align: left;
+	text-transform: uppercase;
+}
+
+.wps-logs td {
+	border-top: 1px solid var(--wps-line);
+	padding: 6px 12px;
+	vertical-align: baseline;
+}
+
+.wps-logs tbody tr:hover { background: rgba(30, 107, 168, .045); }
+
+/* Path leads; the kind of log follows it as a quiet qualifier rather
+   than occupying a column of its own where it repeated four times. */
+.wps-logs-file { width: auto; }
+
+.wps-logs-path {
+	color: var(--wps-ink);
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 12px;
+	overflow-wrap: anywhere;
+}
+
+.wps-logs-kind {
+	color: var(--wps-muted);
+	font-size: 11px;
+	margin-left: 8px;
+	white-space: nowrap;
+}
+
+/* Right-aligned and tabular, so the column can be scanned for the
+   outlier instead of read row by row. */
+.wps-logs-size {
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+	white-space: nowrap;
+	width: 1%;
+}
+
+.wps-logs-heavy { color: var(--wps-warn); font-weight: 600; }
+
+.wps-logs-heavy-note {
+	color: var(--wps-warn);
+	display: block;
+	font-size: 10px;
+	font-weight: 400;
+	letter-spacing: .02em !important;
+	text-transform: uppercase;
+}
+
+/* Link-weight actions. These are secondary to the two buttons above the
+   table, and sizing them as primary controls said otherwise. */
+.wps-logs-act {
+	text-align: right;
+	white-space: nowrap;
+	width: 1%;
+}
+
+.wps-logs-act .button-link {
+	color: var(--wps-blue);
+	font-size: 12px;
+	text-decoration: none;
+}
+
+.wps-logs-act .button-link:hover { text-decoration: underline; }
+.wps-logs-sep { color: var(--wps-line); margin: 0 6px; }
+
+/* The hosting caveat sits under the table, where it is read only if the
+   table did not contain what someone was looking for. */
+.wps-logs-foot {
+	color: var(--wps-muted);
+	font-size: 11px;
+	line-height: 1.5;
+	margin: 8px 0 0;
+	max-width: 78ch;
+}
+
+@media (max-width: 782px) {
+	.wps-logs-kind { display: block; margin-left: 0; }
+	.wps-logs th,
+	.wps-logs td { padding: 6px 8px; }
+}
+
+/* Manual spam-report control in the blocked-IP table (1.4.27) */
+.wps-inline-form { display: inline; margin: 0; }
+.wps-report-btn { color: var(--wps-bad); font-size: 12px; }
+.wps-report-btn:hover { text-decoration: underline; }
+
+/* ------------------------------------------------------------------ *
+ * Settings form (1.4.28)
+ *
+ * This screen was the one part of the plugin with no styling of its
+ * own: it inherited WordPress core's form-table wholesale, so its
+ * label column, spacing and description colour came from core while
+ * every other screen came from the token layer. In the dark scheme
+ * that showed plainly, because core's description grey is tuned for
+ * the light admin and nothing here overrode it.
+ *
+ * Scoped to .wps-app so nothing leaks into other admin screens.
+ * ------------------------------------------------------------------ */
+
+.wps-app .form-table {
+	border-collapse: collapse;
+	margin: 0;
+	width: 100%;
+}
+
+/* One label column width for every section. Previously two of the four
+   tables carried an inline 200px and two sized themselves to their own
+   longest label, so the columns started at different x-positions down
+   the page - which is what read as "misaligned". */
+.wps-app .form-table th {
+	color: var(--wps-ink);
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.5;
+	padding: 14px 20px 14px 0;
+	text-align: left;
+	vertical-align: top;
+	width: 210px;
+}
+
+.wps-app .form-table th label { font-weight: 600; }
+
+.wps-app .form-table td {
+	color: var(--wps-ink);
+	font-size: 13px;
+	line-height: 1.55;
+	padding: 14px 0;
+	vertical-align: top;
+}
+
+/* A hairline between settings, so long descriptions do not run into the
+   next row. Not on the first, which sits under the card heading. */
+.wps-app .form-table tr + tr th,
+.wps-app .form-table tr + tr td {
+	border-top: 1px solid var(--wps-line);
+}
+
+/* Descriptions had no styling of ours at all - core's grey does not
+   follow the plugin's scheme. */
+.wps-app .description {
+	color: var(--wps-muted);
+	display: block;
+	font-size: 12px;
+	font-style: normal;
+	line-height: 1.55;
+	margin: 3px 0 0;
+	max-width: 72ch;
+}
+
+.wps-app .wps-toggle-row .description { margin-top: 2px; }
+
+/* The checkbox sits with the title, not with the wrapped text below it. */
+.wps-app .wps-toggle-row input[type="checkbox"] {
+	flex: 0 0 auto;
+	margin: 2px 0 0;
+}
+
+.wps-app .wps-toggle-row > span { min-width: 0; }
+.wps-app .wps-toggle-row strong { font-weight: 600; }
+
+/* Status and controls that belong to a field but not to its label.
+   These used to sit inside the description paragraph, separated by
+   <br>, which put a button inside a <label>. */
+.wps-field-actions {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 12px;
+	margin: 10px 0 0 26px;
+}
+
+.wps-field-status,
+.wps-field-answer {
+	color: var(--wps-muted);
+	font-size: 12px;
+}
+
+.wps-field-answer { color: var(--wps-ink); }
+.wps-field-note { margin-left: 26px !important; }
+
+.wps-app .form-table textarea {
+	background: var(--wps-panel);
+	border: 1px solid var(--wps-line);
+	border-radius: 4px;
+	color: var(--wps-ink);
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 12px;
+	line-height: 1.5;
+	max-width: 640px;
+	padding: 8px 10px;
+	width: 100%;
+}
+
+.wps-app .form-table select {
+	background: var(--wps-panel);
+	border: 1px solid var(--wps-line);
+	border-radius: 4px;
+	color: var(--wps-ink);
+	font-size: 13px;
+	padding: 5px 8px;
+}
+
+.wps-app .form-table textarea:focus,
+.wps-app .form-table select:focus {
+	border-color: var(--wps-blue);
+	box-shadow: 0 0 0 1px var(--wps-blue);
+	outline: none;
+}
+
+@media (max-width: 782px) {
+	.wps-app .form-table th,
+	.wps-app .form-table td { display: block; padding: 8px 0; width: auto; }
+	.wps-app .form-table tr + tr th { border-top: 1px solid var(--wps-line); padding-top: 14px; }
+	.wps-app .form-table tr + tr td { border-top: 0; }
+	.wps-field-actions,
+	.wps-field-note { margin-left: 0 !important; }
+}
+
+/* Settings form, dark scheme (1.4.28). None of these controls had any
+   dark-scheme rule at all before: descriptions, textareas and selects
+   kept WordPress core's light-admin colours on a dark panel. */
+@media (prefers-color-scheme: dark) {
+	.wps-app[data-wps-scheme="auto"] .form-table th,
+	.wps-app[data-wps-scheme="auto"] .form-table td { color: var(--wps-ink); }
+	.wps-app[data-wps-scheme="auto"] .description,
+	.wps-app[data-wps-scheme="auto"] .wps-field-status { color: var(--wps-text-3); }
+	.wps-app[data-wps-scheme="auto"] .wps-field-answer { color: var(--wps-ink); }
+	.wps-app[data-wps-scheme="auto"] .form-table tr + tr th,
+	.wps-app[data-wps-scheme="auto"] .form-table tr + tr td { border-top-color: var(--wps-line-soft); }
+	.wps-app[data-wps-scheme="auto"] .form-table textarea,
+	.wps-app[data-wps-scheme="auto"] .form-table select {
+		background: var(--wps-bg-code);
+		border-color: var(--wps-line-mid);
+		color: var(--wps-ink);
+	}
+	.wps-app[data-wps-scheme="auto"] .form-table textarea:focus,
+	.wps-app[data-wps-scheme="auto"] .form-table select:focus {
+		border-color: var(--wps-blue-t);
+		box-shadow: 0 0 0 1px var(--wps-blue-t);
+	}
+}
+
+.wps-app[data-wps-scheme="dark"] .form-table th,
+.wps-app[data-wps-scheme="dark"] .form-table td { color: var(--wps-ink); }
+.wps-app[data-wps-scheme="dark"] .description,
+.wps-app[data-wps-scheme="dark"] .wps-field-status { color: var(--wps-text-3); }
+.wps-app[data-wps-scheme="dark"] .wps-field-answer { color: var(--wps-ink); }
+.wps-app[data-wps-scheme="dark"] .form-table tr + tr th,
+.wps-app[data-wps-scheme="dark"] .form-table tr + tr td { border-top-color: var(--wps-line-soft); }
+.wps-app[data-wps-scheme="dark"] .form-table textarea,
+.wps-app[data-wps-scheme="dark"] .form-table select {
+	background: var(--wps-bg-code);
+	border-color: var(--wps-line-mid);
+	color: var(--wps-ink);
+}
+.wps-app[data-wps-scheme="dark"] .form-table textarea:focus,
+.wps-app[data-wps-scheme="dark"] .form-table select:focus {
+	border-color: var(--wps-blue-t);
+	box-shadow: 0 0 0 1px var(--wps-blue-t);
+}
+
+/* ------------------------------------------------------------------ *
+ * Settings labels, corrected (1.4.30)
+ *
+ * 1.4.28 styled `.wps-app .form-table th` but missed that an earlier
+ * global rule - `.wps-app th`, written as a data-table header
+ * treatment - was still applying uppercase, an 11px size, a
+ * translucent white background and `color: #475467 !important` to
+ * every th in the plugin.
+ *
+ * Two consequences. Form field labels were rendered as though they
+ * were column headings, which is why they read as shouting. And the
+ * hardcoded colour carried `!important`, so it beat the token set in
+ * 1.4.28 and was never overridden in the dark scheme at all - on a
+ * dark panel those labels were mid-grey on near-black.
+ *
+ * Every data table has its own more specific header rule, so the
+ * global one is corrected here for the form only and nothing else on
+ * any screen moves.
+ * ------------------------------------------------------------------ */
+
+.wps-app .form-table th {
+	background: transparent;
+	color: var(--wps-ink) !important;
+	font-size: 13px;
+	font-weight: 600;
+	letter-spacing: normal !important;
+	text-transform: none;
+}
+
+.wps-app .form-table th label {
+	color: var(--wps-ink);
+	font-size: 13px;
+	font-weight: 600;
+}
+
+/* A copyable snippet should not break mid-expression. It keeps its own
+   line if it does not fit, rather than splitting `define( ..., true`
+   from `);` across two lines as it did before. */
+.wps-app .description code,
+.wps-app .wps-field-note code {
+	background: var(--wps-bg-code, rgba(20, 32, 45, .06));
+	border-radius: 4px !important;
+	display: inline-block;
+	font-size: 12px;
+	max-width: 100%;
+	overflow-wrap: normal;
+	padding: 1px 6px;
+	white-space: nowrap;
+}
+
+@media (prefers-color-scheme: dark) {
+	.wps-app[data-wps-scheme="auto"] .form-table th { color: var(--wps-ink) !important; }
+	.wps-app[data-wps-scheme="auto"] .form-table th label { color: var(--wps-ink); }
+	.wps-app[data-wps-scheme="auto"] .description code,
+	.wps-app[data-wps-scheme="auto"] .wps-field-note code {
+		background: var(--wps-bg-code);
+		color: var(--wps-ink);
+	}
+}
+
+.wps-app[data-wps-scheme="dark"] .form-table th { color: var(--wps-ink) !important; }
+.wps-app[data-wps-scheme="dark"] .form-table th label { color: var(--wps-ink); }
+.wps-app[data-wps-scheme="dark"] .description code,
+.wps-app[data-wps-scheme="dark"] .wps-field-note code {
+	background: var(--wps-bg-code);
+	color: var(--wps-ink);
+}
+
+/* A second .wps-btn-sm rule was added in 1.4.16 alongside the original,
+   changing only the font size - so the control rendered 12px text in a
+   box sized for 11px, and neither rule fully owned the control. The
+   duplicate is removed and the sizing stated once, here, with enough
+   specificity to beat WordPress core's .wp-core-ui .button. */
+.wps-app .button.wps-btn-sm {
+	font-size: 12px !important;
+	height: auto !important;
+	line-height: 1.6 !important;
+	min-height: 0 !important;
+	padding: 3px 10px !important;
+}
+
+.wps-field-actions .button.wps-btn-sm { flex: 0 0 auto; }
