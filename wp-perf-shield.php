@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP Perf Shield
  * Description: Blocks wp-perf-analytics traffic-hijacking malware and all renamed variants. Includes real-time activation blocking, scheduled scanning, and one-click remediation.
- * Version: 1.4.30
+ * Version: 1.4.73
  * Author: MENJ
  * Author URI: https://github.com/menj
  * License: GPL-2.0+
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WPS_VERSION', '1.4.30' );
+define( 'WPS_VERSION', '1.4.73' );
 define( 'WPS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPS_URL', plugin_dir_url( __FILE__ ) );
 define( 'WPS_LOG_DIR', WPS_DIR . 'logs' );
@@ -165,12 +165,17 @@ spl_autoload_register(
 			'WPS_Indicators'             => 'includes/class-wps-indicators.php',
 			'WPS_Logger'                 => 'includes/class-logger.php',
 			'WPS_Event_Log'              => 'includes/class-event-log.php',
+			'WPS_Chain_Selftest'         => 'includes/class-chain-selftest.php',
 			'WPS_Guard'                  => 'includes/class-guard.php',
 			'WPS_EDR'                    => 'includes/class-edr.php',
 			'WPS_Blocker'                => 'includes/class-blocker.php',
 			'WPS_Dropin_Guard'           => 'includes/class-dropin-guard.php',
 			'WPS_Csp'                    => 'includes/class-csp.php',
+			'WPS_Public_Marker'          => 'includes/class-public-marker.php',
+			'WPS_Scan_Lock'              => 'includes/class-scan-lock.php',
 			'WPS_Login_Guard'            => 'includes/class-login-guard.php',
+			'WPS_Post_Guard'             => 'includes/class-post-guard.php',
+			'WPS_Spam_Signatures'        => 'includes/class-spam-signatures.php',
 			// scan and remediation
 			'WPS_Scanner'                => 'includes/class-scanner.php',
 			'WPS_Quarantine'             => 'includes/class-quarantine.php',
@@ -284,7 +289,8 @@ function wps_uninstall(): void {
 	delete_option( 'wps_admin_login_ips' );
 	delete_option( 'wps_login_stats' );
 	delete_option( 'wps_login_offenders' );
-	delete_option( 'wps_mtime_batches_seen' ); // 1.4.29: reported-batch memory    // 1.4.26: escalation memory
+	delete_option( 'wps_mtime_batches_seen' );
+	delete_option( 'wps_permanent_blocks' );   // 1.4.31: permanent sign-in denylist // 1.4.29: reported-batch memory    // 1.4.26: escalation memory
 	delete_transient( 'wps_ak_usage' );
 	// 1.4.23: range counters are transients and expire on their own, but a
 	// removal should not leave them behind either.
@@ -321,6 +327,11 @@ add_action( 'init', [ 'WPS_Dropin_Guard', 'watch' ] );
 
 // 1.3.76: opt-in Content-Security-Policy (off by default; report-only front door).
 add_action( 'send_headers', [ 'WPS_Csp', 'maybe_send_header' ] );
+
+// 1.4.52: opt-in public identification marker (off by default). A named
+// callback rather than a closure, so `remove_action` works for anyone who
+// enables it and then wants it gone from one template.
+add_action( 'wp_head', [ 'WPS_Public_Marker', 'render' ] );
 add_action( 'rest_api_init', [ 'WPS_Csp', 'register_rest' ] );
 
 add_action( 'wps_hourly_scan', function (): void {
@@ -357,6 +368,15 @@ add_action( 'init', function (): void {
 // an admin screen.
 wps_boot( 'edr', static function (): void { WPS_EDR::register_hooks(); } );
 wps_boot( 'login-guard', static function (): void { WPS_Login_Guard::register_hooks(); } );
+// 1.4.70: block external REST/XML-RPC post writes (auto-blogging / doorway-spam
+// injection). Opt-in - it can break legitimate headless or integration
+// publishing - so the module registers nothing unless enabled.
+wps_boot( 'post-guard', static function (): void { WPS_Post_Guard::register_hooks(); } );
+// 1.4.43: refuse outbound requests carrying session cookies. Registered at
+// priority 1 so it runs before anything that might short-circuit the filter.
+wps_boot( 'outbound-guard', static function (): void {
+	add_filter( 'pre_http_request', [ 'WPS_Blocker', 'guard_outbound_request' ], 1, 3 );
+} );
 
 } // end: not in safe mode
 
