@@ -29,6 +29,9 @@ class WPS_Admin {
 		add_action( 'admin_enqueue_scripts', [ self::class, 'enqueue_assets' ] );
 		add_action( 'admin_post_wps_verify_akismet', [ __CLASS__, 'handle_verify_akismet' ] );
 		add_action( 'admin_post_wps_report_ip', [ __CLASS__, 'handle_report_ip' ] );
+		add_action( 'admin_post_wps_unblock_permanent', [ __CLASS__, 'handle_unblock_permanent' ] );
+		add_action( 'admin_post_wps_permanent_block', [ __CLASS__, 'handle_permanent_block' ] );
+		add_action( 'admin_post_wps_chain_selftest', [ __CLASS__, 'handle_chain_selftest' ] );
 		add_action( 'admin_post_wps_save_settings', [ self::class, 'save_settings' ] );
 	}
 
@@ -73,7 +76,26 @@ class WPS_Admin {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( 'Forbidden' );
 		}
-		update_option( WPS_OPTION, [
+		/*
+		 * 1.4.55: merge, do not replace.
+		 *
+		 * This handler used to hand update_option() a literal array, which
+		 * silently destroyed every key the Settings tab does not own. The CSP
+		 * mode and policy live in this same option and are edited on a
+		 * different tab, so saving any unrelated setting reverted csp_mode to
+		 * 'off' - a security control switched off by an action that had
+		 * nothing to do with it, with no message and no trace.
+		 *
+		 * Read first, overwrite only what this form owns, and anything added
+		 * later by another component survives by default rather than by
+		 * somebody remembering to add it here.
+		 */
+		$existing = get_option( WPS_OPTION, [] );
+		if ( ! is_array( $existing ) ) {
+			$existing = [];
+		}
+
+		update_option( WPS_OPTION, array_merge( $existing, [
 			'extra_slugs' => self::sanitize_slug_list( (string) wp_unslash( $_POST['extra_slugs'] ?? '' ) ),
 			// 1.4.11: operator-declared first-party plugins. Same shape as the slug
 			// list, so the same sanitiser applies.
@@ -81,8 +103,14 @@ class WPS_Admin {
 			// 1.4.17: login guard.
 			'login_guard_enabled'  => isset( $_POST['login_guard_enabled'] ) ? '1' : '0',
 			'xmlrpc_auth_disabled' => isset( $_POST['xmlrpc_auth_disabled'] ) ? '1' : '0',
+			'xmlrpc_strip_multicall' => isset( $_POST['xmlrpc_strip_multicall'] ) ? '1' : '0',
+			'post_guard_enabled'   => isset( $_POST['post_guard_enabled'] ) ? '1' : '0',
 			'login_network_guard'  => isset( $_POST['login_network_guard'] ) ? '1' : '0',
 			'login_report_spam'    => isset( $_POST['login_report_spam'] ) ? '1' : '0',
+			'akismet_report_all_blocks' => isset( $_POST['akismet_report_all_blocks'] ) ? '1' : '0',
+			// 1.4.60: was read by akismet_available() but never written, so the
+			// opt-out it implied was unreachable.
+			'akismet_enrichment'   => isset( $_POST['akismet_enrichment'] ) ? '1' : '0',
 			'login_ip_allowlist'   => self::sanitize_ip_list( (string) wp_unslash( $_POST['login_ip_allowlist'] ?? '' ) ),
 			'extra_hashes' => self::sanitize_hash_list( (string) wp_unslash( $_POST['extra_hashes'] ?? '' ) ),
 			'auto_delete_enabled' => isset( $_POST['auto_delete_enabled'] ) ? '1' : '0',
@@ -90,7 +118,13 @@ class WPS_Admin {
 			'appearance' => in_array( sanitize_key( wp_unslash( $_POST['appearance'] ?? 'light' ) ), [ 'auto', 'light', 'dark' ], true ) ? sanitize_key( wp_unslash( $_POST['appearance'] ?? 'light' ) ) : 'light',
 			'auto_ip_block_enabled' => isset( $_POST['auto_ip_block_enabled'] ) ? '1' : '0',
 			'strict_upload_gate_enabled' => isset( $_POST['strict_upload_gate_enabled'] ) ? '1' : '0',
-		] );
+			// 1.4.62: site-policy plugin denylist. Enforced by default; the
+			// textarea holds operator additions on top of the built-in bans.
+			'policy_ban_enabled'  => isset( $_POST['policy_ban_enabled'] ) ? '1' : '0',
+			'policy_banned_slugs' => self::sanitize_slug_list( (string) wp_unslash( $_POST['policy_banned_slugs'] ?? '' ) ),
+			// 1.4.52: public identification marker. Off unless ticked.
+			'public_marker' => isset( $_POST['public_marker'] ) ? '1' : '0',
+		] ) );
 		wp_safe_redirect( admin_url( 'tools.php?page=wp-perf-shield&saved=1&tab=settings' ) );
 		exit;
 	}
@@ -145,12 +179,86 @@ class WPS_Admin {
 	 * The trusted path: a human picked this row. It still checks a nonce and
 	 * the manage_options capability, and reports each address at most once.
 	 */
+	/**
+	 * 1.4.31: remove an address from the permanent sign-in denylist.
+	 *
+	 * A permanent block with no way to undo it is a trap, not a feature -
+	 * addresses get reassigned, and the operator must be able to correct it
+	 * without touching the database.
+	 */
+	public static function handle_unblock_permanent(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Insufficient permissions.' );
+		}
+		check_admin_referer( 'wps_unblock_permanent' );
+		$ip = isset( $_POST['ip'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['ip'] ) ) : '';
+		$ok = class_exists( 'WPS_Login_Guard' ) ? WPS_Login_Guard::unblock_permanently( $ip ) : false;
+		wp_safe_redirect(
+			add_query_arg(
+				[ 'page' => 'wp-perf-shield', 'tab' => 'diagnostics', 'wps_unblocked' => $ok ? '1' : '0' ],
+				admin_url( 'tools.php' )
+			)
+		);
+		exit;
+	}
+
+	public static function handle_chain_selftest(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Insufficient permissions.' );
+		}
+		check_admin_referer( 'wps_chain_selftest' );
+		$result = class_exists( 'WPS_Chain_Selftest' ) ? WPS_Chain_Selftest::run() : null;
+		if ( is_array( $result ) ) {
+			// Short-lived: just long enough to survive the redirect and render once.
+			set_transient( 'wps_chain_selftest_result', $result, 60 );
+		}
+		wp_safe_redirect(
+			add_query_arg(
+				[ 'page' => 'wp-perf-shield', 'tab' => 'diagnostics', 'wps_selftest' => is_array( $result ) ? 'done' : 'unavailable' ],
+				admin_url( 'tools.php' )
+			)
+		);
+		exit;
+	}
+
+	public static function handle_permanent_block(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Insufficient permissions.' );
+		}
+		check_admin_referer( 'wps_permanent_block' );
+		$target = isset( $_POST['target'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['target'] ) ) : '';
+		$target = trim( $target );
+		$result = 'invalid';
+		if ( class_exists( 'WPS_Login_Guard' ) && '' !== $target ) {
+			if ( false !== strpos( $target, '/' ) ) {
+				// A whole range. Cannot be reported to Akismet (per-address
+				// model); its attacking members are reported when the guard
+				// blocks them.
+				$result = WPS_Login_Guard::block_permanently_cidr( $target, 'permanent range ban from Diagnostics', wp_get_current_user()->user_login ?? '' );
+			} elseif ( false !== filter_var( $target, FILTER_VALIDATE_IP ) ) {
+				if ( WPS_Login_Guard::block_permanently( $target, 'permanent ban from Diagnostics', wp_get_current_user()->user_login ?? '' ) ) {
+					$result = 'blocked';
+					// Trusted manual path: report the single address to Akismet.
+					WPS_Login_Guard::report_ip_manually( $target, '' );
+				} else {
+					$result = 'protected';
+				}
+			}
+		}
+		wp_safe_redirect(
+			add_query_arg(
+				[ 'page' => 'wp-perf-shield', 'tab' => 'diagnostics', 'wps_pban' => $result ],
+				admin_url( 'tools.php' )
+			)
+		);
+		exit;
+	}
+
 	public static function handle_report_ip(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( 'Insufficient permissions.' );
 		}
-		check_admin_referer( 'wps_report_ip' );
-		$ip   = isset( $_POST['ip'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['ip'] ) ) : '';
+		check_admin_referer( 'wps_report_ip' );		$ip   = isset( $_POST['ip'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['ip'] ) ) : '';
 		$user = isset( $_POST['user'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['user'] ) ) : '';
 		$result = class_exists( 'WPS_Login_Guard' ) ? WPS_Login_Guard::report_ip_manually( $ip, $user ) : 'failed';
 		wp_safe_redirect(
@@ -228,6 +336,7 @@ class WPS_Admin {
 		?>
 		<div class="wrap wps-app" data-wps-scheme="<?php echo esc_attr( $context['appearance'] ?? 'light' ); ?>">
 		<h1 class="wps-app-title">
+			<img class="wps-app-mark" src="<?php echo esc_url( WPS_URL . 'assets/img/wp-perf-shield.svg' ); ?>" alt="" width="28" height="28">
 			WP Perf Shield
 			<span class="wps-version-pill">v<?php echo esc_html( WPS_VERSION ); ?></span>
 			<?php if ( count( $findings ) > 0 ) : ?>
@@ -413,7 +522,17 @@ class WPS_Admin {
 			'removed_from_db'         => 'Removed from active list',
 			'force_deactivated'       => 'Force-deactivated',
 			'upload_blocked'          => 'Upload blocked',
+			'external_post_write_blocked' => 'External post write blocked',
+			'injected_spam_content'       => 'Injected spam content found',
+			'spam_post_injection_detected' => 'Spam post injection detected',
 			'upload_path_blocked'     => 'Upload pathway blocked',
+			'policy_activation_blocked'        => 'Activation refused (site policy)',
+			'policy_upload_blocked'            => 'Upload refused (site policy)',
+			'policy_force_deactivated'         => 'Banned plugin deactivated (site policy)',
+			'policy_network_force_deactivated' => 'Banned network plugin deactivated (site policy)',
+			'policy_removed_from_db'           => 'Banned plugin removed from active list (site policy)',
+			'policy_removed_from_network_db'   => 'Banned network plugin removed (site policy)',
+			'chain_selftest'                   => 'Event-chain self-test',
 			'ip_auto_blocked'         => 'IP auto-blocked',
 			'ip_block_refreshed'      => 'IP block refreshed',
 			'ip_request_blocked'      => 'IP request blocked',

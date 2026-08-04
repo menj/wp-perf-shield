@@ -1,5 +1,7 @@
 # Upgrading WP Perf Shield
 
+Release notes for operators. What changed, what to check afterwards, and what to do about anything WP Perf Shield reports.
+
 ## Parked: must-use tamper protection (withdrawn 1.4.15)
 
 The tamper guard is gone. It is written up here rather than deleted quietly, because the idea was worth having and someone - possibly me, later - will be tempted to build it again.
@@ -53,7 +55,489 @@ Take the order above as intent rather than a schedule. Between 1.4.1 and 1.4.6 s
 
 ### What will not change
 
-Behavioural findings are observations and are never auto-remediated - only content-confirmed malware is removed automatically, and removals go to quarantine where they can be recovered. Nothing calls out to a third party without a decision recorded in the SSOT first. Deactivating the plugin from the Plugins screen always works and always will; the tamper guard restores it only when it was removed without a genuine deactivation behind it.
+Behavioural findings are observations and are never auto-remediated - only content-confirmed malware is removed automatically, and removals go to quarantine where they can be recovered. Nothing calls out to a third party without a decision recorded in the SSOT first. Deactivating WP Perf Shield from the Plugins screen always works and always will.
+
+*(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
+
+## 1.4.73
+
+**Finds injected casino/gambling/SEO-spam posts and comments - and catches new ones as they are published.** If posts you did not write have appeared (the "slot gacor / togel / casino" spam), a scan now finds them and lists their IDs, and any future injection is flagged the moment it lands, whatever published it. It is careful not to flag your own writing: a post has to carry SEO-spam tokens, or stuff gambling keywords alongside hidden markup, before it counts - an ordinary article that mentions gambling or judi is left alone.
+
+**It does not delete anything.** Deleting the spam without first closing the entry point just lets the injector republish, so the finding tells you to find the entry point first (run a full scan, check for a rogue admin, mu-plugins, PHP under uploads, and a modified theme functions.php), then remove the content, then harden. Nothing to configure.
+
+## 1.4.72
+
+**Known-bad addresses now serve longer blocks across all the guards.** The login guard already weighted its block duration by Akismet reputation; that now extends to the others. A malware-uploading address Akismet also knows as bad is held thirty days instead of seven. And a *sustained* external-post-injection campaign (ten or more blocked writes from one address in an hour) escalates from a per-request refusal to a persistent block — one day, or seven if the address is known-bad. The threshold is deliberately high so a stray request never trips it, shared-infrastructure/CDN addresses are never escalated, and it all respects your hostile-IP auto-block switch. Nothing to configure; no new settings.
+
+## 1.4.71
+
+**Malware-upload and post-injection attackers are now reported to Akismet too.** Previously only failed sign-ins fed Akismet; now an address caught uploading malware or injecting posts through the REST API is contributed as well, through the same safeguarded path — never a CDN/proxy address, never a whole range, once per address. Governed by the existing "Report attackers to Akismet" switch; no new setting, and nothing to do. Also a general tightening pass (lint, autoload, settings and event-severity consistency); no behaviour changed beyond the Akismet wiring.
+
+## 1.4.70
+
+**New: block external post creation (auto-blogging / SEO-spam injection).** WP Perf Shield can now refuse post writes that come through the REST API or XML-RPC from anything other than a real dashboard session - the route auto-bloggers and doorway-spam injectors use with Application Passwords, Basic Auth, or no auth at all. Blocked attempts are logged so you can see them.
+
+**Off by default, and read this before turning it on.** It will break headless WordPress, mobile-app posting, and Zapier/IFTTT-style integrations that publish through the API. Enable it under Settings only if nothing legitimately posts to this site from outside the dashboard. Dashboard publishing (Gutenberg, Classic Editor) and scheduled posts are never affected. If you were running the standalone Block External Posting plugin, deactivate it once this is on.
+
+## 1.4.69
+
+**Documentation only — nothing to do.** The in-plugin Docs reference and the readme description had fallen behind the features added since 1.4.61; they are now current. No behaviour changed.
+
+## 1.4.68
+
+**One-click permanent range ban.** Diagnostics has a new field to permanently block an address or a whole range (e.g. `173.239.218.0/24`). This is the deliberate forever-ban the automatic seven-day range ladder deliberately stops short of. It refuses any range that holds your own or a recent administrator address, and refuses anything broader than a /16, so you cannot lock yourself out or ban half the internet by mistake. Remove entries any time from the same screen.
+
+**Report every blocked address to Akismet (new default).** Reporting previously fired only on conclusive evidence and held back a first-offence single-username block as a possible mistyped password — which is why your posture showed many blocks and zero reports. It now reports every blocked address, and the individual attacking members of a blocked range.
+
+**Read this before trusting the new default.** This is more aggressive than the plugin was, and the maintainer's advice was against it: everything Akismet learns is shared with every site that queries it, so a wrongly-blocked address (a real person who mistyped a password) is degraded everywhere, not just on your site. You asked for it and it is your call; it has an off switch under Settings → "Report every blocked address". Two safeguards were kept and are not optional, because they harm third parties who are neither the attacker nor you: a CDN/proxy address is never auto-reported, and a whole range is never submitted to Akismet — only the specific addresses that actually attacked from it, so innocent neighbours in a shared range are not flagged. Each address is reported at most once.
+
+**Nothing else to do.** If the attack has been from `173.239.218.0/24`, banning that range by hand now ends it immediately rather than waiting for the ladder.
+
+## 1.4.67
+
+**Repeat attacking ranges now get progressively longer blocks.** A rotating /24 used to be held six hours, then it was free to return. Now a range that re-offends climbs a ladder — 6 hours, 24 hours, 3 days, 7 days — over a fortnight's memory, so a persistent subnet locks itself out for longer every time it comes back. It stops at seven days on its own; a permanent ban of a whole range stays your manual call, since a /24 can hold innocent people. Your allowlist and recently-used admin addresses are still never blocked.
+
+**The Security posture panel now reconciles.** If you saw "624 addresses blocked" next to "4 range rotation" and read it as the plugin doing nothing, that was the panel's fault, not the engine's: it was hiding the hundreds of single-address blocks. The "blocks by rule" line now shows all four categories so the numbers add up, and notes that a range block covers every address in the /24.
+
+**Nothing to configure.** If the same networks have been hammering you, they will now spend days locked out instead of hours.
+
+## 1.4.66
+
+**Closes the XML-RPC amplification vector, safely.** XML-RPC sign-ins already went through the login guard — a blocked address or range is rejected on `xmlrpc.php` just as on the login form, and a failed XML-RPC sign-in counts toward the rotation rules like any other. The one gap was `system.multicall`, which lets a single request carry many credential guesses. The plugin now strips `system.multicall` **on by default**, while leaving normal XML-RPC sign-in working.
+
+**This does not break Jetpack or the mobile apps** — they authenticate through direct methods, not `system.multicall`. If you rely on a tool that deliberately batches calls through `system.multicall`, you can switch it off under Settings → XML-RPC multicall. The separate "disable XML-RPC sign-in entirely" toggle is unchanged.
+
+**Nothing to do.** The subnet rotation from 1.4.65 still blocks the `173.239.218.0/24` attacker on the fifth distinct address; this release just makes sure the same crowd cannot get more mileage out of `xmlrpc.php`.
+
+## 1.4.65
+
+**Stops low-and-slow subnet brute-force.** If you have seen a run of failed sign-ins from many different addresses in the same block (e.g. `173.239.218.x`), spaced several minutes apart so nothing ever got blocked, this closes that gap. The login guard now treats **rotation itself** as the signal: five distinct failing addresses in one /24 within an hour blocks the whole range, regardless of how slowly the attempts are paced. It holds such a range for six hours.
+
+**It cannot lock you out.** A range containing your allowlist or any address you have signed in from recently is never blocked, and a single address failing many times (you, mistyping a password) never triggers a range block — that still needs rotation across several addresses, which one person cannot produce.
+
+**After upgrading, the block builds from live traffic.** The counter starts fresh, so the range is blocked once five distinct addresses in it have failed within the hour — for the attack in the logs, that is roughly the next handful of attempts. If you want the range gone immediately rather than on the next trip, block it by hand from Diagnostics. **Nothing to configure**; the network guard is on by default and still has its off switch.
+
+## 1.4.64
+
+**New: verify the event-log fix from inside the plugin.** Diagnostics now has an **Event-chain self-test** button. It proves the 1.4.63 concurrency fix against your own database, on your own server — no WP-CLI or shell scripts needed. It runs the real append code over a throwaway scratch table (the real chain is never touched, and the test checks that afterwards), and it opens a second database connection to prove the append lock actually excludes across connections. Green means the fix holds on this host.
+
+**Run it once on staging after upgrading**, especially if you saw the chain-verification failure this line of work was chasing. If the exclusion check reports "not applicable", your database has no `GET_LOCK` and the append is using its `FOR UPDATE` fallback — note it and mention it to the maintainer.
+
+**Nothing else changed, and there is nothing to configure.** The self-test only runs when you click it, and it writes one audit line recording its own verdict.
+
+## 1.4.63
+
+**Fixes a false tamper alarm in the event log (CRIT-005).** If you have seen an unexplained "chain verification failed" report on a busy site, this is the likely cause and the likely fix. The tamper-evident log's append was not concurrency-safe: two requests arriving together could both attach to the same point in the chain and fork it, and the verifier — correctly — flagged the fork as tampering. The append is now serialised with a database lock, and the chain head is read from the table rather than a cached value, so the race is closed and a previously-forked cached head can no longer mislead new writes.
+
+**This is preventive, not a repair.** It stops new forks. It does not un-fork a chain that already forked before you upgraded. After upgrading, re-run chain verification from the Events tab: if it still reports a failure, the `first_bad_id` it names is the historical fork point, and re-anchoring that is a separate step — raise it with the maintainer rather than assuming the fix did not work.
+
+**Before trusting it on production**, the change should be verified against a real database under concurrency on a staging clone (`harness/crit005-concurrency.sh`); the build-time checks cover the logic but not live parallel writes. **Nothing else changed**, and there is nothing to configure.
+
+## 1.4.62
+
+**New: a banned-plugins list, separate from malware blocking.** WP Perf Shield can now refuse ordinary plugins you have decided not to run, distinct from the malware it already blocks. Two ship banned on upgrade: **WP File Manager** (full dashboard filesystem access, with a history of critical remote-code-execution holes) and **FileBird**. From the moment you upgrade, neither can be uploaded or activated, and either is deactivated if it is currently running.
+
+**If you are deliberately running one of these**, the upgrade will deactivate it. That is the feature working. To keep it: go to Settings → Banned plugins and either untick "Enforce the banned list", or — better — remove just that slug's effect by turning the list off, reactivating the plugin, and leaving the rest in place. There is no per-slug exception for the two built-in defaults; if you need one banned but not the other, tell the maintainer and it becomes a small change.
+
+**These are policy refusals, not malware alerts.** They appear in the event log at *warning* severity, worded as site-policy decisions. Nothing about them touches the hostile-IP block list — uploading a banned plugin never gets your own address blocked.
+
+**To ban your own plugins**, add one folder slug per line under Settings → Banned plugins → Additional banned slugs.
+
+**Otherwise, nothing to do.** If you were not running WP File Manager or FileBird, this upgrade changes nothing you will notice.
+
+## 1.4.61
+
+**No functional change.** Detection, blocking, remediation and settings are exactly as they were in 1.4.60.
+
+**What is new is a document.** The Docs tab now opens with a remediation roadmap: which security-review findings are fixed, which are outstanding, and what happens next. If you want to know where this plugin currently stands on the review it is undergoing, that is the page.
+
+**Two corrections to what 1.4.60 told you.** The per-check status work described there covers one function, not the whole scanner — a check that fails can still be indistinguishable from one that found nothing. And the message telling you that a manual scan will run the checks a timed-out scan skipped is still there and still wrong; a manual scan runs the same checks in the same order. Both are named in the roadmap as the next work.
+
+**Nothing to do.**
+
+## 1.4.60
+
+**Read this one.** An external security review found three defects that affected whether WP Perf Shield protected you at all. Two are fixed here; all three are described honestly.
+
+**The plugin-integrity check was not working.** WP Perf Shield compares your installed plugins against the official WordPress.org copies to catch malware injected into a legitimate plugin. Because of a one-character mistake, that check never examined a single file — it reported "nothing wrong" every time, including on a plugin with a backdoor planted inside it.
+
+It works now. **If you have been relying on clean integrity results, treat them as never having been checked, and run a scan.**
+
+**Automatic remediation could delete files it should not have.** When quarantine failed — a full disk, a permissions problem — the plugin fell back to deleting the file outright. A quarantine failure means something is wrong with the machine, not that destroying the file is safe, and the files most likely to be deleted wrongly were the ones least likely to be genuinely malicious.
+
+Now, if quarantine fails, nothing is deleted. The file is left exactly where it is, the finding stays open, and you are told which directory to check. Deletion still happens normally if you have deliberately switched quarantine off.
+
+**Scans could run on top of each other.** The hourly scan, a manual scan and a post-upgrade scan could all run at once, each able to quarantine or delete. Only one scan can run at a time now.
+
+**Akismet is unchanged.** Reporting attackers is still on by default, as intended. A comment in the source wrongly described it as opt-in, which is corrected. Separately, a second Akismet setting — whether to *ask* Akismet about an address when deciding how long to block it — was being read but had no control, so it could never be turned off. It now has one, still on by default. Asking Akismet a question sends nothing about your site; that is the reporting setting above it.
+
+**What is still outstanding.** Two critical findings are not fixed in this release: scans can still skip the same late checks indefinitely on slow hosts, and the tamper-evident event log can fork its chain when two events are written at the same moment. That second one is the likely explanation if you have ever seen an unexplained chain-verification warning. Both are next.
+
+## 1.4.59
+
+**No code changed.** Detection, blocking and settings are all exactly as they were in 1.4.58.
+
+**What changed is the bundled variant catalogue.** A supplied sample confirmed an existing entry precisely, so that entry is now marked as verified from a file rather than recorded from notes.
+
+**And the catalogue now admits what it does not have.** Seventeen of the thirty-four samples it fingerprints carry only an older-style fingerprint, and one carries none. That is published in a new appendix rather than left for a reader to assume otherwise.
+
+If you are wondering whether that weakens protection: it does not. Changing a malicious file changes every fingerprint of it at once, so having one rather than two is no easier to evade. What it affects is how strongly an analyst can corroborate an identification, which is why it is documented rather than hidden.
+
+## 1.4.58
+
+**Nothing to do.** File fingerprints for one more sample of a malware family WP Perf Shield already blocks and already detects.
+
+The sample was blocked at installation and rejected at upload before this release, because since 1.4.50 this family is recognised by the shape of its folder name rather than by a list. The fingerprints add one more way to catch a copy that has been renamed to something the pattern does not recognise.
+
+**Three of the four known members of this family are now confirmed from files examined directly** rather than recorded from earlier analysis. The variant catalogue marks which is which.
+
+## 1.4.57
+
+**Nothing to do.** This release adds file fingerprints for one more sample of a malware family WP Perf Shield already blocks, and fixes an error in the bundled variant catalogue.
+
+**Worth knowing.** The new sample was blocked at installation and at upload by a version of the plugin that had never encountered it. Since 1.4.50 this family is recognised by the shape of its folder name rather than by a list of known names, because it generates a new name for every copy. This is the first confirmation that the approach works on a member it was not shown.
+
+**The catalogue correction.** The variant catalogue listed two members of this family. Four were known — two of them recorded only in code comments during the original analysis. They are now listed, and the check that keeps the catalogue honest has been extended so it can see samples named in comments, not just entries in lists.
+
+## 1.4.56
+
+**If you run any crypto, NFT or wallet plugin, this release matters to you.** WP Perf Shield treated several public blockchain endpoint names, and the `eth_call` method name, as malware signatures on their own. Any legitimate plugin that talks to a blockchain contained those strings, so it would have been reported as critical malware and offered for removal.
+
+That is fixed. Those names still contribute to detection, but no longer on their own — something else has to be wrong with the file too.
+
+**What is new.** Some malware now stores the address of its control server on a public blockchain rather than in its own code, so the operator can move servers daily without touching the thousands of sites they have infected, and there is no domain to block. WP Perf Shield now recognises that pattern by its shape rather than by a list of known addresses, which means it catches versions nobody has seen yet.
+
+**A note on what this plugin has been fighting.** Security researchers at Sekoia published an analysis of a paid malware service called ErrTraffic. It names a blockchain contract that has been recorded in WP Perf Shield's source since the very first version of this work. They are the same. The campaign that prompted this plugin is a commercial product with subscribers, support, and a price list.
+
+**Nothing to do.** No settings changed, and detection of everything previously found is unchanged.
+
+## 1.4.55
+
+**Read this one if you have ever used the Hardening tab.**
+
+**What was wrong.** Every time WP Perf Shield edited `wp-config.php` — adding a constant, cleaning malware out of it, rotating salts — it first saved a copy next to the original called `wp-config.php.wps.bak`.
+
+That copy is not a PHP file, so a web server does not run it. It sends it. Anyone who requested that filename got your database name, username and password, your table prefix, and all of your authentication salts.
+
+**What to do now.** Upgrade, then run a scan. Any such file still on your site will be reported as critical, with its location.
+
+If one is found, assume the contents have been read. Deleting the file is not enough on its own:
+
+1. Delete the backup file (or move it outside your web root).
+2. Change your database password, and update `wp-config.php` to match.
+3. Rotate your salts — Hardening, then Rotate salts. This logs everyone out, including any attacker holding a stolen session.
+
+If no such file is found, there is nothing to do. Not every installation will have one; they were only created when a hardening action edited the file.
+
+**What changed going forward.** Backups now go into quarantine, where they are not web-accessible and can be restored from the Quarantine card under Forensics. If quarantine is switched off, wp-config edits are now refused rather than performed with an unsafe backup, and the message tells you why.
+
+**The scan also finds other people's.** Files like `wp-config.php.bak`, `wp-config.php~` and `wp-config.old` are left behind by editors, hosting control panels and developers, and they leak exactly the same way. Those are reported too.
+
+**A second, quieter bug.** Saving the Settings tab was wiping the Content-Security-Policy configuration, because both live in the same stored record and the save replaced all of it. If you set up CSP and later found it switched off without touching it, that is why. Fixed — saving one tab no longer disturbs another.
+
+## 1.4.54
+
+**What this adds.** WP Perf Shield now has an icon. You will see it beside the title at the top of the plugin screen.
+
+It is a shield containing three ascending bars. The shield says what the plugin is; the bars say where it came from, since this plugin exists because malware kept impersonating performance plugins and the name still carries that.
+
+**Why it needed doing.** The technology-profiler submission prepared in 1.4.52 requires an icon, and there wasn't one to submit — the plugin had shipped fifty-odd releases without a mark of its own.
+
+**Nothing else changed.** No settings, no detection, no blocking. If you would rather not see it, it is a single image in the page header and hiding it takes one CSS rule targeting `.wps-app-mark`.
+
+**If you are submitting the plugin to Wappalyzer or a similar directory,** use the shipped file at `assets/img/wp-perf-shield.svg` rather than redrawing it, so the two copies cannot drift. `doc/wappalyzer-submission.md` has the details.
+
+## 1.4.53
+
+**What this completes.** One malware variant, `auto-asset-helper`, was blocked by name and by folder pattern but had no file fingerprints on record. 1.4.49 left that gap on purpose: the sample was not available, and inventing a fingerprint would have looked like protection while matching nothing.
+
+The sample has now been examined, so the fingerprints are in and the variant is covered on every layer.
+
+**Nothing to do, and nothing to notice.** This variant was already detected by six checks and already blocked at activation and upload. The addition matters for one case: a copy that has been renamed to something the pattern does not recognise is now caught by its fingerprint instead.
+
+**The bundled variant catalogue** has been updated accordingly, and this entry moves from *Catalogued* to *Verified* — meaning the sample was examined directly rather than recorded from earlier analysis.
+
+## 1.4.52
+
+**What this adds.** An optional setting, under **Settings → Public identification**, that lets tools like Wappalyzer and BuiltWith recognise that your site runs WP Perf Shield. It emits one line into your pages:
+
+`<meta name="generator" content="WP Perf Shield" />`
+
+**It is off by default and you do not have to turn it on.** Nothing changes unless you tick the box.
+
+**Why you might not want to.** Turning it on tells anyone looking at your site which security plugin is watching. If you would rather an attacker had to find that out the hard way, leave it off — that is why it ships off.
+
+**Why the version is never included.** Each release tends to close a particular evasion technique. Publishing that you run version 1.4.49 rather than 1.4.52 would tell someone exactly which tricks still work against you. The tag carries the name and nothing else, and there is no option to add the version, because there is no version of that idea that is safe.
+
+**If you turn it on and then want it gone from one template**, either untick the box or drop this into your theme:
+
+```php
+remove_action( 'wp_head', [ 'WPS_Public_Marker', 'render' ] );
+```
+
+**Getting listed.** Emitting the tag is only half of it — the profiler also needs a fingerprint on file. `doc/wappalyzer-submission.md` in this release has the submission routes and the exact JSON, ready to send.
+
+## 1.4.51
+
+**What this adds.** A new bundled document, the variant catalogue, reachable from the Docs tab. It lists every malware family WP Perf Shield recognises, with what each one does, the indicators that identify it, which checks find it, whether it is stopped before it runs, and what removing it actually requires.
+
+It is written for whoever has to deal with an infected site, which may well be you. If a finding names something and you want to know what it is, that is the page.
+
+**Why it might matter to you even if you never read it.** Building it surfaced two families that existed in WP Perf Shield only as comments beside a hash, and one blocklist entry that was the wrong length and could therefore never match anything. Both are fixed.
+
+**Nothing changed about detection or blocking**, apart from removing that dead entry. No settings, no behaviour, no upgrade steps.
+
+**If you publish or share the catalogue,** note that one family is keyed per victim site and the affected domains are named, because the keying is the family's defining property. Those are the maintainer's own properties. Consider whether naming them suits your context before republishing.
+
+## 1.4.50
+
+**What this fixes.** A piece of malware WP Perf Shield already recognised - it hides a large block of obfuscated JavaScript inside a PHP plugin, writes it into your active theme as `css.js`, and injects a script tag on every page - could still be installed. It was found on the next scan and flagged critical, but nothing stopped it arriving.
+
+It is now blocked at upload and at activation.
+
+**Why it needed different handling.** Every other blocked variant has a name to match. This one generates a new one each time, in the form `Plugin-` plus eight hex digits, so there is nothing fixed to list. WP Perf Shield now recognises the form itself, along with the file's fingerprints and a distinctive marker inside it.
+
+**Could this block something of yours?** The pattern is deliberately narrow: exactly eight hexadecimal digits after `Plugin-`, nothing more and nothing less. A plugin called `plugin-directory`, `my-plugin-helper`, or `Plugin-scheduler` is unaffected, and so is any plugin that legitimately loads JavaScript from your theme. If you do somehow have a plugin whose folder is literally `Plugin-` followed by eight hex digits, it will be refused - and it is worth looking at closely before you decide that is wrong.
+
+**Nothing to do.** If this malware is already installed, it was being detected before and still is, now by five checks rather than four.
+
+## 1.4.49
+
+**What this fixes.** Two pieces of malware WP Perf Shield already recognised could still be installed. It would find them on the next scan and flag them at critical, but nothing stopped the plugin being activated or the ZIP being uploaded in the first place. That gap — between something being dropped on the site and the next scan running — is time the payload spends working.
+
+Both are now blocked at activation and at upload, in the folder shape they actually arrive in. These campaigns randomise the folder name (`site-security-toolkit-1f30`, `auto-asset-helper-2763`), so the patterns match the randomised form, not just the base name.
+
+**You do not need to do anything.** If either variant is already on the site, it was being detected before this release and still is. If you have a pending finding for one, remediate it as usual.
+
+**One thing you may notice.** These folders previously showed as a *high* finding from the fake-plugin shape heuristic. They now show as *critical* from exact identification instead. Nothing got worse; WP Perf Shield simply knows them by name now rather than inferring them from shape, and says so with more confidence. Auto-removal behaves as it did.
+
+**What was deliberately left out.** No file hash was added for `auto-asset-helper`, because that sample was not available to hash and a hash copied from notes is one that matches nothing while looking like protection. Its slug and folder patterns are in, which is what does the blocking. The two shell-company author names behind these variants were also kept out of the upload blocklist, which blocks on a single match: one of them is a plausible name for a genuine vendor, and blocking every upload mentioning it would eventually stop something legitimate.
+
+## 1.4.48
+
+**What this is about.** A doorway kit — the sort that quietly turns your site into a redirector for someone else's traffic — was detected correctly in testing, then renamed and tested again. Renaming the folder, the payload files, and one key inside its configuration was enough to silence two of the three detections. The kit kept working throughout.
+
+Nothing was lost that finds web shells; those were still caught. What was lost is the finding that groups them: *these files are one kit, and this is the directory to delete*. Without it you get a list of separate criticals and no instruction.
+
+**What you will see now.** A kit is identified by the configuration it carries and the code that reads it, rather than by any name. In practice that means one critical finding naming the kit's root directory, with the cloaking configuration reported separately so you can see the size of the blocklists it holds. In the sample behind this release those were 111,088 addresses, 87 organisations and 569 user agents — the working capital of the operation, and the thing it cannot casually regenerate.
+
+**One finding, not several.** Previously a kit's own sub-directories could each score and each report the directory above them, so one intrusion arrived as three nested criticals. You now get the outermost directory only. Deleting it takes the rest with it.
+
+**If you have been ignoring a "doorway kit" finding on a legitimate folder,** check it again after upgrading. Two false positives were caught and fixed before this release shipped: an earlier draft named the site's own web root as a kit, and reported nested duplicates. Neither ever reached a release, but the same shapes are now asserted against in the test suite, which is what should have been true the first time.
+
+**Scan time.** The new checks cost about fifty milliseconds across seven hundred directories, measured rather than estimated. If you upgraded for 1.4.46 or 1.4.47 because scans were timing out, this does not undo that work.
+
+**Nothing to configure, and no change to what gets deleted automatically.** Kit findings behave as before: removable when the directory is safely outside WordPress's own paths, reported for manual removal when it is not.
+
+## 1.4.47
+
+Upload and activate as usual. If safe mode is still showing, clear it from the admin notice.
+
+**What this fixes.** 1.4.46 stopped scans from ending the request, but they could still run out of time and report partial results - which is not much use when something is actively attacking the site.
+
+Six of the detections were each processing every file independently, doing identical work six times over. Files are now processed once per scan and the result shared. A full pass over a large plugin file drops from about a quarter of a second to a twentieth, which on a site of any size is the difference between a scan that finishes and one that does not.
+
+**Nothing about what is detected has changed**, and that is verified rather than assumed - the shared result is checked to be byte-identical to computing it fresh.
+
+**If scans still do not complete**, your execution limit is likely very low. Raise `max_execution_time` if you can, or run scans from the Overview tab when the site is quiet.
+
+## 1.4.46
+
+Upload and activate as usual. **If WP Perf Shield has been showing the safe mode notice, this is the release that fixes it.**
+
+**What went wrong.** WP Perf Shield limited its own scans to 45 seconds. Many hosts allow PHP only 30. A limit set above the one your host enforces cannot work - the scan intended to stop fifteen seconds after PHP had already killed it, so every scan ended in a fatal error and the fail-safe switched scanning off to keep the site running.
+
+**What changed.** The budget is now worked out from your host's own `max_execution_time`, leaving eight seconds spare so the page still renders after the scan stops. On a 30-second host that is 22 seconds. The time is also checked inside the long file checks rather than only between them, so a single slow check can no longer run past the whole budget.
+
+**What you will see now.** On a large site the scan may report that it stopped early and skipped some checks. That is the intended behaviour and the findings it did produce are real - run a manual scan from the Overview tab when the site is quieter and the skipped checks will run.
+
+Safe mode clears from the admin notice once you have updated.
+
+## 1.4.45
+
+Documentation only. No code changed.
+
+The detection reference is now readable at a glance: four tables covering what WP Perf Shield looks for, what clears a file where that matters, and the sign-in thresholds in one place.
+
+Two things are deliberately set apart from the prose around them. The salt-rotation warning is a callout carrying the URL for fresh values and the reason the order matters, because it is the one instruction here that fails silently if missed. The `WPS_DISABLE_LOGIN_GUARD` escape hatch is a code block, because whoever needs it is locked out and should be able to copy it without reading a sentence.
+
+## 1.4.44
+
+Documentation only. No code changed, so there is nothing to test after upgrading.
+
+The reference document now describes what the scanner actually detects. Nine detections were added over the previous eleven releases and none of them had reached it, so the documentation described a plugin noticeably less capable than the one you were running.
+
+It also corrects something that had been wrong since 1.4.15. The readme claimed the plugin protects itself with a must-use guard that restores it if something disables it. That was withdrawn twenty-eight releases ago after it took a site down twice, and the claim should have gone with it. If you had read that and assumed this plugin could not be quietly deactivated by malware, that assumption was wrong and is worth revisiting.
+
+The Docs tab inside the plugin renders these same files, so it is updated too.
+
+## 1.4.43
+
+Upload and activate as usual. The blocking is on by default.
+
+**Blocking.** If something on your site tries to send WordPress login sessions to an external address, the request is now refused before it leaves, and you get a critical event naming the destination.
+
+Nothing legitimate is affected. Requests to your own site pass, WordPress.org and Akismet pass, and any request that does not carry session cookies passes - which is almost all of them. If you ever need it off, there is a setting.
+
+**What it cannot catch.** This works through WordPress's own HTTP functions. Malware using raw cURL or a socket connection goes around it. That is worth knowing rather than assuming you are covered: it closes the common case because implants inside plugins tend to use the WordPress functions, but it is not a guarantee.
+
+**Removal.** Files caught stealing sessions are now moved to quarantine automatically, where they remain recoverable for thirty days rather than being destroyed. Protected theme and core files are never touched, and removal is deliberately not attempted when the destination is a host WordPress itself uses - those findings are flagged for you to judge instead.
+
+**Neither of these undoes the theft.** Any session already sent stays valid until you change the authentication salts in wp-config.php. Get fresh values from api.wordpress.org/secret-key/1.1/salt/, and do it after the file is gone rather than before, or the new session is captured as well. The plugin tells you this at the moment it blocks something, which is when it matters most.
+
+## 1.4.42
+
+Upload and activate as usual. No settings to change, and nothing about what the scanner detects has altered.
+
+**What changed.** When the same file is found in several places, you now get one finding listing every location instead of one finding per copy.
+
+This matters for attack kits, which plant a payload in a dozen directories under randomly generated names precisely so that finding one and removing it accomplishes nothing. A dozen identical criticals pushed everything else off the screen and never made the point that they were a single intrusion.
+
+**Copies are matched by content, not by name**, since the names are the part that gets regenerated. Files with identical bytes group together however they are named; files with the same name but different contents stay separate.
+
+**Nothing is hidden by this.** A file caught by two different checks still produces two findings, because they tell you different things. Every path is retained on the grouped finding, and removal still acts on all of them.
+
+## 1.4.41
+
+Upload and activate as usual, then run a scan.
+
+**What this finds.** Files that send session cookies, submitted passwords, stored password hashes or your site's authentication keys to an external address.
+
+The sample this was built from waits until an administrator loads any page, collects their WordPress session cookies, and posts them to a hardcoded host once every twelve hours. Whoever receives them can replay them and be signed in as that administrator without ever knowing the password - which is why nothing appears in any login log, and why a login guard cannot help.
+
+**If this fires, the order of the fix matters.** Remove the file first, then change the authentication salts in wp-config.php - fresh values from api.wordpress.org/secret-key/1.1/salt/. Rotating the salts is what invalidates the sessions already taken. Deleting the file stops further theft but leaves whoever has your current session signed in indefinitely.
+
+Doing it the other way round is worse than useless: rotate first and the still-present file simply captures your new session.
+
+**Ordinary plugins are not affected.** Calling a hardcoded API is normal and does not fire on its own. Reading cookies without sending them does not fire either. Only the combination does, and only when what is sent is a credential rather than a version string or a site URL.
+
+## 1.4.40
+
+Upload and activate as usual, then run a scan.
+
+**Executable PHP is now reported by where it is.** A .php file in wp-content/uploads, wp-content/fonts or wp-content/upgrade is reported regardless of what it contains, because nothing legitimate puts code in those directories. This matters for back doors that stay completely silent unless a request carries a secret value - there is nothing in their behaviour to detect, but their location gives them away.
+
+In caches, logs and backup directories the rule is deliberately weaker, because plugins genuinely do write .php files there. A finding in one of those means something about the file was wrong as well as its location.
+
+**Security plugins are not reported.** Wordfence and others store logs as .php files that begin by exiting immediately, so the extension prevents anyone reading them while nothing executes. Files in that shape are excluded. An early version of this check flagged four of them, which would have been a worse outcome than missing something.
+
+**Function names built with chr() are now detected**, alongside the character-by-character spelling added in the previous release. A must-use plugin recovered from a live site built its control token from 295 chr() calls and scored zero on the earlier measure.
+
+**A note on must-use plugins.** If a finding points at wp-content/mu-plugins, treat it seriously. WordPress loads those automatically and they cannot be switched off from the Plugins screen - the same property that caused this plugin to withdraw its own must-use component in 1.4.15.
+
+## 1.4.39
+
+Upload and activate as usual, then run a scan.
+
+**What this finds.** Files that build function names by pulling single characters out of another string by position. A recovered sample kept the sentence "I could not have a more welcome visitor 64 group of zain bani" in a variable and spelled `base64_decode` out of it a character at a time, then executed the result. The name never exists in the file, so no search for it can succeed.
+
+**Why it needed a new check.** Every earlier detection here was blind to it, and for five different reasons - nothing was split, no decoder name was present, the obfuscation density was below the threshold, and the payload was not in a string. Each check was working correctly and none of them could see it.
+
+**What gives it away.** Spelling a name costs one indexing expression per letter, and they have to be joined in order. The sample did that twenty-eight times. Across a production theme, a legitimate GPL theme and this plugin itself, the highest count in any file is three, in ordinary string handling.
+
+**If this fires, do not read the file for reassurance.** The visible parts are chosen to look harmless - that is what the innocuous sentence is for. Judge it on the construction.
+
+## 1.4.38
+
+Upload and activate as usual, then run a scan.
+
+**What changed.** Two narrow gaps in the check that finds unauthenticated file access.
+
+Data arriving in the raw request body now counts as request input. Previously only query strings, form fields and cookies did, so a script reading `php://input` looked as though it took no input at all.
+
+And a single filesystem write is now enough. It used to take two. The reasoning for two was to keep false positives down, but a file that writes attacker-supplied bytes to your server with nothing checking who asked is dangerous on its own, and measurement showed the second primitive was buying nothing: across seventy-nine files of genuine theme and plugin code, relaxing it adds no findings.
+
+**You will not see more noise.** Files are still cleared by any one of three things - loading WordPress, checking authorisation, or taking no request input - and ordinary code does at least one. What changes is the number of genuine components found inside an intrusion: on the toolkit this was measured against, three became six.
+
+**Severity still distinguishes.** A file manager with six capabilities is critical. A single write endpoint is high. Read the rating before acting.
+
+## 1.4.37
+
+Upload and activate as usual, then run a scan.
+
+**What this finds.** A PHP file that reads its own contents, splits itself at its closing tag, and runs whatever comes after. It is an efficient way to carry a payload, because the hidden part is not in a string or a variable - it is raw data sitting past the end of the code, where nothing looking for encoded text will find it.
+
+**A general repair rides along.** PHP allows a comment between a function name and its bracket, so `eval` written with comments either side still calls eval while defeating any pattern expecting a space there. Every check here that looks for a function call was evadable that way. Comments are now removed before matching, and URLs inside strings are left alone.
+
+**Read this before deleting anything it finds.** Commercial security and licensing products protect their own code with exactly this technique, for the same reason malware does - so that it cannot be read. The sample this was built from carried a Monarx copyright notice, and Monarx is genuine software that hosting companies install.
+
+The check cannot tell the two apart, so it is rated high rather than critical, it names any vendor it recognises, and it asks you to confirm with your host before acting. If nobody claims the file, then treat it as a backdoor. If your host says it is theirs, leave it alone - removing your host's security agent because a scanner was confident would be a worse outcome than the thing it was looking for.
+
+## 1.4.36
+
+Upload and activate as usual, then run a scan.
+
+**What this finds.** Obfuscated JavaScript carried inside a PHP file and printed into your pages. The sample this was built from called itself a "simple js plugin", had a correct header and security guard, and contained perfectly readable PHP - with a hundred and eleven thousand bytes of scrambled script sitting in the middle of it.
+
+The PHP was not the problem. It was the wrapper. Every other check here examines PHP, so a file with honest PHP and a malicious script passes all of them.
+
+**Minified files are not affected.** This is worth stating because it was the hard part. Minified JavaScript is also one enormous line, and flagging on length would have marked every optimised asset on every site. Minifiers shorten names; obfuscators rename everything to hexadecimal tokens like `_0x4f78`. The theme used for testing ships a legitimate eighty-kilobyte single-line bundle and scores zero.
+
+**Reading a finding.** Inside a PHP file this is rated critical - there is no legitimate reason for one to carry obfuscated script. In a standalone .js file the threshold is much higher and the rating lower, because a vendor script protected against copying is unusual rather than malicious. In that case compare it against a fresh copy from the vendor before acting.
+
+## 1.4.35
+
+Upload and activate as usual, then run a scan.
+
+**What this finds.** Files that write their own function names in pieces - `'HTTP'.'_USER_A'.'GENT'` instead of `HTTP_USER_AGENT` - so that searching the file for those names finds nothing. There is no legitimate reason to do it. The only purpose is to defeat the search.
+
+**Why it was needed.** A sample styled as an image optimisation plugin defeated every other check here. It had a correct plugin header, a proper security guard, an uninstall routine and a translation file. It contained no eval, no obfuscated control flow, and no encoded blob in any PHP file, because its payload was in a separate binary file that a PHP scanner never reads.
+
+It was also careful about who saw it: it does nothing for administrators, editors and authors, nothing on admin screens, and nothing for anything identifying itself as a crawler. Then it disables caching so the result is never stored. In practice only a logged-out visitor ever receives the injected script, which is precisely the audience least able to report it.
+
+**Reading a finding.** The names a file hides tell you what it is for. Concealing crawler names alongside `is_user_logged_in` and `administrator` means the file is choosing who sees its behaviour, and choosing to hide from you.
+
+If this fires, do not judge the file by how ordinary the rest of it looks - in this sample the rest of it looked entirely ordinary, and the part that mattered was not in the file at all.
+
+## 1.4.34
+
+Upload and activate as usual, then run a scan. This is the largest detection improvement in the 1.4 series.
+
+**What prompted it.** A complete attacker toolkit was recovered and run against the scanner: twelve directories, three hundred and nine files. Four were detected. That is now eleven of the eleven containing malware, with the twelfth - a real plugin planted as a decoy - correctly ignored.
+
+**What the kit looks like, because yours may too.** Each directory is a genuine plugin copied under a random seven-letter name, with the payload dropped in as `index.php` - the one filename nobody looks at twice in a plugin folder, since WordPress puts a harmless one-line file there by convention. Finding and deleting one achieves nothing while the others remain, which is the entire design.
+
+**Three new things are found.** Payloads hidden behind chains of decoders, where the function names are split across string joins so that searching for them fails. Minimal upload droppers small enough to have slipped under the previous threshold. And `php.ini` files dropped inside your site that re-enable shell execution and remove the directory restriction your host applies - a third of this kit by file count, and invisible to any scanner that reads only PHP, including this one until now.
+
+**If the php.ini check fires**, that file is not itself doing anything: it is removing the limits that would contain whatever else is there. WordPress never needs such a file inside wp-content. Delete it, and treat its presence as evidence that something else is present too.
+
+## 1.4.33
+
+Upload and activate as usual, then run a scan. This release closes a real blind spot.
+
+**What it now finds.** A PHP file that does not load WordPress, checks no password, capability or session, and can still upload, overwrite, rename or delete files based on what a visitor sends it. That is a web shell, and it is how an intruder keeps access after the way in has been closed.
+
+**Why this needed its own check.** Everything the scanner looked for before was a form of hiding - encoded strings, hex escapes, deliberately unreadable control flow. The sample this was built from used none of it. It was clean, readable PHP that anyone could understand at a glance, and it was completely invisible to every check here, because it never tried to hide. It did not have to.
+
+**If it fires on your site**, look at the file before deleting it. If you did not put it there and no plugin you recognise did, treat the site as compromised and find out how it arrived - removing a shell without closing the way in only buys a few days. If it turns out to belong to a plugin or your host, it is still reachable by anyone on the internet and should be removed or put behind a login.
+
+**False positives should be rare.** Any one of three things clears a file: it loads WordPress, it checks authorisation, or it takes no request input. Ordinary plugin and theme code does at least one of those. A finding rated high rather than critical means fewer signals were present and is worth reading before acting.
+
+## 1.4.32
+
+Upload and activate as usual. Reporting only; nothing about protection changed.
+
+**The Security posture panel now shows what it was already counting.** Permanently blocked addresses, and how many addresses have been reported to Akismet as spam. Both were being recorded already - since 1.4.26 and 1.4.31 - and simply never displayed.
+
+Two figures will look low at first, and that is correct rather than broken: most counters were previously discarded at midnight instead of being kept for the seven-day view, so their history starts from this upgrade.
+
+**A new row appears once your site has seen it:** a breakdown of which rule decided recent blocks - a sign-in attempt on an account that does not exist, too many different usernames from one address, or rotation across an address range. It stays hidden until one of those has fired, so a quiet site is not given a row of zeroes to puzzle over.
+
+**One row is gone.** "Tamper protection (must-use guard) - withdrawn in 1.4.15" appeared on every install, permanently, describing a feature removed seventeen releases ago. It told you nothing you could act on. If a leftover must-use file is genuinely still on disk you will now see a row naming the file to delete, and otherwise nothing at all.
+
+## 1.4.31
+
+Upload and activate as usual. Nothing to configure.
+
+**What changed.** When an address tries to sign in as an account that does not exist on your site - `admin`, `root`, `administrator` and the rest of that list - it is now blocked permanently on the first attempt rather than for fifteen minutes. It is also reported to Akismet, which it already was.
+
+**What a permanent block does and does not do.** It stops that address signing in. It does not stop it reading your site, because the block sits on the authentication step and nowhere else. So a permanent block cannot take your site away from a real visitor who happens to be behind that address later; at worst it prevents them logging in, and if they have no account that is no loss at all.
+
+**It cannot catch you.** The rule only fires for a username that does not exist on the site. Your own username exists, so no attempt using it can ever put your address on this list, however many times you mistype the password. Addresses on your allowlist, and addresses you have signed in from as an administrator, are refused outright.
+
+**You can undo it.** Diagnostics has a new list, "Permanently blocked from signing in", showing each address, the username it tried, and when. Every row has a Remove button. Addresses do get reassigned, so if one of these ever turns out to belong to somebody real, take it off the list and they can sign in again immediately.
+
+The list holds a thousand entries and drops the oldest first, so it cannot grow without limit.
 
 ## 1.4.30
 
@@ -1121,7 +1605,17 @@ Run each in turn against the same wp-config.php; back up the file before startin
 2. Trigger any logged action (run scan, apply a hardening rule, etc.). Confirm the new event appears at the top of Events.
 3. Confirm the log file at `wp-content/plugins/wp-perf-shield/logs/events.php` still starts with `<?php exit; ?>` after the action.
 
-### K. Final integrity
+### K. Banned plugins (site policy)
+
+1. In **Settings -> Banned plugins**, confirm the list is enforced (on by default) and the description names `wp-file-manager` and `filebird` as the built-in bans.
+2. Try uploading `wp-file-manager.zip` (or any ZIP whose root folder is `wp-file-manager/`) via **Plugins -> Add New -> Upload Plugin**. Expected: rejected with "This plugin is banned by site policy and was not uploaded." — **not** the malware message.
+3. Confirm the Events log shows a `policy_upload_blocked` entry at *warning* severity, worded as a policy decision, and that **Diagnostics -> Active hostile IP blocks does not list your address** as a result of the refusal.
+4. If a banned plugin is already present but inactive, confirm its **Activate** link is replaced with "⛔ Banned by site policy" and that forcing activation is refused with the policy message and a `policy_activation_blocked` event.
+5. Activate a banned plugin by writing it directly into `active_plugins`, then load any page. Expected: it is force-deactivated, with a `policy_force_deactivated` event.
+6. Add a throwaway slug under **Additional banned slugs**, save, and confirm an upload/activation of that slug is refused too. Remove it and confirm the refusal stops.
+7. Untick "Enforce the banned list", save, and confirm both defaults can now be uploaded and activated — the switch is a real off state, not cosmetic.
+
+### L. Final integrity
 
 1. Run the package verification script: `pwsh tools/verify-package.ps1` (or `powershell -ExecutionPolicy Bypass -File tools/verify-package.ps1`). Every check must pass.
 2. Run `php -l` on every PHP file in the package. Every file must report "No syntax errors detected".

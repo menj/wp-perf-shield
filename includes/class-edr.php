@@ -266,7 +266,11 @@ class WPS_EDR {
 		add_action( 'wp_login_failed', [ __CLASS__, 'on_login_failed' ], 10, 1 );
 		add_action( 'clear_auth_cookie', [ __CLASS__, 'on_logout' ], 10, 0 );
 		add_action( 'user_register', [ __CLASS__, 'on_user_register' ], 10, 1 );
-		add_action( 'set_user_role', [ __CLASS__, 'on_role_change' ], 10, 3 );
+		// 1.4.73: real-time injected-spam detection. Fires on every publish, but
+		// the matcher only flags actual gambling/SEO-spam, so a legitimate post
+		// returns immediately. Catches injection whatever the vector - REST,
+		// XML-RPC, a webshell calling wp_insert_post(), or a malicious cron.
+		add_action( 'save_post', [ __CLASS__, 'on_save_post' ], 10, 3 );		add_action( 'set_user_role', [ __CLASS__, 'on_role_change' ], 10, 3 );
 		add_action( 'after_password_reset', [ __CLASS__, 'on_password_changed' ], 10, 1 );
 		add_action( 'activated_plugin', [ __CLASS__, 'on_plugin_activated' ], 10, 1 );
 		add_action( 'deactivated_plugin', [ __CLASS__, 'on_plugin_deactivated' ], 10, 1 );
@@ -337,6 +341,65 @@ class WPS_EDR {
 				? 'a new ADMINISTRATOR account was created - if you did not create it, treat the site as compromised'
 				: 'new account registered with role ' . ( $role !== '' ? $role : 'unknown' ),
 		] );
+	}
+
+	/**
+	 * 1.4.73: flag a post saved with injected gambling/SEO-spam signatures, in
+	 * real time, whatever wrote it. The shared matcher requires an SEO-spam
+	 * token or a stuffing-plus-cloaking combination, so a legitimate post - even
+	 * one that discusses gambling - returns without an event. Flagged once per
+	 * post (a meta marker) so ordinary edits do not re-fire.
+	 */
+	public static function on_save_post( $post_id, $post = null, $update = false ): void {
+		$post_id = (int) $post_id;
+		if ( $post_id <= 0 || ! class_exists( 'WPS_Spam_Signatures' ) ) {
+			return;
+		}
+		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+			return;
+		}
+		if ( function_exists( 'wp_is_post_revision' ) && wp_is_post_revision( $post_id ) ) {
+			return;
+		}
+		if ( function_exists( 'wp_is_post_autosave' ) && wp_is_post_autosave( $post_id ) ) {
+			return;
+		}
+		if ( ! is_object( $post ) && function_exists( 'get_post' ) ) {
+			$post = get_post( $post_id );
+		}
+		if ( ! is_object( $post ) ) {
+			return;
+		}
+		if ( ! in_array( (string) $post->post_type, [ 'post', 'page' ], true ) ) {
+			return;
+		}
+		if ( in_array( (string) $post->post_status, [ 'auto-draft', 'inherit', 'trash' ], true ) ) {
+			return;
+		}
+
+		$eval = WPS_Spam_Signatures::evaluate( (string) $post->post_title . "\n" . (string) $post->post_content );
+		if ( empty( $eval['spam'] ) ) {
+			return;
+		}
+
+		// Once per post: do not re-fire on every subsequent edit.
+		if ( function_exists( 'get_post_meta' ) && get_post_meta( $post_id, '_wps_spam_flagged', true ) ) {
+			return;
+		}
+		if ( function_exists( 'update_post_meta' ) ) {
+			update_post_meta( $post_id, '_wps_spam_flagged', time() );
+		}
+
+		self::record(
+			'spam_post_injection_detected',
+			[
+				'object_type' => 'post',
+				'object_name' => ucfirst( (string) $post->post_type ) . ' #' . $post_id . ' (' . (string) $post->post_status . ')',
+				'severity'    => 'high',
+				'notes'       => 'a ' . (string) $post->post_type . ' was saved carrying injected gambling/SEO-spam signatures (' . $eval['reason'] . '). '
+					. 'If you did not write this, treat it as an injection: find the entry point (rogue admin, mu-plugins, PHP in uploads, modified functions.php) BEFORE deleting the post, or it will be republished.',
+			]
+		);
 	}
 
 	public static function on_role_change( $user_id, $role, $old_roles = [] ): void {

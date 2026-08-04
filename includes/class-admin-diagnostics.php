@@ -32,6 +32,7 @@ class WPS_Admin_Diagnostics {
 			);
 			self::render_environment_checks( $context['system_checks'] );
 			self::render_diagnostics_export();
+			self::render_chain_selftest();
 			?>
 			<div id="wps-settings-msg" class="wps-status wps-mt8"></div>
 		</div><!-- /diagnostics tab -->
@@ -74,6 +75,49 @@ class WPS_Admin_Diagnostics {
 			<p class="wps-sm wps-muted wps-p">Generates a redacted JSON support bundle with plugin version, settings, active protections, recent events, blocked IP summaries, scan findings, and environment checks. Contents are downloaded directly to your browser; nothing is sent off-site. The bundle never contains raw credentials, auth salts, DB passwords, or full exfil contents.</p>
 			<button id="wps-export-diag-btn" class="button"><span class="wps-icon dashicons dashicons-download" aria-hidden="true"></span>Download support bundle (JSON)</button>
 			<div id="wps-export-diag-msg" class="wps-status wps-mt8"></div>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Event-chain self-test (1.4.64). Runs the CRIT-005 verification against
+	 * this site's real database and renders the verdict. The heavy lifting is
+	 * in WPS_Chain_Selftest; this only presents the button and the last result.
+	 */
+	private static function render_chain_selftest(): void {
+		$result = get_transient( 'wps_chain_selftest_result' );
+		if ( is_array( $result ) ) {
+			delete_transient( 'wps_chain_selftest_result' );
+		}
+		$dot = [ 'pass' => 'wps-dot--good', 'fail' => 'wps-dot--bad', 'skip' => 'wps-dot--warn' ];
+		?>
+		<div class="wps-card wps-mt14">
+			<h3 class="wps-card-h">Event-chain self-test</h3>
+			<p class="wps-sm wps-muted wps-p">Verifies the concurrency-safe event-log append (CRIT-005) against this site's own database. It appends a batch through the real chain code path on an isolated scratch table, confirms the result is one linear, verifiable chain, and proves the append lock excludes across two live database connections. The scratch table is dropped afterwards; the real event chain is never written to or deleted from.</p>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="wps_chain_selftest">
+				<?php echo wp_nonce_field( 'wps_chain_selftest', '_wpnonce', true, false ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+				<button type="submit" class="button"><span class="wps-icon dashicons dashicons-shield" aria-hidden="true"></span>Run event-chain self-test</button>
+			</form>
+			<?php if ( is_array( $result ) ) : ?>
+				<div class="wps-mt14">
+					<div class="wps-row wps-mb6">
+						<span class="wps-dot <?php echo esc_attr( $result['ok'] ? 'wps-dot--good' : 'wps-dot--bad' ); ?>"></span>
+						<strong><?php echo esc_html( $result['summary'] ?? '' ); ?></strong>
+						<span class="wps-xs wps-muted wps-mlauto"><?php echo esc_html( $result['ts'] ?? '' ); ?></span>
+					</div>
+					<?php foreach ( (array) ( $result['checks'] ?? [] ) as $c ) : ?>
+						<div class="wps-mb6">
+							<div class="wps-row">
+								<span class="wps-dot <?php echo esc_attr( $dot[ $c['status'] ] ?? 'wps-dot' ); ?>"></span>
+								<strong><?php echo esc_html( $c['label'] ); ?></strong>
+								<span class="wps-xs wps-strong wps-mlauto"><?php echo esc_html( strtoupper( $c['status'] ) ); ?></span>
+							</div>
+							<code class="wps-xs wps-break"><?php echo esc_html( $c['detail'] ); ?></code>
+						</div>
+					<?php endforeach; ?>
+				</div>
+			<?php endif; ?>
 		</div>
 		<?php
 	}
@@ -145,32 +189,25 @@ class WPS_Admin_Diagnostics {
 					// plugin can be switched off from the database with nothing to
 					// notice or record it.
 					$wps_guard = class_exists( 'WPS_Guard' ) ? WPS_Guard::status() : [ 'installed' => false, 'current' => false, 'mu_writable' => false, 'version' => '' ];
-					$wps_guard_ok = ! empty( $wps_guard['installed'] ) && ! empty( $wps_guard['current'] );
-					$wps_guard_neutral = ! empty( $wps_guard['withdrawn'] ) && empty( $wps_guard['leftover'] );
 					?>
+					<?php
+					// 1.4.32: this row used to render on every install, for ever,
+					// announcing the absence of a feature withdrawn sixteen
+					// releases ago. That is not a status - it is a footnote about
+					// the plugin's own history, and it told the operator nothing
+					// they could act on.
+					//
+					// It now appears only when there is genuinely something to do:
+					// a leftover must-use file that could not be deleted. In every
+					// other case the row is simply absent, which is the correct
+					// report for a feature that no longer exists.
+					if ( ! empty( $wps_guard['leftover'] ) ) :
+						?>
 					<tr>
-						<td class="wps-muted">Tamper protection (must-use guard)</td>
-						<td class="wps-right wps-strong <?php echo $wps_guard_ok ? 'wps-good-t' : ( $wps_guard_neutral ? 'wps-muted' : 'wps-warn-t' ); ?>">
-							<?php
-							// 1.4.15: the feature is withdrawn. Reported honestly
-							// rather than shown as a failure, since nothing is
-							// wrong and nothing needs fixing.
-							if ( ! empty( $wps_guard['withdrawn'] ) ) {
-								echo ! empty( $wps_guard['leftover'] )
-									? 'withdrawn (leftover file - delete wp-content/mu-plugins/0-wps-guard.php)'
-									: 'withdrawn in 1.4.15';
-							} elseif ( $wps_guard_ok ) {
-								echo 'active (' . esc_html( (string) $wps_guard['version'] ) . ')';
-							} elseif ( ! empty( $wps_guard['installed'] ) ) {
-								echo 'needs refresh';
-							} elseif ( empty( $wps_guard['mu_writable'] ) ) {
-								echo 'mu-plugins not writable';
-							} else {
-								echo 'not installed';
-							}
-							?>
-						</td>
+						<td class="wps-muted">Leftover must-use guard file</td>
+						<td class="wps-right wps-strong wps-warn-t">delete wp-content/mu-plugins/0-wps-guard.php</td>
 					</tr>
+					<?php endif; ?>
 					<?php
 					// 1.4.18: the login guard was invisible until something got
 					// blocked, which made a working install look like a broken
@@ -214,6 +251,33 @@ class WPS_Admin_Diagnostics {
 					</tr>
 						<?php endif; ?>
 					<?php endif; ?>
+					<tr>
+						<td class="wps-muted">&nbsp;&nbsp;Permanently blocked from signing in</td>
+						<td class="wps-right wps-mono<?php echo ( $wps_lg_stats['permanent_total'] ?? 0 ) ? ' wps-strong' : ''; ?>"><?php echo (int) ( $wps_lg_stats['permanent_total'] ?? 0 ); ?></td>
+					</tr>
+					<tr>
+						<td class="wps-muted">&nbsp;&nbsp;Reported to Akismet as spam (today / 7 days)</td>
+						<td class="wps-right wps-mono"><?php echo (int) ( $wps_lg_stats['today_spam_reports'] ?? 0 ); ?> / <?php echo (int) ( $wps_lg_stats['week_spam_reports'] ?? 0 ); ?></td>
+					</tr>
+					<?php
+					// Which rule decided a block. Range-rotation blocks are few
+					// because each one covers a whole /24; the single-address
+					// rule accounts for the rest of the total, and showing it
+					// stops the panel reading as idle when it is not.
+					$wps_lg_week_blocks   = (int) ( $wps_lg_stats['week_blocks'] ?? 0 );
+					$wps_lg_week_network  = (int) ( $wps_lg_stats['week_network_blocks'] ?? 0 );
+					$wps_lg_week_single   = max( 0, $wps_lg_week_blocks - $wps_lg_week_network );
+					if ( $wps_lg_week_blocks > 0 ) :
+						?>
+					<tr>
+						<td class="wps-muted">&nbsp;&nbsp;Blocks by rule (7 days)</td>
+						<td class="wps-right wps-mono wps-sm"><?php echo $wps_lg_week_single; ?> single address &middot; <?php echo (int) ( $wps_lg_stats['week_multiuser_blocks'] ?? 0 ); ?> many usernames &middot; <?php echo (int) ( $wps_lg_stats['week_permanent_blocks'] ?? 0 ); ?> non-existent account &middot; <?php echo $wps_lg_week_network; ?> range rotation</td>
+					</tr>
+					<tr>
+						<td class="wps-muted">&nbsp;&nbsp;</td>
+						<td class="wps-right wps-muted wps-sm">a range-rotation block covers every address in that /24</td>
+					</tr>
+					<?php endif; ?>
 					<?php if ( ( $wps_lg_stats['akismet_spam'] ?? 0 ) || ( $wps_lg_stats['akismet_clean'] ?? 0 ) || ( $wps_lg_stats['akismet_unavailable'] ?? 0 ) ) : ?>
 					<tr>
 						<td class="wps-muted">&nbsp;&nbsp;Akismet verdicts used</td>
@@ -235,6 +299,7 @@ class WPS_Admin_Diagnostics {
 		<div class="wps-card">
 			<h3 class="wps-card-h">Active hostile IP blocks</h3>
 			<?php self::render_blocked_ips_table( $blocked_ips ); ?>
+			<?php self::render_permanent_blocks_table(); ?>
 			<?php if ( ! empty( $blocked_ips ) ) : ?>
 				<p class="wps-xs wps-dim wps-p0 wps-mt8">If you have moved blocking to your WAF or hosting firewall, or need to correct a false positive, clear the in-plugin block list:</p>
 				<p class="wps-mt8 wps-p0">
@@ -987,6 +1052,81 @@ class WPS_Admin_Diagnostics {
 			echo '</tr>';
 		}
 		echo '</tbody></table></div>';
+	}
+
+	/**
+	 * 1.4.31: the permanent sign-in denylist.
+	 *
+	 * Shown separately from the temporary blocks because it behaves
+	 * differently: these entries do not expire, and the only way out is this
+	 * table. Kept close to the temporary list so the difference is visible.
+	 */
+	private static function render_permanent_blocks_table(): void {
+		if ( ! class_exists( 'WPS_Login_Guard' ) ) {
+			return;
+		}
+		$list = WPS_Login_Guard::permanent_blocks();
+
+		$msg = isset( $_GET['wps_unblocked'] ) ? sanitize_key( (string) wp_unslash( $_GET['wps_unblocked'] ) ) : '';
+		if ( '1' === $msg ) {
+			echo '<div class="wps-status wps-good wps-mb6">Address removed from the permanent denylist. It can sign in again.</div>';
+		} elseif ( '0' === $msg ) {
+			echo '<div class="wps-status wps-warn wps-mb6">That address was not on the permanent denylist.</div>';
+		}
+
+		$pban = isset( $_GET['wps_pban'] ) ? sanitize_key( (string) wp_unslash( $_GET['wps_pban'] ) ) : '';
+		if ( '' !== $pban ) {
+			$pmap = [
+				'blocked'   => [ 'good', 'Permanently blocked. It can no longer sign in; the site stays readable to it.' ],
+				'exists'    => [ 'muted', 'That address or range was already on the permanent denylist.' ],
+				'protected' => [ 'warn', 'Refused: that address or range holds your own or a recent administrator address. Nothing was blocked.' ],
+				'too-broad' => [ 'warn', 'Refused: that range is too broad. Use a subnet no larger than a /16 (IPv4) or /32 (IPv6).' ],
+				'invalid'   => [ 'warn', 'That was not a valid address or CIDR range, so nothing was blocked.' ],
+			];
+			if ( isset( $pmap[ $pban ] ) ) {
+				echo '<div class="wps-status wps-' . esc_attr( $pmap[ $pban ][0] ) . ' wps-mb6">' . esc_html( $pmap[ $pban ][1] ) . '</div>';
+			}
+		}
+
+		echo '<div class="wps-card wps-card--pad-lg wps-mt14">';
+		echo '<h2 class="wps-card-h">Permanently blocked from signing in</h2>';
+		echo '<p class="wps-sm wps-muted wps-p">Automatic entries are addresses that tried to sign in as an account that does not exist here &ndash; <code>admin</code>, <code>root</code> and similar. You can also add an address or a whole range by hand below: the deliberate forever-ban for a range that has proven hostile, since the automatic range guard tops out at seven days. Nothing here expires. Entries are blocked from signing in only; the site itself stays readable to them. Remove any entry if an address has been reassigned.</p>';
+
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="wps-inline-form wps-mb6">';
+		echo '<input type="hidden" name="action" value="wps_permanent_block">';
+		echo wp_nonce_field( 'wps_permanent_block', '_wpnonce', true, false );
+		echo '<label class="wps-sm">Permanently block an address or range <input type="text" name="target" placeholder="e.g. 173.239.218.0/24 or 203.0.113.5" class="wps-mono wps-sm regular-text"></label> ';
+		echo '<button type="submit" class="button">Permanently block</button>';
+		echo '</form>';
+		echo '<p class="wps-sm wps-muted wps-p">A single address is also reported to Akismet. A whole range is not &ndash; that would flag its innocent neighbours &ndash; but the individual addresses that attack from a blocked range are reported as they are caught. A range is refused if it holds your own address or is broader than a /16.</p>';
+
+		if ( empty( $list ) ) {
+			echo '<p class="wps-muted wps-p0">Nothing on the permanent denylist yet.</p></div>';
+			return;
+		}
+
+		echo '<div class="wps-scroll-x"><table class="wps-logs">';
+		echo '<thead><tr><th>Address or range</th><th>Added for</th><th>Blocked</th><th class="wps-logs-act"><span class="screen-reader-text">Remove</span></th></tr></thead><tbody>';
+		foreach ( $list as $ip => $row ) {
+			$when = isset( $row['at'] )
+				? ( class_exists( 'WPS_Utils' )
+					? WPS_Utils::local_time( gmdate( 'Y-m-d H:i:s', (int) $row['at'] ) . ' UTC' )
+					: gmdate( 'Y-m-d H:i:s', (int) $row['at'] ) . ' UTC' )
+				: '';
+			echo '<tr>';
+			echo '<td class="wps-logs-path">' . esc_html( (string) $ip ) . '</td>';
+			echo '<td class="wps-logs-kind">' . esc_html( (string) ( $row['user'] ?? '' ) ) . '</td>';
+			echo '<td class="wps-logs-size">' . esc_html( $when ) . '</td>';
+			echo '<td class="wps-logs-act">';
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="wps-inline-form">';
+			echo '<input type="hidden" name="action" value="wps_unblock_permanent">';
+			echo '<input type="hidden" name="ip" value="' . esc_attr( (string) $ip ) . '">';
+			echo wp_nonce_field( 'wps_unblock_permanent', '_wpnonce', true, false );
+			echo '<button type="submit" class="button-link">Remove</button>';
+			echo '</form>';
+			echo '</td></tr>';
+		}
+		echo '</tbody></table></div></div>';
 	}
 
 	private static function render_blocked_ips_table( array $blocked_ips ): void {

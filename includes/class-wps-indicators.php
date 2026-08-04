@@ -36,7 +36,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class WPS_Indicators {
 
-	const INDICATOR_VERSION = '1.4.25-1';
+	const INDICATOR_VERSION = '1.4.61-1';
 
 	/**
 	 * All confirmed malware-set option keys across the wp-perf-analytics /
@@ -389,6 +389,40 @@ class WPS_Indicators {
 	}
 
 	/**
+	 * 1.4.48: the switch names the kit's own PHP reads out of that config.
+	 *
+	 * These are a different thing from the keys above, and the difference is
+	 * the point. The keys above identify the config FILE. These identify the
+	 * CODE that consumes it, because the kit reads them as literal
+	 * subscripts - `$settings['black_org']` - and cannot rename them on one
+	 * side without editing the other. A directory name, a file name and the
+	 * `panel_kee` marker are all free for an attacker to change; this
+	 * vocabulary is load-bearing, so it is the durable thing to match on.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function doorway_cloak_flag_keys(): array {
+		return [
+			'white_list_only_ip',
+			'white_list_only_agent',
+			'white_list_referer',
+			'black_ip',
+			'black_country',
+			'black_org',
+			'black_userag',
+			'black_referer',
+			'whitelist_ip_array',
+			'whitelist_agent_array',
+			'whitelist_referer_array',
+			'black_ip_array',
+			'black_country_array',
+			'black_org_array',
+			'black_userag_array',
+			'black_referer_array',
+		];
+	}
+
+	/**
 	 * Crawler and preview user-agent fragments that cloaking malware checks
 	 * for in order to STAY HIDDEN from them. A confirmed sample carried
 	 * eighteen of these and returned early on any match, so search engines,
@@ -511,11 +545,60 @@ class WPS_Indicators {
 			'polygon.rpc.subquery.network',
 			'polygon-public.nodies.app',
 			'polygon-pokt.nodies.app',
+			// 1.4.56: relocated here from the single-match signature list along
+			// with the rest. It existed ONLY there, so the first draft of that
+			// removal dropped it entirely - a detection regression introduced
+			// while fixing a false positive. The suite now asserts that every
+			// endpoint taken out of SIGNATURES_PERF landed here.
+			'polygod.network',
 			// JSON-RPC read primitives used to pull on-chain payloads. Matched as
 			// a bare substring so it catches eth_call regardless of the quote
 			// style around it (the payloads use both "eth_call" and 'eth_call').
 			'eth_call',
 			'eth_getStorageAt',
+			// 1.4.55: the ErrTraffic "Beer" cluster resolves through Quicknode,
+			// which issues a per-customer subdomain. A host list cannot
+			// enumerate those, so the registrable domain is matched instead and
+			// check_etherhiding_resolver() carries the technique-level case.
+			'quiknode.pro',
+			'quicknode.pro',
+		];
+	}
+
+	/**
+	 * 1.4.55: ErrTraffic request-path markers (Sekoia TDR, June 2026).
+	 *
+	 * Both clusters rotate their C2 domain daily through EtherHiding, so the
+	 * domain is the least useful thing to match on. These paths and parameters
+	 * stay constant across that rotation, which makes them the durable half of
+	 * the fingerprint.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function errtraffic_endpoint_markers(): array {
+		return [
+			'/cf.js',       // "Analytics" cluster lure fetch
+			'/api/css.js',  // older injection route, both clusters
+			'a=ctx',        // "Beer" cluster payload request
+			'src=cloudflare',
+		];
+	}
+
+	/**
+	 * 1.4.55: the ErrTraffic contract WP Perf Shield has been fighting since
+	 * the beginning without knowing its name.
+	 *
+	 * The scanner has carried this address in its class docblock since the
+	 * wp-perf-analytics work, described only as "confirmed contract". Sekoia
+	 * TDR attributes it to the ErrTraffic "Analytics" cluster, which makes the
+	 * plugin's original target a named, commercially sold framework rather
+	 * than an anonymous campaign.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function etherhiding_contracts(): array {
+		return [
+			'0x08207B087F61d7e95E441E15fd6d40BEfd6eD308',
 		];
 	}
 

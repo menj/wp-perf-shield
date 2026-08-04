@@ -68,7 +68,7 @@ class WPS_Admin_Hardening {
 					<strong class="wps-md">wp-config.php hardening</strong>
 					<span class="wps-badge wps-badge--warn wps-upper">High</span>
 				</div>
-				<p class="wps-sm wps-muted wps-p">These constants are added directly to wp-config.php. A backup is created at <code>wp-config.php.wps.bak</code> before any change.</p>
+				<p class="wps-sm wps-muted wps-p">These constants are added directly to wp-config.php. A backup is placed in quarantine before any change, and can be restored from the Quarantine card under Forensics. Quarantine must be switched on: a backup left beside wp-config.php would be served as plain text to anyone who requested it, credentials and all.</p>
 				<table class="wps-table wps-table--md">
 					<?php
 					$constants = [

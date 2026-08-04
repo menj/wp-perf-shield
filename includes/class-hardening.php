@@ -165,7 +165,7 @@ class WPS_Hardening {
 	 * Enable  (true):  If the constant is already defined with any value,
 	 *                  the existing line is replaced with define( 'KEY', true );
 	 *                  If absent, the line is inserted before the WP stop-editing
-	 *                  comment. A backup is created at wp-config.php.wps.bak.
+	 *                  comment. A backup is placed in the WP Perf Shield quarantine store.
 	 *
 	 * Disable (false): If the constant is defined, the line is removed entirely.
 	 *                  If absent, nothing changes and true is returned.
@@ -236,9 +236,9 @@ class WPS_Hardening {
 		// Versioned backup, then atomic write. Each invocation gets its own
 		// backup so a second hardening action cannot erase the first one's
 		// recovery point.
-		$backup = self::next_backup_path( $config . '.wps.bak' );
-		if ( ! @copy( $config, $backup ) ) {
-			return 'Could not create wp-config.php backup. Check filesystem permissions.';
+		$backup = self::backup_wpconfig( $config );
+		if ( is_wp_error( $backup ) ) {
+			return $backup->get_error_message();
 		}
 
 		$tmp = $config . '.wps.tmp';
@@ -350,9 +350,9 @@ class WPS_Hardening {
 			return 'Cleaned wp-config.php failed sanity checks. No changes were written.';
 		}
 
-		$backup = self::next_backup_path( $config . '.wps-clean.bak' );
-		if ( ! @copy( $config, $backup ) ) {
-			return 'Could not create wp-config.php backup. Check filesystem permissions.';
+		$backup = self::backup_wpconfig( $config );
+		if ( is_wp_error( $backup ) ) {
+			return $backup->get_error_message();
 		}
 
 		$tmp = $config . '.wps-clean.tmp';
@@ -393,17 +393,55 @@ class WPS_Hardening {
 			&& strpos( $contents, 'wp-settings.php' ) !== false;
 	}
 
-	private static function next_backup_path( string $preferred ): string {
-		if ( ! file_exists( $preferred ) ) {
-			return $preferred;
+	/**
+	 * 1.4.55: safe backup for wp-config.php.
+	 *
+	 * The three edit paths below each wrote `wp-config.php.wps.bak` beside the
+	 * original. That file is not PHP, so the web server hands its contents to
+	 * anyone who requests the name - database credentials, table prefix and
+	 * every authentication salt. The hardening routine was creating a total
+	 * compromise while reporting success.
+	 *
+	 * 1.3.97 moved remediation backups into the quarantine store for exactly
+	 * this reason, with a comment explaining it. Hardening was never migrated.
+	 *
+	 * Quarantine availability is checked BEFORE the copy rather than after,
+	 * because `create_timestamped_backup()` falls back to a filesystem copy
+	 * beside the original when the store is unavailable - which for this file
+	 * is the very thing being fixed. If a fallback copy is produced anyway it
+	 * is removed and the edit refused: a wp-config edit without a safe
+	 * recovery point is not worth the exposure it would cost.
+	 *
+	 * @return string|\WP_Error Quarantine reference, or an error to return to the caller.
+	 */
+	private static function backup_wpconfig( string $config ) {
+		if ( ! class_exists( 'WPS_Utils' ) || ! class_exists( 'WPS_Quarantine' )
+			|| ! class_exists( 'WPS_Scanner' ) || ! WPS_Scanner::quarantine_enabled() ) {
+			return new \WP_Error(
+				'wps_no_safe_backup',
+				'Quarantine is switched off, so wp-config.php cannot be backed up safely. '
+				. 'Enable Quarantine under Settings before editing wp-config.php - a plain backup '
+				. 'beside the original would expose your database credentials to the web.'
+			);
 		}
 
-		$base = preg_replace( '/\.bak$/', '', $preferred );
-		if ( ! is_string( $base ) || $base === '' ) {
-			$base = $preferred;
+		$backup = WPS_Utils::create_timestamped_backup( $config );
+
+		if ( is_wp_error( $backup ) ) {
+			return $backup;
+		}
+		if ( ! is_string( $backup ) || strpos( $backup, 'quarantine:' ) !== 0 ) {
+			// Fell back to a filesystem copy. Remove it; it is the exposure.
+			if ( is_string( $backup ) && $backup !== '' && is_file( $backup ) ) {
+				@unlink( $backup );
+			}
+			return new \WP_Error(
+				'wps_no_safe_backup',
+				'Could not place a wp-config.php backup in quarantine. No changes were written.'
+			);
 		}
 
-		return $base . '-' . gmdate( 'Ymd-His' ) . '.bak';
+		return $backup;
 	}
 
 	//  .htaccess 
@@ -523,7 +561,7 @@ class WPS_Hardening {
 	 *
 	 * Fetches a fresh salt block from api.wordpress.org/secret-key/1.1/salt/,
 	 * replaces each existing define() for the eight salt constants, and writes
-	 * the result atomically. A backup is created at wp-config.php.wps.bak.
+	 * the result atomically. A backup is placed in the quarantine store.
 	 *
 	 * Side effect: every existing login session is immediately invalidated
 	 * because the session token verification uses these salts.
@@ -594,9 +632,9 @@ class WPS_Hardening {
 			return 'Edited wp-config.php failed sanity checks. No changes were written.';
 		}
 
-		$backup = self::next_backup_path( $config . '.wps.bak' );
-		if ( ! @copy( $config, $backup ) ) {
-			return 'Could not create wp-config.php backup. Check filesystem permissions.';
+		$backup = self::backup_wpconfig( $config );
+		if ( is_wp_error( $backup ) ) {
+			return $backup->get_error_message();
 		}
 
 		$tmp = $config . '.wps.tmp';

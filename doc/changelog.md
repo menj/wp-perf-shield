@@ -1,4 +1,1410 @@
-# Changelog
+# WP Perf Shield changelog
+
+## 1.4.73
+
+Adds detection of the injected content itself - the casino/gambling/SEO-spam this whole class of attack exists to publish. Every check before this looked at code and configuration; none looked at what the injection actually writes into `wp_posts` and `wp_comments`. That was the gap.
+
+### Evaluated against the incident-response playbook first
+Most of a casino-spam response was already covered: hidden/rogue admin users (`check_hidden_admin_users`, and a real-time `admin_account_created` event on `user_register`), base64 payloads in options (`check_malicious_db_options`), PHP under uploads, mu-plugins, cron tampering, wp-config and .htaccess integrity, doorway cloaking, and `DISALLOW_FILE_EDIT` hardening. The missing piece was the content, at both ends: finding spam already published, and catching it as it lands.
+
+### The matcher, and why it will not flag the operator
+A shared signature matcher (`WPS_Spam_Signatures`) decides what counts as injected spam, built so it cannot fire on this author's own writing - which discusses gambling in Malay and in a religious register. Two tiers, and word boundaries throughout:
+
+* **Diagnostic markers** - "slot gacor", "rtp live", "maxwin", "togel", "gacor", "situs judi" - are SEO-spam tokens that never appear in prose in any language. One is conclusive.
+* **Generic gambling words** - casino, judi, poker, betting - occur in ordinary writing, so they count only in bulk (three or more distinct) AND with a structural tell (hidden/cloaked markup, or a wall of outbound links). An anti-gambling essay that says "judi" and "casino" a few times, with no cloaking, is left alone. "judi" never matches inside "prejudice".
+
+### Two detection points
+* **Scanner check** (`check_injected_spam_content`): a cheap SQL pre-filter narrows candidate posts and comments, the matcher confirms each, and confirmed hits become a finding with sample IDs and the signals that fired. Detection only - it never deletes a post, because removing content without first closing the entry point just invites the injector to republish. The finding says exactly that.
+* **Real-time hook** (`save_post`): a post saved with spam signatures is flagged the moment it lands, whatever wrote it - REST, XML-RPC, a webshell calling `wp_insert_post()`, or a malicious cron. Flagged once per post, so ordinary edits do not re-fire, and silent on legitimate posts.
+
+Neither reproduces the spam; callers get counts, IDs, and the signals - never the content.
+
+### Verified
+`php -l` clean across all 36 includes and the bootstrap. `harness/spam-signatures.php` (13/13): flags Indonesian slot-spam, a lone diagnostic token, and cloaked English casino spam, while leaving alone Malay religious anti-gambling prose, an English essay mentioning gambling once, "prejudice", a travel casino mention, and a poker-strategy article. `harness/spam-detection-wiring.php` (11/11): the scanner finds the spam post and comment while excluding the legitimate religious and technical posts, and the real-time hook fires once for a spam save, dedupes on re-save, and stays silent on legitimate posts and revisions. All thirteen harnesses pass (108 assertions).
+
+### Meta
+Version markers move to 1.4.73. New class `WPS_Spam_Signatures`. New scanner check and `save_post` hook. New events `injected_spam_content` and `spam_post_injection_detected` (both classified high, both emitted). No new settings. `INDICATOR_VERSION` unchanged - these are content signatures, not the malware indicator lists.
+
+
+## 1.4.72
+
+Extends the Akismet reputation *query* to the other hostile-address guards, so a known-bad address lengthens the block those guards place — the reputation-weighted duration the login guard has always used, now shared.
+
+### Reputation query, shared
+`WPS_Login_Guard::akismet_reputation()` exposes the login guard's cached, fail-safe reputation lookup (`spam` / `ham` / no-answer) to the other guards. The verdict is cached per address and shared, so an address already scored by one guard is not re-queried by another. Enrichment stays a duration input only — it is never consulted on the path of a request, only after the decision to block has already been taken.
+
+* **Malware-upload block.** Was a flat seven days. An address Akismet also knows as bad now earns a thirty-day hold. A clean or absent answer never *shortens* it — a malware upload is already conclusive, unlike a mistyped password — so reputation here only lengthens.
+* **External post-write injection.** The post guard was a per-request refusal with no duration to weight. A *sustained* campaign — ten or more blocked writes from one address within an hour — now escalates to a persistent hostile-IP block, one day by default and seven when the address is known-bad. Set high on purpose: a stray or misconfigured request never trips a full block, only a clear campaign. Shared-infrastructure addresses are never escalated (a full block on a CDN edge would take out real visitors), and the whole path is gated by the hostile-IP auto-block switch.
+
+### One honesty fix that fell out of this
+A hostile-IP block ends the request with a fixed message that read "This IP address has attempted to upload known malware." Now that post-injection escalation shares that path, the message would have been untrue for those blocks, so it now reads "blocked for abusive activity" — accurate for every reason a block is placed.
+
+### Verified
+`php -l` clean across all includes and the bootstrap. Two new harnesses: `upload-enrichment.php` (3/3) — default seven-day hold, unchanged on a clean or absent answer, thirty days when known-bad; `post-guard-escalation.php` (8/8) — nine attempts do not escalate, the tenth does exactly once, the counter re-arms rather than firing every subsequent request, a known-bad address gets the longer hold, and an infrastructure address is never escalated however many attempts. All eleven harnesses pass (84 assertions).
+
+### Meta
+Version markers move to 1.4.72. No new settings (governed by the existing Akismet enrichment and hostile-IP switches). No new event types. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.71
+
+Tightening pass, plus wiring the remaining hostile-address features into Akismet.
+
+### Akismet, extended to every conclusive-abuse feature
+Until now only the login guard contributed to and consulted Akismet. Two other guards catch addresses that are, by definition, abusive, and they were keeping that to themselves:
+
+* **Malware-upload blocking.** An address caught trying to upload a known malware ZIP or a renamed payload is now reported to Akismet.
+* **External post-write blocking (1.4.70).** An address caught injecting posts through the REST API is now reported.
+
+Both go through one shared, safeguarded entry point, `WPS_Login_Guard::report_attacker_ip()`, so the policy is identical everywhere it matters: a malware upload and a post injection are conclusive abuse, so they report whenever reporting is enabled without needing the aggressive "report every blocked address" toggle — but the safeguards that protect third parties are not negotiable and still apply to all of them. A CDN, proxy or private address is never reported; a range is never submitted (the reporter takes a single address); and each address is reported at most once. There is no new setting: the existing "Report attackers to Akismet" master switch governs all three guards.
+
+### Tightening pass
+A full sweep of the merged codebase: every PHP file lints; the autoload map covers every class file; the four version markers agree; there are no duplicate changelog headings; every entry in the event-severity map corresponds to an event that is actually emitted (the recurring keyed-but-never-emitted defect is absent); and every setting read from options is persisted by the save handler and surfaced in the UI. One note recorded rather than changed: the outbound session-cookie guard is intentionally always-on with only a code/database override and no UI switch, consistent with its "no legitimate cost" rationale.
+
+### Verified
+`php -l` clean across all includes and the bootstrap. `harness/akismet-wiring.php` (6/6): the shared reporter reports conclusive abuse even with report-all off, reports each address at most once, stays silent when reporting is disabled, never reports a private/infrastructure address, treats an empty address as a no-op, and carries the address in the submission. All nine harnesses pass (73 assertions): akismet-wiring, post-guard, permanent-range, report-all-blocks, network-ladder, subnet-rotation, xmlrpc-multicall, crit005-logic, selftest-isolation.
+
+### Meta
+Version markers move to 1.4.71. No new settings, no new event types. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.70
+
+Merges the standalone **Block External Posting** plugin into WP Perf Shield as a new module, and adds the one thing the standalone lacked: visibility.
+
+### What it blocks
+An attacker who has an Application Password, Basic Auth, JWT, OAuth token, a Zapier-style integration, or nothing at all can write posts straight through the REST API (`POST/PUT/PATCH/DELETE /wp/v2/posts`) or the post-writing XML-RPC methods, never going near wp-login.php. That is the injection route behind auto-blogging and doorway/SEO-spam posts - the same class of spam found on the staging site. The new `WPS_Post_Guard` module refuses those writes unless the request is a genuine administrator dashboard session (a valid logged-in cookie, a valid `wp_rest` nonce, and `manage_options` + `publish_posts`), which is a test no external auth method passes. It also unregisters the post-writing XML-RPC methods (`wp.newPost`, `wp.editPost`, `wp.deletePost`, the blogger/metaWeblog equivalents, `mt.publishPost`). Gutenberg, the Classic Editor, and internally scheduled posts are untouched; reads and pingbacks are untouched.
+
+### What was added over the standalone
+The standalone returned a silent 403. Here a blocked write is recorded as a security event (`external_post_write_blocked`, classified high), throttled to at most one event per address every ten minutes so a hammering bot is one line in the log, not thousands. The block itself is never throttled - only its logging. So the operator sees the injection attempts instead of only their absence.
+
+### Off by default, on purpose
+Unlike the login-guard hardening, this one can break a legitimate setup - headless WordPress, mobile-app posting, Zapier/IFTTT, anything that publishes through an Application Password. So it is opt-in, under Settings, the same reasoning that keeps "disable XML-RPC sign-in" off by default. Turn it on only if nothing legitimately posts to this site from outside the dashboard. If you have the standalone Block External Posting plugin installed, deactivate it after enabling this - they do the same job.
+
+### Verified
+`php -l` clean across all includes and the bootstrap. `harness/post-guard.php` (11/11): external POST/PUT/PATCH/DELETE to the posts routes and child routes are blocked; reads and out-of-scope routes pass through; `/wp/v2/postscustom` does not false-match; an earlier filter's result is preserved; a genuine dashboard session is allowed while a session without a nonce is not; and the post-writing XML-RPC methods are removed while read-only methods and pingback survive. The login-guard, event-log and other harnesses still pass.
+
+### Meta
+Version markers move to 1.4.70. New module `WPS_Post_Guard` (`includes/class-post-guard.php`), new setting `post_guard_enabled` (default off), new event `external_post_write_blocked` (classified high by the existing `blocked` rule). `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.69
+
+Documentation sync. No code change.
+
+Across 1.4.62 through 1.4.68 the changelog, upgrade notes, readme.txt changelog and SSOT were updated each release, and `doc/readme.md`'s version line was bumped — but `doc/readme.md`'s own content, and the readme.txt Description, were never brought forward. So the in-plugin Docs reference still described the plugin as it was at 1.4.61: no banned-plugins denylist, no event-chain self-test, no subnet-rotation trigger or range escalation ladder, no XML-RPC multicall stripping, no manual permanent range ban, no report-every-blocked-address. This is the exact drift the SSOT recorded at 1.4.8 — the version line moving while the content stands still — and it recurred.
+
+Brought current here:
+
+* `doc/readme.md` Features: the site-policy banned-plugins denylist, and the concurrency-safe event chain with its in-plugin self-test.
+* `doc/readme.md` Sign-in protection: the distinct-address rotation trigger, the range escalation ladder (6h → 1d → 3d → 1w), the manual permanent range ban, and XML-RPC multicall stripping, plus the Akismet reporting note.
+* `doc/readme.md` admin section: the self-test and permanent-range-ban controls in Diagnostics, and the banned-plugins list and sign-in/XML-RPC/Akismet controls in Settings.
+* `readme.txt` Description: a banned-plugins bullet and a sign-in-protection bullet, neither of which existed.
+
+No PHP changed; `class-*` files are byte-identical to 1.4.68. `INDICATOR_VERSION` unchanged.
+
+## 1.4.68
+
+Two operator requests: a one-click permanent range ban, and reporting every blocked address to Akismet, not only the conclusive ones.
+
+### Permanent range ban
+Diagnostics gains a field to permanently block an address or a whole range. The automatic range guard tops out at seven days on purpose; this is the deliberate, human forever-ban for a range that has proven hostile - the obvious candidate this week being the `173.239.218.0/24` rotator. The permanent denylist, previously address-only, now matches CIDR entries at the gate: exact addresses still match in one step, and only range entries are walked, so the per-sign-in cost stays bounded.
+
+It refuses to shoot the operator in the foot. A range that holds an allowlisted or recently-seen administrator address is refused (with a real containment test, not the /24-only check the automatic guard uses), and a prefix broader than a /16 is refused outright - a manual ban should be a subnet, not a swathe of the internet. A single banned address is also reported to Akismet through the trusted manual path; a range is not, for the reason below.
+
+### Report every blocked address
+Reporting used to fire only on conclusive evidence - many usernames, a repeat offender, or a bot-only username - and hold back a first-offence single-username block as a possible mistyped password. That is why a panel could show hundreds of blocks and zero reports: a distributed attacker on real usernames looks like a lot of first-offence single-username blocks. At the operator's instruction, a new default-on control reports every blocked address, and when a rotating range is blocked it reports the individual addresses that actually attacked from it.
+
+**On the record, because it is more aggressive than the plugin was:** everything Akismet learns is shared with every site that queries it, so a wrongly-blocked address is degraded everywhere, and this setting reports the mistyped-password case the plugin used to protect. The recommendation was to leave it conservative; the operator chose the aggressive posture, and it is theirs to choose. Two safeguards were kept regardless, because they protect people who are definitely not the attacker and are not the operator's to trade away: a CDN or proxy address is never auto-reported (it would flag the CDN for every site), and a whole CIDR is never submitted - the individual attacking members are reported instead, so an innocent neighbour in a shared range is not flagged. Each address is still reported at most once, and both new behaviours have an off switch.
+
+### The posture panel
+The "blocks by rule" line now attributes single-address blocks alongside range rotation, so a busy site's numbers reconcile instead of reading as idle.
+
+### Verified
+`php -l` clean across all includes. `harness/permanent-range.php` (11/11): a banned /24 blocks its members but not outsiders, a range holding an admin address is refused and that address is never blocked, a /8 is refused as too broad, malformed input is rejected, and single-address bans still work. `harness/report-all-blocks.php` (6/6): reporting off submits nothing, report-all off holds back the first-offence case, report-all on reports it, the same address is reported at most once, a private/infrastructure address is never auto-reported, and the submission always carries a single address and never a CIDR. The network-ladder, subnet-rotation, XML-RPC and event-log harnesses still pass.
+
+### Meta
+Version markers move to 1.4.68. New setting `akismet_report_all_blocks` (default on). New event type `range_blocked_permanently` (classified high by the existing `blocked` rule). `INDICATOR_VERSION` unchanged.
+
+## 1.4.67
+
+### Why
+The security posture read as weak, and it was half right. From a live panel: 1,426 failed sign-ins in seven days, 624 addresses blocked, but the "blocks by rule" line showed only "4 range rotation" and nothing else — so the engine looked idle while doing most of its work invisibly, and the work it did do never bit harder on a range that kept coming back.
+
+Two separate problems, one real and one cosmetic.
+
+### Ranges now escalate (the real one)
+A range block was flat: a rotating /24 was held six hours, then returned the moment it lifted. That is most of why a busy site keeps seeing the same subnet. Range blocks now climb a repeat-offender ladder, mirroring the one addresses already had: **6 hours, then 24 hours, then 3 days, then 7 days**, counted over the same 14-day memory, in a store of its own so a flood of single addresses cannot evict the range history. Every return shrinks the attacker's usable window.
+
+It stops at seven days rather than going permanent. A /24 can hold people who are not the attacker, so an automatic forever-ban of a whole range is a bigger hammer than this should swing on its own; a permanent range ban stays a manual decision. Every existing protection is intact — a range holding the allowlist or a remembered administrator address is still never blocked.
+
+### The posture panel now tells the truth (the cosmetic one)
+"Addresses blocked: 624" next to "4 range rotation" was not a contradiction, it was an omission: range-rotation blocks are few because each one covers a whole /24, and the ~620 single-address blocks were simply not shown. The "blocks by rule" line now attributes them — single address, many usernames, non-existent account, range rotation — so the four numbers reconcile, and it notes that a range block covers every address in that /24. It renders whenever anything has been blocked, not only when a newer rule fired.
+
+### Verified
+`php -l` clean across all includes. `harness/network-ladder.php` (10/10): the ladder climbs 6h -> 24h -> 3d -> 7d and caps there, each block targets the /24 not a single address, escalation is recorded in the block metadata, the range store is separate from the per-address store, and the per-address counter still returns 1 then 2 after the shared-helper refactor. The 1.4.65 subnet-rotation harness and the XML-RPC and event-log harnesses still pass.
+
+### Meta
+Version markers move to 1.4.67. New bounded option `wps_login_net_offenders` (14-day memory, capped). No new event types; `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.66
+
+### Why
+The Apache log for the same attack showed a second vantage point and a second vector:
+
+```
+[auto-login]  173.239.218.x   (1-2 direct login POSTs each, many addresses)
+[auto-login]  146.70.194.236  (0 login POSTs, 1 xmlrpc hit)
+```
+
+Two things to answer. First: is the /24 rotation, seen here as raw login POSTs, actually caught? Yes - 1.4.65 handles it. Those POSTs fail authentication, which fires `wp_login_failed`, which feeds the same per-address and distinct-address rotation counters; five distinct addresses in the /24 within the hour blocks the range. Second, and new: the attacker is now probing `xmlrpc.php` from a different network.
+
+### XML-RPC was already counted - with one gap
+XML-RPC sign-ins run through `wp_authenticate()`, so they pass through the guard's `authenticate` gate (a blocked address or range is rejected on XML-RPC exactly as on the login form) and a failed one fires `wp_login_failed` (so it counts toward the per-address and rotation rules like any other). The gap was `system.multicall`: one XML-RPC request can batch many credential guesses through it, and the plugin only stripped it when XML-RPC sign-in was disabled wholesale - which is off by default, because that would break Jetpack and the mobile apps.
+
+That coupling was the mistake. Jetpack and the mobile apps authenticate through **direct** methods (`wp.getUsersBlogs`), not `system.multicall`. So `system.multicall` can be removed on its own, closing the amplification vector, without touching anything a normal client uses.
+
+### What changed
+A new default-on control strips `system.multicall` from XML-RPC while leaving XML-RPC sign-in working. It sits beside the existing full-disable toggle as the middle ground that was missing: neuter the request-batching vector, keep Jetpack and the apps. It has an off switch for the rare tool that batches through `system.multicall` deliberately. The full-disable toggle is unchanged and still available for operators who want XML-RPC sign-in gone entirely.
+
+### What this means for the log
+The `173.239.218.0/24` rotation is blocked by 1.4.65 on the fifth distinct address. A lone XML-RPC probe from `146.70.194.236` is one failure from one address - correctly not blocked on its own, but if that network starts rotating too, the same distinct-address rule blocks it, and `system.multicall` no longer offers it a way to multiply guesses per request.
+
+### Verified
+`php -l` clean across all includes. `harness/xmlrpc-multicall.php` (8/8): `system.multicall` is removed, `wp.getUsersBlogs` and pingback and the other methods survive, the full strip still removes multicall and pingback, and the control is on by default and switchable. The 1.4.65 subnet-rotation harness (5/5) and the event-log harnesses still pass.
+
+### Meta
+Version markers move to 1.4.66. No new event types; `INDICATOR_VERSION` unchanged. New setting `xmlrpc_strip_multicall`, default on, under Settings.
+
+
+## 1.4.65
+
+### Why
+An operator's live log showed this, and the plugin was logging it as noise rather than stopping it:
+
+```
+10:55  failed sign-in  173.239.218.87
+10:45  failed sign-in  173.239.218.120
+10:36  failed sign-in  173.239.218.77
+10:26  failed sign-in  173.239.218.105
+10:17  failed sign-in  173.239.218.77
+10:08  failed sign-in  173.239.218.117
+09:58  failed sign-in  173.239.218.113
+```
+
+Seven failures in an hour, six distinct addresses, all in `173.239.218.0/24`, paced about ten minutes apart. That pacing is deliberate. No single address reaches the per-address threshold (five in fifteen minutes); no fifteen-minute window reaches the network threshold (twelve); and any gap over fifteen minutes reset the old network tally. The attacker had measured the rules and sat just under all of them.
+
+### What changed
+The network guard no longer relies on rate alone. What low-and-slow rotation cannot hide is the rotation itself: legitimate people do not fail sign-ins from five different addresses in one /24 inside an hour. So **distinct addresses within a one-hour rolling window are now a trigger in their own right** — five distinct failing addresses in a /24 blocks the range, regardless of the raw count or the pacing.
+
+The range tally is now a timestamped, pruned sliding window rather than a TTL that a slow attacker can keep alive or step just outside. The original burst rule (twelve failures, three distinct, fifteen minutes) still stands for high-rate attacks; the new rule sits beside it for slow ones. A confirmed rotation is high-confidence, so it is held six hours rather than the thirty minutes a raw-count block gets.
+
+### What it does not do
+It cannot lock the operator out. Every existing protection is intact: a range holding the allowlist or any remembered administrator address is never blocked, and — proven by test — a single noisy address (a real user mistyping a password) never escalates to a network block however many times it fails. Blocking a range is still gated behind rotation across distinct addresses, which one person cannot produce.
+
+### Verified
+`php -l` clean across all includes. `harness/subnet-rotation.php` (5/5) replays the exact log above and confirms: no block through the first four distinct addresses, a rotation block the moment the fifth distinct address fails (attempt six), the old rule would not have blocked it at all (verify the verification), and a single address failing fifteen times never triggers a network block.
+
+### Meta
+Version markers move to 1.4.65. No new event types (`login_network_blocked` is unchanged) and `INDICATOR_VERSION` is untouched. The whole network guard remains switchable via the existing setting, on by default.
+
+
+## 1.4.64
+
+### Why
+1.4.63 fixed the concurrency-safe event-log append (CRIT-005) but could only prove it by logic in a database-less build box; the real guarantee lives on the host, and verifying it meant shipping external shell scripts and WP-CLI. This release moves that verification **into the plugin**, so an operator confirms the fix from the Diagnostics screen on the actual server, no shell required.
+
+### What it does
+Diagnostics gains an **Event-chain self-test** that runs two checks against the live database and renders the verdict:
+
+1. **Real append path yields a clean, isolated chain.** It runs the genuine `record()` / `verify_chain()` code path over an isolated scratch table, appends a batch, and confirms the result is one linear, verifiable chain with no duplicate predecessor — then drops the scratch table. The real tamper-evident chain is never written to or deleted from, and the test asserts that isolation afterwards (real row count and anchor unchanged).
+2. **The append lock excludes across connections.** A second, independent database connection takes the append advisory lock; the primary must then be blocked from acquiring it, and must succeed once the second releases. This proves the load-bearing property of the fix — cross-connection mutual exclusion — deterministically, with no timing-dependent parallel burst. Where `GET_LOCK` is unavailable (a non-MySQL/MariaDB host), the check reports not-applicable and the append uses its `FOR UPDATE` fallback.
+
+The run records one audit event of its own verdict, appended to the real chain after the scratch table is gone.
+
+### Provenance and audit
+The self-test code path — `WPS_Chain_Selftest`, the `WPS_Event_Log` scratch-namespace API (`begin_selftest`/`end_selftest`/`append_lock_name`), the Diagnostics panel and its wiring — was reviewed as if it were third-party code, because it opens a second database connection and issues `DROP TABLE`. Findings: no execution or network primitives; the scratch namespace is validated `[a-z0-9]{1,16}` so it cannot be used to inject SQL through the table name; `end_selftest()` will only drop a table whose name contains `wps_events_st_`, never the real `wps_events`; and the real anchor option and mirror files are untouched throughout. It is a clean superset of the 1.4.63 append fix — the lock name and head-from-table logic are unchanged, refactored into the shared `append_lock_name()`.
+
+### Verified
+`php -l` clean across all includes and the bootstrap. `harness/crit005-logic.php` (9/9) confirms `record()` still yields a clean, verifiable chain — the CRIT-005 fix is intact. `harness/selftest-isolation.php` (7/7) confirms the scratch namespace redirects and restores correctly, rejects injection-shaped namespaces, and drops only the scratch table. The one thing no build box can prove — real cross-connection `GET_LOCK` exclusion — is exactly what the in-plugin self-test now proves on the host: run it once on staging from Diagnostics.
+
+### Meta
+Version markers move to 1.4.64. `INDICATOR_VERSION` unchanged (no indicator lists moved). The external `harness/crit005-concurrency.sh` remains for N-way throughput testing and CI, but the built-in self-test is the everyday path.
+
+
+## 1.4.63
+
+### Why
+The operator has an unexplained chain-verification failure on a live production site. This release addresses its most likely cause: **CRIT-005**, the tamper-evident event log's append was not concurrency-safe.
+
+`WPS_Event_Log::record()` read the chain head, computed a hash, inserted the row, then advanced the head — with no lock and no transaction. Two requests landing at once both read head `H`, both wrote an event claiming `prev_hash = H`, and the chain forked. `verify_chain()` then reported that fork as tampering: a false alarm indistinguishable from a real one, produced by ordinary concurrent traffic on a busy site.
+
+### What changed
+The append is now serialised. The critical section takes a MySQL/MariaDB advisory lock (`GET_LOCK`, named from the table so unrelated sites on one server do not block each other), with a transaction and a tail-row `FOR UPDATE` as the fallback where `GET_LOCK` is unavailable. The lock is always released, and an incomplete append rolled back, in a `finally`.
+
+The more important change is where the head comes from. Inside the lock, `record()` now reads the head from the **table** — the newest chained row's `curr_hash` — not from the cached `wps_event_chain` option. That closes the race and makes an append self-healing: a stale or already-forked anchor can no longer misdirect a new link, and the anchor count is recomputed from the table rather than incremented blindly.
+
+### What this does not do
+It is preventive. It stops future forks; it does not repair a chain already forked on the live site. If the existing production failure is a benign concurrency fork, `verify_chain()`'s `first_bad_id` marks the first forked row — one written in the same second as its predecessor by legitimate traffic is the signature. Re-anchoring an already-forked historical chain is separate work, not part of this fix.
+
+### Verified
+`php -l` clean across all includes and the bootstrap. A reconstructed logic harness (`harness/crit005-logic.php`, 9/9) proves the head is read from the table not the anchor — by seeding a deliberately forked anchor and confirming the new link ignores it — that the resulting chain verifies clean with no duplicate predecessor, and that `verify_chain()` catches an injected fork. The harness was also run against a copy with the defect reintroduced and *failed* there, so the verification is not vacuous.
+
+**Not verified here, and gated before production:** true atomicity under concurrent database connections, the `FOR UPDATE` fallback, and crash-consistency. The build environment has no database. `harness/crit005-concurrency.sh` runs that proof on a staging clone against real MySQL; the production deploy is gated on its result.
+
+### Meta
+Version markers move to 1.4.63. `INDICATOR_VERSION` is unchanged: the indicator lists did not move, and per the SSOT it bumps only when they do — the release checklist's mention of it does not apply to a change that touches no indicators. Scanner work (CRIT-003 resumable scanning, LOW-003 per-check status) remains open and is the next phase task.
+
+
+## 1.4.62
+
+### Why
+A site owner asked for two ordinary plugins — WP File Manager and FileBird — to be refused on this site while WP Perf Shield is active. Both are clean; this is not a malware finding. WP File Manager hands full filesystem access to anyone who reaches the dashboard and carries the CVE-2020-25213 remote-code-execution lineage, which makes it a standing post-compromise foothold worth refusing on a hardened site; FileBird is refused purely as an operator preference.
+
+The mechanism to refuse a plugin already existed — the malware blocker intercepts activation, upload, and the active-plugins list. The temptation was to drop the two slugs into that list and be done. That would have been wrong: the malware path logs every hit as "matches a known malicious pattern", and the event log is tamper-evident and permanent. Recording a false malware attribution against a clean plugin would poison exactly the record the plugin exists to keep honest.
+
+### What was added
+A **site-policy plugin denylist**, kept deliberately separate from the malware blocklist.
+
+`WPS_Blocker::get_policy_banned_slugs()` ships two built-in bans (`wp-file-manager`, `filebird`) and merges in one operator-managed slug per line from Settings. `is_policy_banned()` tests the plugin path against that list — folder/slug substring only, no hashes and no payload signatures, because nothing here is malware.
+
+The same five choke points the malware blocker already owns now also enforce policy, each with its own event type and its own wording:
+
+* activation link removed on the Plugins screen (`⛔ Banned by site policy`);
+* activation refused (`policy_activation_blocked`);
+* upload refused before the file lands (`policy_upload_blocked`);
+* removed from the active-plugins list on save (`policy_removed_from_db`, and the network variant);
+* force-deactivated on load if already running (`policy_force_deactivated`, and the network variant).
+
+The upload refusal matches the upload filename as a substring and, for a ZIP, each entry as a **path segment** — so `wp-file-manager/…` is caught but another plugin merely shipping a `filebird`-named file is not.
+
+### What it deliberately does not do
+A policy refusal never calls `record_upload_offender()`, so it never adds the uploader's address to the hostile-IP auto-block list. The person uploading a plugin they are not permitted to run is, almost always, the administrator. Treating that as an attack would lock the owner out of their own site over a preference.
+
+The six policy event types sit at **warning** severity, not the `high` band the malware `blocked` events use. They are notable and routine, not evidence of compromise. All six are registered explicitly in `WPS_Utils::event_severity()` and are each emitted by the blocker — no map entry without a call site, no call site without a map entry.
+
+### Where to manage it
+WP Perf Shield → Settings → **Banned plugins**: a toggle to enforce the list (on by default, so the two bans are live on upgrade with no action needed) and a textarea for additional slugs. The toggle exists so a control that would otherwise have no off state does not become one.
+
+### Verified
+`php -l` clean across all thirty includes and the bootstrap. Every emitted policy event type has a matching severity entry and a curated label. The four release version markers agree at 1.4.62. `INDICATOR_VERSION` is unchanged — the indicator lists did not move, and a policy ban is not an indicator.
+
+
+## 1.4.61
+
+### Why
+1.4.60 fixed three of the review's five critical findings. Seventeen remain, spread across seven phases, and the information needed to continue was scattered across a 580 KB changelog, a 270 KB reasoning document and one session's working memory.
+
+Anyone resuming this — a person, or a tool with no recollection of it — needed a single file that says where the work stopped.
+
+### What was added
+`doc/remediation-roadmap.md`, registered in the Docs tab as the first entry so it is the obvious place to start.
+
+It carries the twenty-finding ledger with current status, the detail of what was repaired and how it is proven, the next four tasks with file locations and acceptance criteria, the later phases in the review's order, the product decisions that are not defects, the prohibited-actions list, and the house conventions.
+
+It also carries the things a fresh session would otherwise rediscover expensively: that the build container does not persist and the harness is rebuilt every time, the exact packages to install, that `WPS_VERSION` must be derived from source rather than pinned in the stub, that staged site copies go stale after an edit, and that a suite meant to run against an older build must honour an external `WPS_TEST_SITE` rather than hardcoding one.
+
+Four recurring defect shapes are recorded, each of which has cost real time: pinned-literal assertions, regression tests that pass against the bug they name, comments taken as evidence of behaviour, and a closing PHP delimiter inside a `//` comment silently ending PHP mode while `php -l` still reports the file valid.
+
+### The roadmap is asserted against the code
+A status document that drifts is worse than none, because it is believed. A 28-check suite holds it to the source: every finding identifier must appear, anything marked **Fixed** must be genuinely present in the code, and anything marked **Open** must be genuinely absent.
+
+That last group inverts deliberately. When continuation state is implemented, the assertion "CRIT-003 is genuinely still open" will fail — which is the suite requiring the ledger to be updated in the same change as the code, rather than months later.
+
+### Corrections to the record
+Two claims in the 1.4.60 notes were less complete than they read, and the roadmap states both plainly.
+
+Phase 1 item 4 — explicit failed and incomplete check statuses — was implemented in `compare_plugin_files()` only. The 71-check registry still runs each detector through a bare `call_user_func` with no try/catch and no per-check status, so a throwing detector still escapes and an empty result is still indistinguishable from a successful one. That is task 1 of the next phase, not finished work.
+
+And the false sentence promising that skipped checks run during a manual scan is still shipping. It is named as a task and asserted to still exist, so the suite will notice when it goes.
+
+`MED-003` — excessive release archaeology — is recorded as **worsened** by this programme rather than quietly listed. Each release adds several kilobytes to the changelog and the reasoning document. This roadmap is a partial answer; the full fix is still outstanding.
+
+### Verified
+`php -l` across all twenty-nine includes and the bootstrap, `node --check` on `admin.js`, a new 28-check suite, and the nine earlier suites re-run as regressions. `fixtures1460.php` still passes 32/32 against this build and fails 27/32 against 1.4.59.
+
+No code changed beyond the docs registry entry and the version constants. `class-scanner.php`, `class-blocker.php` and `class-event-log.php` are byte-identical to 1.4.60.
+
+### Meta
+One new file, `doc/remediation-roadmap.md` (48 entries). `INDICATOR_VERSION` moves to `1.4.61-1`.
+
+## 1.4.60
+
+### Why
+An external security review of 1.4.59. Five critical findings, five high, seven medium. This release is phase one of the remediation sequence the review sets out: correctness and data-loss defects first, architecture later.
+
+The archive hash was checked before anything else. `38ee657b…ef595` matches the packaged 1.4.59 exactly, so the findings map to the source in hand rather than to some other build.
+
+### CRIT-001 — the integrity scanner never ran
+`compare_plugin_files()` built its iterator into `$iter` and then iterated `$iterator`. One character, and the check has been dead for as long as it has existed.
+
+Reproduced before repairing, against a plugin directory carrying both an injected `eval()` in a legitimate file and a planted backdoor beside it:
+
+```
+PHP Warning: Undefined variable $iterator
+PHP Warning: foreach() argument must be of type array|object, null given
+returned: modified=0, extra_php=0
+```
+
+PHP warns, `foreach` receives null, the loop body never executes, and the function returns two empty arrays. Warnings are not exceptions, so the surrounding `try` caught nothing. The caller iterated two empty arrays and produced no findings. **A tampered plugin and a planted backdoor both reported clean.**
+
+The rename is trivial. What let it survive is that a scanner failing silently and a scanner finding nothing were indistinguishable from outside, so every exit from that function now carries an explicit `status` — `complete`, `incomplete` or `failed` — with a reason. An unresolvable directory is a failure, not a clean result. A traversal that stops on the time budget or the file cap is incomplete, not clean.
+
+The handler also now catches `Throwable` rather than `Exception`. That was not cosmetic: the first repaired run surfaced a `TypeError`, which is an `Error` and which the old handler would have let escape as a fatal.
+
+### CRIT-002 — a failed quarantine authorised deletion
+The remediation path fell back to `unlink()` or recursive deletion whenever quarantine did not succeed, for any reason. The comment stated the intent plainly: so a threat is never left live.
+
+That conflated two different situations. Quarantine being **disabled** is a policy choice, and deletion is then what the operator asked for. Quarantine **failing** — no disk space, a permissions error, an unwritable store — is an accident, and none of it is evidence that destroying the file is safe.
+
+The old behaviour turned a recoverable incident into permanent data loss precisely when the machine was already misbehaving, and it did so most eagerly on the findings least likely to be correct. A live threat left in place for one more scan is recoverable. A legitimate file deleted because the quarantine directory was full is not.
+
+A failed quarantine attempt now stops. The target is untouched, the finding stays open and unremediated, an `auto_remediation_withheld` event is recorded, and the operator is told which directory to check. Deletion remains available when quarantine is switched off deliberately.
+
+### CRIT-004 — no single-flight lock
+Nothing prevented the hourly cron, a manual scan and a post-upgrade scan running at once, each entitled to quarantine or delete.
+
+`WPS_Scan_Lock` acquires atomically through an `INSERT` into the options table, which either creates the row or fails with no window between the check and the claim. A read-then-set transient is not a lock — two workers can both read "free" before either writes — and the review prohibits one explicitly. The lock carries a random owner token so a worker can only release its own, an expiry so a crashed worker cannot block scanning permanently, and a `describe()` that omits the token, since the token is what authorises release.
+
+Release happens in a `finally`, so a fatal inside a scan cannot strand the lock for its full fifteen minutes.
+
+### Akismet — documentation corrected, behaviour untouched
+The review is explicit that default-enabled attacker reporting is intentional. It is unchanged and asserted unchanged.
+
+A comment in `class-login-guard.php` described it as running "if the operator opted in", which contradicted the implementation. Corrected.
+
+Verifying that turned up something the review did not list. `akismet_enrichment` — the switch governing whether Akismet is *consulted* for block duration — was read at runtime but had no settings control and no save handler, so it could never be set. Its own docblock said "there is nothing to switch on" directly above the line reading the switch. The control is now real: a settings row, a save handler, still enabled by default, and described accurately as the opposite data flow to reporting. Reporting sends attacker data outward; enrichment only asks a question.
+
+### Verified
+A 32-check phase-one suite, run against **both** builds. All 32 pass against this release; **27 fail against 1.4.59**. The five that pass on both are correctly calibrated — unchanged Akismet defaults, and a clean-tree case a broken scanner also gets right by accident.
+
+That proof took two attempts. The suite initially passed against 1.4.59 because a hardcoded `putenv()` overrode the environment and it was testing the patched tree while claiming otherwise. It then fatally errored because a missing class file was a hard `require`. Both fixed; the includes are now tolerant so an absent file is reported by the assertion that cares rather than crashing the run.
+
+All eight earlier suites re-run green, and all nine sample trees report unchanged finding counts.
+
+### Still outstanding
+This is phase one of seven. **CRIT-003** (fixed-order scan starvation) and **CRIT-005** (event-chain concurrency) are not fixed here, along with every high and medium finding. They are next, in the review's order.
+
+CRIT-003 is not news: it was identified at the start of this session's work, described accurately, and then not fixed while other releases went out. The review found it independently.
+
+### Meta
+One new file, `includes/class-scan-lock.php` (47 entries). `INDICATOR_VERSION` moves to `1.4.60-1`.
+
+## 1.4.59
+
+### Why
+`site-speed-insights-d6e7`, 9,656 bytes. Nothing was missing.
+
+Both hashes were already catalogued and both matched the file exactly, including the SHA-256. All five layers held: blocked at activation, rejected at upload — even renamed and rebuilt so both fingerprints missed — the option key `wp_204acd2d43_cfg` catalogued, and seven checks detecting at five criticals.
+
+That is a satisfying result and it is not a release. What the sample did produce was two documentation corrections.
+
+### The catalogue was understating what it knows
+The entry was marked *Catalogued*, meaning recorded from earlier analysis and not re-examined. It has now been re-examined and its fingerprints computed from the file, which is the definition of *Verified* this catalogue uses. Promoted, and four of the seventeen ClickFix members are now verified directly.
+
+### And overstating it, in a way
+Auditing the hash list to check that entry turned up something worth publishing: **17 of the 34 fingerprinted samples carry an MD5 with no SHA-256 companion**, and one catalogue row carries no fingerprint at all.
+
+A reader of a catalogue that only shows what is known will reasonably assume the rest is covered. Appendix G now states exactly where the coverage is thin, generated from the blocking list itself and asserted against it by the suite so it cannot fall out of date.
+
+The honest reading of that gap: it is **not** an evasion hole. Altering a file changes both hashes, so an MD5-only entry is no easier to slip past than a pair. What it costs is corroboration — a single MD5 is weaker evidence when confirming an identification, and MD5 is no longer collision-resistant, so a file crafted to collide could provoke a false match. Neither is urgent. Both close the moment a sample is supplied, which makes Appendix G a list of what is worth sending.
+
+### Verified
+`php -l` across all twenty-eight includes and the bootstrap, `node --check` on `admin.js`, and the 1.4.48 through 1.4.58 suites re-run as regressions, including the parallel session's 1.4.55.
+
+One assertion in the new appendix check was written badly and fixed: it looked for the phrase "never written from memory" while the document says "was ever written from memory", so it failed on word order rather than substance. That is the eighth time this project has pinned a spelling where it meant an intent, and it is recorded because the count is the interesting part.
+
+### Meta
+No new files, no code changes. `INDICATOR_VERSION` moves to `1.4.59-1`. One catalogue entry promoted, one appendix added.
+
+## 1.4.58
+
+### Why
+`Plugin-45e0930c`, 127,542 bytes — the fourth member of the theme-loader family, and the second of the two that 1.4.57 found had been recorded in code comments and never made it into the catalogue.
+
+It is 127,542 bytes. The comment written during the 1.3.79 analysis says 127,542 bytes. The file that analysis saw and the file supplied today are the same file, which is a small thing but a satisfying one — the note in the source was accurate for however many releases nobody checked it.
+
+### What changed
+The MD5 and SHA-256, computed from the file. The catalogue entry moves from *Catalogued* to *Verified*.
+
+Three of the four known members are now verified. `Plugin-390a770b` is the last one carried without a fingerprint.
+
+### What the fourth sample shows about the family
+With four members in hand or on record, the convention is unambiguous. Folder `Plugin-<8 hex>`, description `simple js plugin`, internal constant `I<8 HEX UPPERCASE>_PLUGIN_VERSION`.
+
+The payloads cluster tightly: 118,037 to 121,167 bytes, always on one line, carrying between 4,911 and 5,248 hex identifiers. That spread is narrow enough to suggest a single builder emitting per-victim copies rather than four separately authored variants — the same conclusion the `Plugin-<8 hex>` naming already pointed at, now with sizes behind it.
+
+Coverage before this release: blocked at activation, rejected at upload on `ENDPLUGINJS`, detected five ways at critical. Only the hash layer was open, which is the entire content of this release.
+
+### Verified
+`php -l` across all twenty-eight includes and the bootstrap, `node --check` on `admin.js`, and the 1.4.48 through 1.4.57 suites re-run as regressions, including the parallel session's 1.4.55.
+
+The completeness gate extended in 1.4.57 — the one that reads sample identifiers out of the source, not just values out of lists — passes against the updated catalogue.
+
+### Meta
+No new files. `INDICATOR_VERSION` moves to `1.4.58-1`. Two hashes added, one catalogue entry promoted.
+
+## 1.4.57
+
+### Why
+An operator sample: `Plugin-b45b652c`, 129,503 bytes, a member of the theme-loader JavaScript injector family. 5,248 hex identifiers in a single 119,998-byte line, `ENDPLUGINJS` and `ENDPLUGINFN` heredocs, and the constant `IB45B652C_PLUGIN_VERSION` — the `IB<8HEX-UPPER>` naming holds across every member seen.
+
+### The good news first
+Blocked at activation and rejected at upload, by a plugin that had never seen this file. 1.4.50 stopped matching names and started matching the `Plugin-<8 hex>` shape; this is that decision working on a member it was never shown. Five checks detected it, all critical.
+
+Only the hash layer was open, which is what a sample in hand fixes.
+
+### The catalogue was wrong about its own contents
+`doc/variants.md` listed two members of this family. The source knew four.
+
+`Plugin-b45b652c` and `Plugin-45e0930c` were confirmed samples in the original 1.3.79 analysis, recorded in comments in `class-scanner.php` and `class-wps-indicators.php` — including the exact byte count that this upload matches — and they never made it into the catalogue built in 1.4.51.
+
+Blocking was never affected; the shape pattern covers any member regardless of what is written down. What was wrong is the document that tells an analyst what is known.
+
+### Why the completeness gate missed it
+1.4.51 added a check that fails if any catalogued value is absent from the catalogue. It reads **values** out of the indicator accessors and the blocking lists. A sample named in a comment is not a value in a list, so it was invisible to exactly the mechanism built to prevent this.
+
+The gate now also extracts sample identifiers from the source in the shapes this project uses to name captured samples, and holds them to the same standard. Run across the whole codebase it found precisely two gaps, both in this family; the other thirteen identifiers were already documented.
+
+That check was then verified the only way a regression test is worth anything — by injecting an undocumented identifier into the source and confirming it **fails**. The first attempt at that proof was itself faulty: removing the catalogue row left the identifier present in the hash appendix, so the gate passed and appeared not to work. A test that would have passed against the bug proves nothing.
+
+### Verified
+`php -l` across all twenty-eight includes and the bootstrap, `node --check` on `admin.js`, and the 1.4.48 through 1.4.56 suites re-run as regressions, including the parallel session's 1.4.55.
+
+Detection of this sample is asserted at five checks. `Plugin-45e0930c` and `Plugin-390a770b` remain without hashes; those files are not in hand, and a hash written from memory matches nothing while looking like protection.
+
+### Meta
+No new files. `INDICATOR_VERSION` moves to `1.4.57-1`. Two hashes added, two catalogue entries corrected.
+
+## 1.4.56
+
+### Why
+Sekoia TDR published an analysis of ErrTraffic, a ClickFix distribution framework sold as a service. Reading it against this plugin's own source produced an uncomfortable identification.
+
+The scanner class has carried this line in its docblock since the original wp-perf-analytics work:
+
+> `Confirmed contract: 0x08207B087F61d7e95E441E15fd6d40BEfd6eD308`
+
+That is the exact Polygon smart contract Sekoia attributes to the ErrTraffic **"Analytics" cluster**. WP Perf Shield's founding target was never an anonymous campaign. It is a commercially sold framework, advertised on Exploit.IN since December 2025, subscription $380 a month or $4,500 for source with lifetime support.
+
+The corroboration holds up. Sekoia lists the Analytics cluster's preferred TLDs as `.cfd`, `.club`, `.click`, `.cyou`, `.lat`, `.sbs`, `.shop` and `.xyz`. The C2 hosts catalogued here from captured samples are `biletors.cfd`, `comicstar.lat` and `webanalytics-cdn.sbs`. Three for three.
+
+### A false positive found while measuring it
+A fixture was written to check the new detection: a genuine NFT gallery plugin, own directory, real header, plain readable code, calling `eth_call` against a public Polygon endpoint because that is what such a plugin does.
+
+It was reported **critical** as ClickFix malware.
+
+`SIGNATURES_PERF` is a single-match list, and it contained seven public RPC hostnames and `eth_call` itself. Any legitimate web3, NFT or wallet plugin on any site would have been flagged as malware and offered for deletion. `eth_call` appears in every web3 library there is.
+
+Those entries are removed. They remain in `etherhiding_indicators()`, where every consumer requires corroboration. The real samples in this family carry a dozen other entries from the signature list, and all six sample trees report exactly the same finding counts as before — 11, 11, 6, 7, 6, and 0 on the clean tree.
+
+This is the 1.4.40 lesson in a different coat. A scanner that deletes legitimate software teaches its operator to ignore it, and then it protects nobody.
+
+### The structural gap
+Detection depended on a list of RPC hostnames. That list cannot be completed: the ErrTraffic "Beer" cluster resolves through Quicknode, which issues a per-customer subdomain, and assigns each affiliate its own contract. Neither value can be known in advance, so an unseen affiliate defeated the match entirely.
+
+`check_etherhiding_resolver()` matches the shape instead — a JSON-RPC read primitive and a contract address for it to read from. Both are required, because either alone is ordinary. Both together are still not enough, because that describes a legitimate web3 plugin exactly, so a third independent signal is required: obfuscation, a clipboard-execution lure, a known ErrTraffic request path, or a location no self-declaring plugin would choose.
+
+Also added: the Quicknode registrable domain, and the request-path markers `/cf.js`, `/api/css.js`, `a=ctx` and `src=cloudflare`. Those survive the daily domain rotation, which makes them the durable half of the fingerprint.
+
+### Verified
+`php -l` across all twenty-eight includes and the bootstrap, `node --check` on `admin.js`, a new 23-check suite, and the 1.4.48 through 1.4.55 suites re-run as regressions.
+
+An ErrTraffic-shaped mu-plugin resolver is asserted critical. A fixture using an unlisted RPC subdomain and a contract nobody has catalogued is asserted found at high, which is the case the hostname list could never have covered. The legitimate web3 plugin is asserted clean against **every check in the scanner**, not merely the new one.
+
+One mistake of mine was caught before packaging. Removing those entries from the signature list dropped `polygod.network` entirely, because unlike the others it existed nowhere else — fixing a false positive had quietly removed a detection. It is relocated, and the suite now asserts that every endpoint taken out of the single-match list landed in the corroborated one, so the next such move cannot lose an entry silently.
+
+### Meta
+No new files. `INDICATOR_VERSION` moves to `1.4.56-1`. Two new indicator accessors.
+
+## 1.4.55
+
+### Why
+An external review of the plugin, delivered as a prioritised plan. Both priority-zero items were verified against the code before anything was changed, and both were real. One of them was worse than the report described.
+
+### P0-001: the hardening routine was leaking the database credentials
+Every wp-config.php edit — adding constants, cleaning injected malware, rotating salts — first wrote a backup to `wp-config.php.wps.bak`, beside the original, in the web root.
+
+That file is not PHP. The protection wp-config.php enjoys comes entirely from being executed rather than served; rename it to anything the server does not parse and the contents go straight down the wire. Database name, user, password, table prefix, and every authentication salt, to anyone who guesses a very guessable filename.
+
+The hardening routine was creating a total compromise and reporting success.
+
+The fix is not new work. 1.3.97 moved remediation backups into the quarantine store for exactly this reason and left a comment explaining it; hardening was simply never migrated. All three edit paths now go through one guarded helper.
+
+Quarantine availability is tested *before* the copy, not after, because the shared backup helper falls back to a filesystem copy beside the original when the store is unavailable — which for this file is the very thing being fixed. If a fallback copy appears anyway it is deleted and the edit refused. A wp-config edit without a safe recovery point is not worth what it would cost.
+
+### And the part the report did not cover
+Upgrading stops new copies being written. It cannot remove the ones already sitting in the web root of every installation that has ever used the hardening tab.
+
+So `check_exposed_config_backup` reports them, at critical. It finds the plugin's own historical `.wps.bak` files and says plainly that WP Perf Shield wrote them and that deleting them is safe. It also finds everyone else's — `wp-config.php.bak`, `wp-config.php~`, `.save`, `.old`, `.orig` — which is the more common case in the wild and a well-worn route into WordPress sites.
+
+Only files that actually contain credentials are reported. A name is not evidence, and a scanner that cries wolf over an empty `wp-config.php.bak` teaches operators to ignore it.
+
+The remediation text says to rotate the salts and change the database password rather than merely delete the file, because a file that has been exposed for an unknown length of time must be assumed to have been read.
+
+### P0-002: saving Settings silently switched off CSP
+`save_settings()` handed `update_option()` a literal array. Every key the Settings tab does not own was destroyed on save.
+
+The Content-Security-Policy mode and policy live in that same option and are edited on a different tab. So enabling CSP, then later saving any unrelated setting, reverted `csp_mode` to `off`. A security control disabled by an action that had nothing to do with it, with no message and no trace.
+
+The handler now reads the option first and overwrites only the fields the form owns. Anything a future component stores there survives by default, rather than by somebody remembering to come back and add it.
+
+CSP's own save path was already correct — read, modify, write — which is what made the asymmetry easy to miss.
+
+### Verified
+`php -l` across all twenty-eight includes and the bootstrap, `node --check` on `admin.js`, a new 26-check suite, and the 1.4.48 through 1.4.54 suites re-run as regressions.
+
+The new check is exercised against real files on disk rather than mocked: the plugin's own backup shape, five third-party shapes, and four refusals — a config-shaped file holding no secrets, `wp-config-sample.php`, a `.php` include the server still executes, and `wp-config.php` itself.
+
+The settings fix carries an assertion that would have failed before it, because a regression test that would also have passed against the bug is not a regression test.
+
+### What is not in this release
+The review runs to seventeen items across five priorities. This release contains the two marked P0 and nothing else. Items touching remediation capabilities, mandatory backups and the scanner split are safety-critical refactors of privileged file operations, and the review's own guidance says to build regression coverage before behaviour-changing scanner work. That sequencing is right.
+
+### Meta
+No new files (54 entries). One new scanner check, taking the registry to 70. `INDICATOR_VERSION` moves to `1.4.55-1`.
+
+## 1.4.54
+
+### Why
+1.4.52 prepared the profiler submission and 1.4.53 was asked the obvious follow-up: what about the icon. There wasn't one. WP Perf Shield had shipped fifty-odd releases with no brand mark at all — no SVG, no PNG, nothing but WordPress dashicons borrowed for buttons.
+
+### The mark
+A shield silhouette in the plugin's own accent blue, with three ascending bars knocked out in white. 442 bytes, square `0 0 64 64` viewBox, no text, no gradient, no filter.
+
+The default for a WordPress security plugin is a blue shield, possibly with a padlock. Wordfence, Sucuri, MalCare and Solid Security all occupy that space, so a plain shield would be invisible in a directory listing sitting next to them.
+
+The bars are what makes it this plugin rather than any of those. WP Perf Shield exists because malware impersonated performance plugins — the whole ClickFix family wears names like `wp-perf-analytics` and `site-speed-insights` — and the name still carries that lineage. The silhouette gives the category read; the contents give the identity.
+
+### Drawn for 16 pixels, which is where it will actually be seen
+The first draft used 7-unit bars with 1.9-unit gaps. Rendered at 16px that is a 1.75px bar separated by 0.47px, and the gaps disappear into a solid block.
+
+It was rasterised at 16, 24 and 32 pixels and inspected against light and dark backgrounds before being accepted, rather than judged at the size it was drawn. The shipped version uses 8-unit bars with 4-unit gaps — half a bar's width — so the separation survives, and the shield fills more of the canvas so the interior has room.
+
+The fill is `#1e6ba8`, which is the existing `--wps-blue` token rather than a new blue. The suite asserts those two stay equal, so a rebrand cannot silently desynchronise the mark from the interface.
+
+### Where it appears
+In the plugin header beside the title, at 28px, styled from `assets/css/admin.css` with no inline attributes and with `flex: 0 0 auto` so a long title cannot squash it. Marked `alt=""`, because the text immediately beside it already reads "WP Perf Shield" and announcing it twice is noise rather than access.
+
+Assets now sit in `assets/img/` alongside `assets/css/` and `assets/js/`.
+
+### Verified
+`php -l` across all twenty-eight includes and the bootstrap, `node --check` on `admin.js`, a new 25-check suite, and the 1.4.48 through 1.4.53 suites re-run as regressions.
+
+The SVG is asserted inert — no script element, no event handler, no `xlink:href`, no `foreignObject`, no embedded raster, no external `url()`. That matters because this file is served to browsers from `wp-content`, so anything executable inside it would run in the site's own origin. The same rules that apply to an uploaded SVG apply to one the plugin ships.
+
+Two mistakes of my own were caught while writing that suite. An assertion matched `[^>]*` across an inline PHP expression whose closing delimiter contains a `>`, so it failed for a reason unrelated to the markup. And the comment written to explain that gotcha used `//`, where a closing PHP delimiter ends PHP mode and dumps the remainder of the file to output as HTML — while `php -l` still reports the file as valid, because it is. Both are fixed; the second is recorded because a lint pass that cannot see it is exactly the sort of thing worth writing down.
+
+### Meta
+Two new files: `assets/img/wp-perf-shield.svg` and the image directory (54 entries). `INDICATOR_VERSION` moves to `1.4.54-1`. No detection or blocking logic changed.
+
+## 1.4.53
+
+### Why
+1.4.49 wired `site-security-toolkit` and `auto-asset-helper` through the blocking layers and stopped one short. The second variant got its slug, its folder patterns and its upload signature, and no file hash, because the sample was not available:
+
+> No hash was added for `auto-asset-helper`. That sample was not available this session, and a hash written from memory silently matches nothing while looking like protection.
+
+The operator has now supplied it. `auto-asset-helper-2763.zip`, one file, 10,739 bytes.
+
+### What it is
+Byte-for-byte the variant catalogued in 1.3.79, confirmed field by field rather than assumed: MD5 `7bbf81ab731b59b3c0fed628c1f3cf3d`, class `Res_Helper_ad74`, option key `wp_8447aa87d2_cfg`, author "WP Solutions", and the placeholder `Plugin URI` pointing at `developer.wordpress.org` that no published plugin carries. A ClickFix render hijacker, same family and same shape as the others.
+
+Measured before anything was changed: activation blocked, upload blocked on the plugin-name signature, option key catalogued, six checks detecting at four criticals. Only the hash layer was open, exactly where 1.4.49 left it.
+
+### What changed
+The MD5 and the SHA-256, both computed from the file. `auto-asset-helper` now appears across all five blocking layers, at parity with `total-database-optimizer` and `site-security-toolkit`.
+
+The catalogue entry moves from *Catalogued* to *Verified*, which is the whole point of marking confidence in the first place — the distinction has to be able to change when the evidence arrives.
+
+### An assertion that had to be retired
+1.4.49's suite asserted that no hash had been invented for this variant, by counting its mentions in the blocker. That assertion was true when written and is now deliberately false.
+
+It was updated rather than deleted or worked around. What mattered in it was never the count — it was the principle that a hash in the catalogue must have been computed from a file rather than written down from memory. So it now asserts the stored MD5 and SHA-256 equal the hashes of the sample itself, which tests the principle directly instead of by proxy.
+
+### The completeness gate did its job
+1.4.51 added a check that fails if any catalogued value is missing from `doc/variants.md`. Adding two hashes broke it immediately, before any documentation was written. That is the intended behaviour and the reason the gate exists: the catalogue cannot silently fall behind the code.
+
+### Verified
+`php -l` across all twenty-eight includes and the bootstrap, `node --check` on `admin.js`, and the 1.4.48 through 1.4.52 suites re-run as regressions.
+
+Detection is asserted unchanged at six checks, so adding exact identification has not displaced the structural detections that would catch an unseen build.
+
+### Meta
+No new files (52 entries plus the two reference documents). `INDICATOR_VERSION` moves to `1.4.53-1`.
+
+## 1.4.52
+
+### Why
+WP Perf Shield does not appear in Wappalyzer, and there was no way it could. Its stylesheet and script enqueue only on `tools_page_wp-perf-shield`, and the sole front-end output is the optional CSP header, which carries no identity. To an anonymous visitor the plugin's footprint is zero bytes, so there was no pattern any profiler could match.
+
+Technology profilers read what a visitor receives. Site Kit appears in those listings because it deliberately emits `<meta name="generator" content="Site Kit by Google 1.139.0" />`; Akismet appears incidentally, through the assets it puts on comment forms. WP Perf Shield does neither, and does no front-end work that would make it visible by accident.
+
+### What changed
+A new setting, **Settings → Public identification**, emitting one tag:
+
+```html
+<meta name="generator" content="WP Perf Shield" />
+```
+
+Three decisions, each asserted in the suite rather than merely intended.
+
+**Off by default.** Announcing which security software a site runs is reconnaissance handed to whoever is looking. That may be a trade worth making for the visibility, but it is the operator's to make, and silence is the safer default for this category of plugin.
+
+**Never the version.** This is the load-bearing one. Releases 1.4.48 through 1.4.51 each closed a specific evasion technique, so a version string in the page source would tell an attacker exactly which bypasses still work against that install. Site Kit publishes its version and for an analytics plugin that costs nothing; here it would be a lookup table. The suite asserts the running version appears neither in the tag nor anywhere on the settings page, and that the class holds no reference to `WPS_VERSION` at all.
+
+**Removable.** The callback is a named method, so `remove_action( 'wp_head', [ 'WPS_Public_Marker', 'render' ] )` works, and a `wps_public_marker` filter can rewrite or empty the markup. Site Kit used an anonymous closure and collected years of support requests asking how to get rid of it.
+
+### The failure mode that was designed out
+`WPS_Admin::save_settings()` rebuilds the entire options array from `$_POST` rather than merging. A key absent from that handler is not merely unsaveable — it is wiped every time anything else is saved. The suite asserts the key is handled there, because the symptom otherwise is a setting that appears to work and silently reverts.
+
+Related, and the reason the check exists: 1.4.28 found a checkbox whose rendered default disagreed with its code default, which meant saving any unrelated setting silently disabled a running feature. The rendered default here is asserted against the code default in both states.
+
+### Also included
+`doc/wappalyzer-submission.md` — the fingerprint JSON, the category identifiers, and the submission routes. Wappalyzer closed its repository in 2023, so the product itself takes suggestions only through a web form; the open-source forks that maintain the pre-paywall ruleset still accept pull requests.
+
+### Verified
+`php -l` across all twenty-eight includes and the bootstrap, `node --check` on `admin.js`, a new 32-check suite, and the 1.4.48 through 1.4.51 suites re-run as regressions.
+
+The settings page is rendered and its emitted HTML balanced, rather than the source being read — the same discipline 1.4.28 established after a bulk edit closed the wrong rows. The marker is asserted silent on a fresh install, on an empty settings array, on a malformed settings value, and on any value other than exactly `1`.
+
+A harness defect was fixed during the work: `WPS_VERSION` was pinned to `1.4.47` in the WordPress stub, so the assertion that "the version never appears" was testing a string that was never going to appear anyway. The stub now derives it from the plugin source. That is the seventh instance of this defect shape in the project's history.
+
+### Meta
+One new class, `WPS_Public_Marker` (52 entries, plus the submission document). `INDICATOR_VERSION` moves to `1.4.52-1`. No detection or blocking logic changed.
+
+## 1.4.51
+
+### Why
+The detail existed. It was just scattered past the point of usefulness.
+
+Indicators lived in `includes/class-wps-indicators.php`, blocking lists in `includes/class-blocker.php`, forensic reasoning in `doc/ssot.md`, and the story of each discovery in `doc/changelog.md`, which is now over half a megabyte. An analyst holding a suspicious file had no single place to look, and neither did WP Perf Shield's own maintenance.
+
+### What was added
+`doc/variants.md`: fifteen family records covering every malware family WP Perf Shield recognises, in a fixed format — classification, delivery, mechanism, indicators, detection, blocking, remediation. Plus a cross-family technique table, six appendices, and a complete hash reference generated from the blocking list itself rather than transcribed.
+
+It is registered in the Docs tab, so it reads inside WordPress alongside the other bundled documents.
+
+**Attribution is marked throughout.** *Verified* means a sample was examined and its hashes computed from the file. *Catalogued* means it was recorded from earlier analysis and not re-examined. *Structural* means there is no fixed indicator to quote. A catalogue that blurs those three will eventually mislead somebody, and four of the families here were verified directly while the rest were not.
+
+### Completeness is asserted, not claimed
+A document like this rots quietly. So the suite reads every value out of the indicator accessors and the blocking lists — 247 of them — and fails if any one does not appear in the catalogue.
+
+That check found what reading would not have. Fourteen indicator values were missing on the first pass, five ClickFix slugs had no entry, and thirty-three hashes were absent. It also surfaced two families recorded only as comments beside a hash: the TDS drive-by injector (`tji-site-js.php`) and the user-hiding filter installer (`wp-security-helper.php`). Both now have full records.
+
+It also caught a misattribution of mine. The `ntdnewtds.shop` and `dnsnewtds.shop` hosts had been written into the doorway-kit record because both concern traffic distribution. They belong to the drive-by injector, which is a different operator chain found co-resident on one victim site. The catalogue now says so explicitly, because co-residence is not evidence of a shared operator.
+
+### A dead blocklist entry, found by counting characters
+One entry in the hash list was 65 characters long, labelled "SHA-256, XOR 84". SHA-256 is 64. That value could never equal any hash, so it had been inert since the day it was added — a blocklist entry that looked like coverage and provided none.
+
+It is removed rather than corrected. The XOR-84 sample is not held, and guessing which character was spurious would be inventing a fingerprint. That build stays covered by its MD5 and by the structural ClickFix checks, neither of which ever depended on it.
+
+Hash hygiene is now asserted: every entry exactly 32 or 64 hexadecimal characters, no duplicates.
+
+### Verified
+`php -l` across all twenty-eight includes and the bootstrap, `node --check` on `admin.js`, a new 15-check suite, and the 1.4.48, 1.4.49 and 1.4.50 suites re-run as regressions.
+
+The catalogue is asserted registered, resolvable, and still refused by the resolver when handed a traversal path. It is asserted to render through the bundled parser as tables rather than pipe characters — nineteen tables, two hundred and three rows.
+
+**Not claimed:** harnesses from before 1.4.48 do not exist in this container and were not re-run.
+
+### Meta
+One new file, `doc/variants.md` (52 entries). `INDICATOR_VERSION` moves to `1.4.51-1`; one malformed hash entry was removed.
+
+## 1.4.50
+
+### Why
+A third sample, and the third time the same seam has shown: `Plugin-7e4eb3ff`, 130,672 bytes. Catalogued in 1.3.79. Detected by five checks, every one of them critical, three set to remove it automatically.
+
+It could still be uploaded, and it could still be activated.
+
+### The family, and why it has no slug
+This one carries a PHP wrapper around 121 KB of obfuscated JavaScript on a single line, writes that out as `css.js` into the active theme directory, and injects a `<script>` tag pointing at it. The header says "simple js plugin".
+
+Every family blocked before this one had a name: `total-database-optimizer`, `site-security-toolkit`, `session-manager`. This one names itself `Plugin-` followed by eight hex digits, freshly generated each time. `Plugin-7e4eb3ff` here; `Plugin-390a770b` in the sample behind 1.4.36.
+
+So there is no slug to add. The name **is** the shape, which is why the entry goes in the pattern list rather than the slug list, and why it is the first entry in this project that blocks a form rather than a string.
+
+### What changed
+Two patterns matching `Plugin-<8 hex>` as a directory and as a file, which cover activation and upload together because both paths read the same list. The MD5 and SHA-256 of the sample in hand. And `ENDPLUGINJS` — the heredoc terminator this family uses — added to the upload content signatures, where it becomes the net that catches a copy whose folder has been renamed and whose bytes have been altered.
+
+`ENDPLUGINJS` was already catalogued as a family marker. It sat in the scanner's list and had never been given to the blocker, which is precisely the shape of the 1.3.79 omission this release and the last one have been unpicking.
+
+### What was deliberately left out
+`Description: simple js plugin` is a marker for this family and it stays a scanner signal rather than a blocking one. The upload signature list rejects on a single match, and that phrase is a plausible description for somebody's real plugin. The indicator catalogue already notes it may vary between variants. Asserted in the suite so the reasoning survives.
+
+No hash for `Plugin-390a770b`; that file was not available to hash this session.
+
+### A wider net than usual, so tested at its edges
+Blocking a shape can catch more than it should. Seven hex digits, nine hex digits, eight non-hex characters, `plugin-directory`, and `my-plugin-helper` are each asserted not blocked, alongside a real repository plugin and WP Perf Shield itself. The pattern requires exactly eight hex digits after `Plugin-` and nothing else.
+
+### Verified
+`php -l` across all twenty-seven includes and the bootstrap, `node --check` on `admin.js`, a new 24-check suite, and the 1.4.48 and 1.4.49 suites re-run as regressions at 30/30 and 22/22.
+
+Upload blocking is exercised end to end through the real handler rather than by inspecting lists: the sample rejected, the same payload in an innocuous folder rejected, a modified build with both hashes missing rejected, and two genuine plugins accepted — including one that legitimately serves JavaScript from the theme directory.
+
+Detection went from four checks to five, since exact identification now recognises the folder as well.
+
+**Not claimed:** harnesses from before 1.4.48 do not exist in this container and were not re-run.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` moves to `1.4.50-1`.
+
+## 1.4.49
+
+### Why
+An operator sample: `site-security-toolkit-1f30`, 9,674 bytes, MD5 `608576a9322aab3585fe7e7eb109f368`. It is not new. WP Perf Shield catalogued it in 1.3.79, and the file is byte-for-byte the one catalogued then.
+
+Six checks found it, four of them critical. Then the blocking side was measured, and the slug was not on the list.
+
+### What was actually missing
+1.3.79 catalogued two variants of this family — `site-security-toolkit` and `auto-asset-helper` — and wired them into two places: the option key that re-seeds the payload, and a shell-company author string used as one trait in a scored heuristic.
+
+They reached none of the five places `total-database-optimizer` reached in 1.3.69: the blocked-slug list, the suffix patterns that match the randomised folder names actually used, the MD5 and SHA-256 lists, and the content signatures that gate ZIP uploads.
+
+So for thirty releases WP Perf Shield would find these two variants after the fact and would not stop either being activated or uploaded. Detection is not protection. The gap between a plugin being dropped and the next scan running is time the payload spends serving.
+
+The suffix patterns are the part that matters most in practice. The folder in the wild is `site-security-toolkit-1f30`, not `site-security-toolkit`, so a bare slug entry on its own would have matched nothing.
+
+### What changed
+Both slugs added across all five layers, matching what 1.3.69 did for the sibling variant. The MD5 and SHA-256 come from hashing the sample in hand, not from a catalogue entry read back.
+
+**No hash was added for `auto-asset-helper`.** That sample was not available this session, and a hash written down from memory is a hash that silently matches nothing. Its slug, patterns, and signature entries are structural and safe to add without the file; the hash layer waits until the file is in front of us.
+
+The shell-company author strings — "Cache Solutions", "WP Solutions" — were deliberately **not** added to the ZIP content-signature list. That list blocks on a single match, and "WP Solutions" is a plausible name for a real vendor. They stay where they already are: one weighted trait in the scanner's fake-plugin heuristic, where other evidence has to agree. The decision is asserted in the suite so it is not quietly reversed.
+
+### A severity improvement that fell out of it
+Adding a slug to the blocklist makes the fake-plugin shape heuristic stand down for that slug, because the exact-match path now covers it. The sample previously scored **high** on shape; it now scores **critical** on exact match, with the same auto-delete behaviour. Six findings before, six after.
+
+That handover cost one test. An assertion pinned to the heuristic's name failed for a reason that was not a fault — the fifth time in this project a test has asserted a spelling where it meant an intent. It now asserts that a folder-level check reports the folder at critical, whichever check does it.
+
+### Verified
+`php -l` across all twenty-seven includes and the bootstrap, `node --check` on `admin.js`, a new 22-check suite, and the 1.4.48 suite re-run as a regression at 30/30.
+
+Blocking is asserted in the shape seen in the wild — the hex-suffixed folder, not just the bare slug — and with an underscore separator as well as a hyphen. The refusals are asserted alongside: a differently-named security plugin, a plugin sharing one word of the name, a real repository plugin, and WP Perf Shield itself are each asserted not blocked. Detection is asserted unchanged at six checks, so blocking has not quietly replaced finding.
+
+**Not claimed:** the harnesses from releases before 1.4.48 do not exist in this container and were not re-run.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` moves to `1.4.49-1`; the indicator lists grew.
+
+## 1.4.48
+
+### Why
+An operator sample, `annealing_1af540` — the same doorway framework as the `syringas` sample behind 1.4.38, grown a full traffic-distribution engine. It takes a parameter off the query string, looks the visitor up through a geolocation service, filters that visitor against blocklists, and redirects. The blocklists are the interesting part: 111,088 addresses, 87 organisations, 569 user agents, all there so that crawlers, scanners and hosting providers see something different from an ordinary visitor.
+
+1.4.47 detected it three separate ways, and named no legitimate file in the same tree.
+
+Then the sample was renamed and measured again.
+
+### What the rename showed
+The directory `core` became `lib`. The hex-suffixed `backdor_`, `panel_` and `filemanager_` files got ordinary names. The `panel_kee` key in the configuration became `access_token`. Nothing else changed — the kit still worked.
+
+Two of the three detections went silent. The third dropped from critical to high.
+
+The individual shells were still caught, so the kit was not invisible. What was lost is the one statement that matters while cleaning up: **these files are one kit, and this is its root.** Every kit-level cue was keyed on a name the attacker picks — three file-name patterns, one directory name, and a single literal in the configuration. `panel_kee` was a one-word off switch for an entire check, and nothing in the kit reads it.
+
+### What changed
+Cues the kit cannot rename without breaking itself.
+
+The cloaking configuration is now recognised by shape: three of the catalogued key names in the file's head, then four on decode, then an evasion list of at least a hundred entries. The kit's own PHP reads those keys as literal subscripts, so renaming one side means editing the other.
+
+A second cue matches that code directly — a file that reads at least four cloak switches by name **and** sends the visitor somewhere, by header or by scripted location change. Either half alone is ordinary. Plenty of legitimate code redirects, and a firewall plugin may well hold deny lists.
+
+The re-drop fingerprint no longer depends on a file called `core.php`, so renaming it no longer costs the history that proves a kit is being re-planted rather than merely present.
+
+### The two bugs this release's own first draft produced
+Both were found by measuring, not by reading.
+
+It named the site's **web root** as a doorway kit. The config cue searched a candidate directory's parent, so a kit sitting one level down implied the directory above it. Reporting a document root as an intrusion is the false positive that teaches an operator to stop reading findings. A located configuration now only counts when it implies the same kit root as the candidate that found it.
+
+It also reported the same intrusion three times, nested — `config/` scored, `include/` scored, and each named its own parent. Only the outermost root survives now, because deleting that takes the rest with it.
+
+### Cost, since the last two releases were about scan time
+Measured over 720 candidate directories: the kit check went from 0.041s to 0.178s. That is the multiply-across-the-tree shape behind 1.4.46, so it was bounded before shipping rather than after.
+
+The configuration profile is memoised for one scan pass, and the expensive cue — the one that reads and normalises PHP — runs only on directories that have already scored something, since on its own it contributes two against a threshold of three and cannot change the outcome.
+
+0.178s became 0.091s. Against the 0.041s baseline that is the honest price of the capability: about fifty milliseconds across 720 directories.
+
+### Verified
+`php -l` across all twenty-seven includes and the bootstrap, `node --check` on `admin.js`, and a new 30-check suite.
+
+The renamed kit is asserted detected at its correct root, and asserted to be identified without any of the four name-based tells. The web root and `wp-content` are each asserted never to be reported as a kit root. A fixture firewall plugin holding a 600-address deny list and doing real redirects is asserted silent, as is the third-party Composer code sitting inside the malware tree, as is WP Perf Shield itself. A 3.3 MB unrelated JSON is asserted rejected on its head alone without being decoded.
+
+A harness defect was fixed during the work: the fixture directories for the redirector tests shared a parent with the configuration fixtures, so a cloak config from an earlier test was in scope and scored a cue the test asserted absent. The harness was wrong rather than the code, but the same shape of mistake would hide a real regression, so the isolation is now explicit.
+
+**Not claimed:** the container this release was built in had been reset, so the harnesses from earlier releases were not available and have not been re-run. This suite is new work against a fresh WordPress stub. Treat the earlier suites as unverified for this release.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` moves to `1.4.48-1` — a new indicator list was added, `doorway_cloak_flag_keys()`, holding the switch names the kit's PHP reads.
+
+## 1.4.47
+
+### Why
+1.4.46 stopped scans ending the request. It did not make them finish, which for an operator under active attack is the difference between a plugin that is broken and one that is merely useless.
+
+The measurement, taken rather than guessed: normalising a four-hundred-kilobyte file — stripping comments and rejoining split literals — costs about fifty milliseconds, and both are character-level PHP loops. Six content checks were doing that to every file independently. Three hundred files of that size is eighty-five seconds of work, of which seventy-one were the same work repeated.
+
+The cost was never the normalising. It was doing it six times.
+
+### What changed
+Each file is normalised once per scan and the result shared. Measured on a real four-hundred-kilobyte plugin file, a full scan pass over it drops from 0.236s to 0.058s. Extrapolated across three hundred such files, seventy-one seconds becomes seventeen.
+
+Nothing about detection changed. The cache returns exactly what computing it returns, which is asserted rather than assumed.
+
+### The bug the tests caught
+The first draft keyed the cache on path, size and modification time. A test edited a file and asked for it again, and got the previous answer back.
+
+PHP caches `stat()` results, so `filemtime()` reported the old value for a file written moments earlier. That is the same `clearstatcache` defect this project hit in 1.4.2 and again in 1.4.13, recorded both times.
+
+Rather than add another `clearstatcache()` call and hope it is remembered next time, the key is now a hash of the content itself. The content is what is being transformed, so the content is the correct key, and the class of problem disappears rather than being worked around.
+
+### Bounds
+The cache is bounded by total bytes held, not by number of entries, because one enormous file can cost more memory than a thousand small ones — the distinction behind the outage in 1.4.13. Past the ceiling, files are still normalised correctly and simply not cached: slower, never wrong. It is released when the scan ends.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all forty prior harnesses re-run as regressions; render-smoke at 9/9 tabs; and a new 13-check suite.
+
+The cached result is asserted byte-identical to the uncached computation. Six passes are asserted to take less than half the time. An edited file is asserted to return its new content — the assertion that caught the staleness bug. The byte ceiling is asserted to hold under eight files of two and a half megabytes each, a file past the ceiling is asserted still correct, and the cache is asserted released when the scan finishes.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` unchanged at `1.4.41-1`; no detection logic touched.
+
+## 1.4.46
+
+### Why
+A live site put WP Perf Shield into safe mode: *Maximum execution time of 30 seconds exceeded* at `class-scanner.php:6161`. The fail-safe did its job and switched scanning off rather than leaving the site broken, but nothing was being scanned while that notice showed.
+
+The cause is mine, and it is embarrassing in a specific way.
+
+**The scan's own time budget was set to 45 seconds. The host's `max_execution_time` is 30.**
+
+A self-imposed limit above the limit PHP enforces is not a limit. The scan could never stop itself in time, because the point at which it intended to stop was fifteen seconds after the point at which PHP would kill it. Every scan on that host was always going to end in a fatal, and the budget mechanism was decorative.
+
+### The second half of it
+The budget was also only tested *between* checks. `compare_plugin_files()` hashes every file in every installed plugin in a single pass, with a cap on file count and none on time — and a cap on count does not help when the cost per file is a hash rather than a read. Once that check started, nothing could interrupt it.
+
+Eleven detections were added over the preceding fifteen releases, each walking the filesystem. The budget that was supposed to absorb that growth was never able to fire.
+
+### What changed
+The budget is now derived from `max_execution_time` rather than assumed, with eight seconds of headroom so the request can still render a page after the scan stops. On the affected host that is 22 seconds instead of 45. Where PHP reports no limit, as on CLI, the 45-second ceiling still applies rather than running unbounded.
+
+The elapsed test now runs *inside* the long-running loops as well as between checks — eleven places, including the one that failed.
+
+### Getting out of safe mode
+Safe mode clears from the admin notice once the plugin is updated. If the notice persists, the scan will now stop itself at 22 seconds and report a partial scan rather than dying, which is the behaviour that was always intended.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all thirty-nine prior harnesses re-run as regressions; render-smoke at 9/9 tabs; and a new 15-check suite.
+
+The budget is asserted **strictly under** `max_execution_time` at 30, 45, 60 and 120 seconds — the assertion that would have caught this before it shipped. The operator's exact case is asserted directly: a 30-second host yields 22 seconds with at least 8 left over. A 10-second host is asserted to yield a usable budget rather than a negative one, and an unlimited host to fall back to the ceiling.
+
+The loop that failed is asserted to interrupt itself, and the raw constant is asserted no longer used as a budget anywhere.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` unchanged at `1.4.41-1`. No detection logic changed — this is about when scanning stops, not what it finds.
+
+## 1.4.45
+
+### Why
+The detection reference written in 1.4.44 was accurate and badly presented. It was a wall of prose in a renderer that supports tables, fenced code, blockquotes and nested lists — none of which it used. And it referred to "the plugin" throughout, in documentation shipped inside the plugin, where the name should be doing work.
+
+### What was checked first
+Before writing tables, the bundled renderer was tested against each markdown feature rather than assumed. Tables, fenced code, blockquotes, inline code, links, nested lists, bold and italic all render. Writing tables into a parser that did not support them would have produced a page of pipe characters.
+
+That check found something else worth knowing: the renderer refuses to load outside WordPress, which is correct behaviour and briefly looked like a failure.
+
+### What changed
+The detection reference is now four tables — one per category of technique — with what each check looks for, and for the two most false-positive-prone checks, what clears a file. A reader deciding whether a finding applies to them needs the exits as much as the rule, and a table puts them side by side.
+
+Sign-in protection is a table of rules and thresholds rather than a paragraph listing them.
+
+The salt-rotation instruction is now a blockquote with a warning heading, carrying the URL to fetch fresh values and the reason the order matters. It is the one instruction in WP Perf Shield that fails silently when missed, and it now looks different from everything around it.
+
+The `WPS_DISABLE_LOGIN_GUARD` escape hatch is a fenced PHP block rather than inline text, because it is meant to be copied by somebody who is locked out and not in a mood to parse prose.
+
+The name appears throughout rather than "the plugin", and the upgrade notes and changelog carry branded titles with a line saying what each is for.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all thirty-nine harnesses re-run as regressions; render-smoke at 9/9 tabs.
+
+Every bundled document was rendered through the plugin's own parser and the output counted: four tables, two code blocks and three blockquotes in the reference alone, with no accidental tables anywhere — prose containing a pipe character can become one by mistake, and none did.
+
+No code changed.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` unchanged at `1.4.41-1`. Documentation only.
+
+Every release, why it happened, and what was verified before it shipped.
+
+## 1.4.44
+
+### Why
+Eleven releases added nine detections and none of them reached the documentation. Version numbers were bumped, changelogs written, and the reference document left describing a plugin that no longer resembled the one shipping.
+
+Asked whether the documentation had kept up, the honest answer was no.
+
+### Two stale claims, one of them for twenty-eight releases
+The plugin's own readme still told anyone reading it that it protects itself with a must-use guard which restores it if something disables it. That feature was withdrawn in 1.4.15 after it took a production site down twice, and the claim has been false in the Description and Features ever since.
+
+Claiming a protection that does not exist is worse than claiming nothing. Somebody reading it would reasonably conclude the plugin cannot be quietly disabled, which is exactly the assumption the withdrawal removed. Both current-tense claims are corrected. The changelog entries describing the guard stay, because those are accurate history rather than a promise.
+
+### What the documentation now says
+The reference document gains a description of what the scanner actually detects, organised by what the malware is trying to do rather than by check name: code that hides what it is, code that does not bother to hide, code that changes the ground rules, and code that steals.
+
+Each entry says what the technique is and, where it matters, what clears a file - because a reader deciding whether a finding applies to them needs the exits as much as the rule.
+
+The credential-exfiltration entry states plainly that removing the file is not sufficient and that the salts must be rotated afterwards rather than before. That instruction now appears in the reference document, the upgrade notes, the finding itself and the runtime log entry, because it is the one piece of advice in this plugin that fails silently if it is missed.
+
+Sign-in protection is documented in one place for the first time, having accumulated across seven releases.
+
+The Docs tab renders these files directly, so the in-plugin documentation is updated by the same change.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all thirty-nine harnesses re-run as regressions; render-smoke at 9/9 tabs.
+
+No code changed in this release. The gate was run to prove that.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` unchanged at `1.4.41-1`. Documentation only.
+
+## 1.4.43
+
+### Why
+1.4.41 could find a session-cookie stealer. It could not stop one, and it left removal to the operator - which means the file kept working through every page load between the scan that found it and the moment someone acted on the report.
+
+For most malware that gap is tolerable. For this class it is not: each administrator page load during it is another stolen session.
+
+### Blocking
+Every wp_remote_* call passes through the pre_http_request filter before a socket opens. A request carrying WordPress session cookies to an external host is now refused there, logged, and recorded as a critical event.
+
+The rule is narrow. Requests to the site's own host are never touched. WordPress.org, Akismet and Gravatar are never touched. A body with no session material is never touched - an API call carrying a version string looks nothing like this. Array bodies are flattened first, so nesting the cookies inside one does not help.
+
+**What it cannot do, stated in the code as well as here.** It sees only the WordPress HTTP API. Anything using curl_exec, fsockopen or a raw stream bypasses it entirely. This closes the common case, because an implant living inside a plugin reaches for wp_remote_post as the path of least resistance - but it closes a case, not the category. Removal and salt rotation remain the actual fix, and the block exists to hold the line until they happen.
+
+### Removal
+Exfiltration findings are now marked for the existing remediator rather than needing new deletion code. That machinery already quarantines rather than destroys, keeps the file recoverable for thirty days, refuses to touch protected theme and core paths, and records hashes so a byte-identical redrop is recognised next scan.
+
+Removal is deliberately withheld when the destination is a host WordPress itself uses. A finding of that kind is graded lower precisely because it might be a misreading, and a misreading must never delete anything.
+
+### The thing neither half fixes
+Both are written to say so. Sessions already taken remain valid until the authentication salts in wp-config.php are rotated. The block stops new theft; removal stops the source; only rotation invalidates what has already gone. The block's log entry says this, because it fires at the moment the operator is most likely to be reading.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all thirty-eight prior harnesses re-run as regressions; render-smoke at 9/9 tabs; and a new 22-check suite.
+
+The recovered exfiltration is asserted blocked, with its host named in the log and the salt rotation stated there. Five kinds of ordinary traffic are asserted to pass, including the site talking to itself under both its bare and www hostnames. Cookies nested in an array body are asserted still caught. A filter another plugin has already answered is asserted to be returned untouched.
+
+Removal is asserted wired to the quarantine-first path, and asserted never to trigger on a WordPress-owned destination. The limitation is asserted to be written in the code.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` unchanged at `1.4.41-1`.
+
+## 1.4.42
+
+### Why
+A re-drop kit plants one payload in a dozen directories under randomly generated names, on the reasoning that whoever finds one will delete it and stop looking.
+
+The scanner reported that honestly and uselessly: a dozen separate criticals, identical but for a path. They bury every other finding on the screen, and none of them says the thing that actually matters - that these are one intrusion, and removing one achieves nothing.
+
+### What changed
+Findings that share a check and a file hash collapse into one, carrying every path.
+
+Grouping is by content rather than by name, because the name is the part the attacker regenerates. Two files with identical bytes flagged by the same check are one finding in several places; two files with the same name and different bytes stay separate.
+
+The collapsed finding leads with the number of copies, lists them, and says plainly that the count measures how thoroughly the site was reached rather than how many separate problems exist. The original advice from the check is kept rather than replaced.
+
+Three things are deliberately left alone. One file flagged by two different checks stays as two findings, because they say different things about it. A finding with no path is never grouped. And a finding whose file has since disappeared passes through untouched, because a scan that quietly loses results is worse than one that repeats itself.
+
+### The ordering is the part worth getting right
+The grouping runs after auto-remediation, not before.
+
+If it ran first, the remediator would see one finding where twelve files exist, remove one copy, and report the work done - leaving eleven behind and the operator believing otherwise. Every check's output passes through this one point, so the ordering is stated once and applies to all of them.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all thirty-seven prior harnesses re-run as regressions; render-smoke at 9/9 tabs; and a new 18-check suite.
+
+Twelve identical files are asserted to become one finding naming all twelve. Identical bytes under different names are asserted to group; different bytes are asserted not to. One file caught by two checks is asserted to stay as two findings.
+
+Findings with no path, findings whose file has gone, a lone finding and an empty result are each asserted to pass through unchanged. The worst severity in a group is asserted to govern it, and a twenty-copy group is asserted to truncate its prose while still carrying all twenty paths.
+
+The ordering is asserted directly against the source: the grouping call must appear after the remediation call, because getting that backwards would silently leave copies on disk.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` unchanged at `1.4.41-1`; no detection logic touched - this changes how findings are presented, not which ones are found.
+
+## 1.4.41
+
+### Why
+A file recovered from a live installation exposed the largest gap in this scanner, and it did so by being entirely ordinary.
+
+`.wp-config-cache.php` is short, readable, unobfuscated PHP with a correct ABSPATH guard, sitting in a directory where PHP belongs and writing nothing to disk. Every content check here passed it, and every one was right to by its own rules.
+
+What it does is register a shutdown function, wait for an administrator to load any page, collect that administrator's WordPress session cookies, and post them to a hardcoded external host. Once per administrator per twelve hours, without waiting for a reply, so nothing about the page appears different.
+
+That is complete account takeover with no password, and it is invisible to a login guard because no login ever fails. It also explains a class of symptom that file scanning never accounts for: new administrator accounts appearing on a site with registration disabled, and database records changing with no failed authentication anywhere in the log.
+
+### What was missing
+Every check written before this one reasons about how code conceals itself, or about what it writes to disk. None asked what leaves the site.
+
+That is now checked, and narrowly. Sending data to a hardcoded host is entirely ordinary - plugins call their own APIs constantly, and firing on that would make the check useless. Sending session cookies, submitted login credentials, stored password hashes or the site's authentication keys to one is not ordinary, and there is no version of it that is legitimate.
+
+Both halves are required. An API call carrying a version string does not fire. Reading cookies without sending them anywhere does not fire. The combination does.
+
+### The wording matters here more than usual
+A finding of this kind tells the operator something the file itself cannot: that deleting it does not fix the problem. Sessions already taken remain valid until the authentication salts in wp-config.php are changed, and an operator who removes the file and considers the matter closed is still compromised.
+
+The report therefore states the consequence in plain terms, names the destination host, and gives the remediation in the order that works - remove the file, then rotate the salts, because doing it the other way round hands over the new session too.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all thirty-six prior harnesses re-run as regressions; render-smoke at 9/9 tabs; and a new 26-check suite.
+
+The recovered sample is asserted detected and critical, with the host named and the salt rotation stated. As in recent releases the gap is demonstrated rather than described: the sample is asserted to have a valid guard, no obfuscation, no eval and no disk writes, and four other checks are asserted silent on it.
+
+Both halves of the rule are asserted separately insufficient. A destination WordPress itself uses is asserted to grade lower but still be reported, because no legitimate component sends session cookies anywhere.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` moves to `1.4.41-1`.
+
+## 1.4.40
+
+### Why
+The first sample in this series that was not a plugin folder but a slice of a live wp-content directory - and the first containing a coordinated implant rather than a single dropped file.
+
+Two files, in different directories, sharing a secret. A must-use plugin named `db-connection-pool.php` assembles a token from 295 `chr()` calls; a file in `wp-content/fonts/` named `role-validator.php` refuses to do anything unless a request carries the first sixteen characters of that same token. They were verified to build and expect the same value.
+
+The must-use location matters on its own: WordPress loads those files automatically and they cannot be deactivated from the dashboard, which is exactly why this plugin withdrew its own must-use component in 1.4.15.
+
+### Two things nothing was measuring
+The token is built with `chr()`. The check added in the previous release counts names spelled out of a haystack string by index, and scores this file zero, because it never indexes a string - it is the same technique through a different mechanism. Both now count, and the finding says which was used. Measured at 295 in the sample against zero across eighty files of real theme and plugin code.
+
+And every check until now asks what a file contains. None asked where it is. The fonts backdoor is gated behind a secret, so it returns nothing to anyone who does not already know the token, and on content alone it rated only high. But a PHP file in the fonts directory is wrong before it is read.
+
+### The false positive that nearly shipped
+The first draft of the location check flagged Wordfence.
+
+Wordfence stores its logs as files ending in .php that begin `<?php exit('Access denied'); __halt_compiler(); ?>` followed by data. The extension stops anyone reading them directly while nothing in them ever executes. That is the correct way to hold data in a web-reachable directory, and the draft reported four of them as critical.
+
+Reporting a security plugin as an intrusion is the kind of false positive that teaches an operator to ignore the scanner, after which it protects nothing. Files inert by construction are now excluded outright, on that shape rather than by naming Wordfence - the principle generalises and a list of vendors would not.
+
+The directory list is also split in two. In uploads, fonts and the upgrade scratch space, nothing legitimate installs code and location alone is the finding. In caches, logs and backups, plugins do write .php files, so something about the file must also be wrong before it is reported.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all thirty-five prior harnesses re-run as regressions; render-smoke at 9/9 tabs; and a new 17-check suite.
+
+The Wordfence case is asserted first and by name, because it is the one that matters most: three files in that shape are asserted not to be flagged. An ordinary generated page cache is asserted not flagged while a token-gated file in the same directory is, which is the whole point of the two tiers. WordPress's own silence stubs are asserted ignored.
+
+Three `chr()` calls are asserted to stay silent and twenty to fire, and the recovered must-use plugin is asserted detected through the mechanism the previous release could not see.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` moves to `1.4.40-1`.
+
+## 1.4.39
+
+### Why
+The most careful evasion recovered in this series, and the first that defeated every check here individually rather than by finding a category nobody had looked at.
+
+    $y = 'I could not have a more welcome visitor 64 group of zain bani';
+    $f = $y[15] . $y[14] . $y[13] . $y[5] . '(' . $y[43] . $y[52] . ...
+    eval( $f . 'eJyt/EnPrFxitQmPban...' );
+
+The sentence is deliberately innocuous. The function names are never written down: `base64_decode` and `gzuncompress` are spelled out of it one character at a time by position, the call is assembled as a string, and the result is executed.
+
+Four checks are blind to it, each for its own reason. Nothing is split across concatenation, so rejoining literals finds nothing to rejoin and the hidden-identifier check sees no change between a file and its normalised form. No decoder name appears anywhere, so the decoder-chain check counts zero. The goto density is seven, well under the flattening floor of twenty. And the payload is concatenated onto a built string rather than sitting in a literal, so there is no encoded blob to match.
+
+### What it cannot avoid
+Spelling a name out of a haystack costs one indexing expression per character, and they must be joined in order. There were twenty-eight such chains in the sample. The highest count in any real file measured - across a production theme, a legitimate GPL theme, and this plugin - is three, and those appear in ordinary string handling.
+
+Eight is therefore the floor, nearly three times the worst innocent case. Eight with the result being executed is critical; fifteen alone is critical without needing a sink, because that volume has no innocent explanation.
+
+### A threshold questioned rather than assumed
+The size floor was drafted at three hundred bytes. Working out what a minimal carrier actually costs - about thirteen chains at roughly eight bytes each to spell one function name, plus the haystack string and the eval - puts it close to three hundred. A floor set at the same size as the thing it is meant to admit will exclude it.
+
+It is two hundred bytes, chosen against that arithmetic. This is the third release in which a threshold copied or guessed rather than derived would have excluded the smallest and most disposable samples.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all thirty-four prior harnesses re-run as regressions; render-smoke at 9/9 tabs; and a new 22-check suite.
+
+As in the last four releases the gap is demonstrated rather than described: the sample is asserted to have a goto density under the floor, no decoder name after normalisation, and no encoded literal, and all five other content checks are asserted silent on it.
+
+Seven chains are asserted not to fire, since the worst real file measured three. Eighteen are asserted to fire without any execution sink, and nine with one. Thirty files of genuine theme code produce nothing, including the legitimate GPL theme examined in the previous session.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` moves to `1.4.39-1`.
+
+## 1.4.38
+
+### Why
+A sixty-three file toolkit - a proper framework, with composer dependencies, a control panel, a file manager, an IP manager and a two-and-a-half megabyte configuration file. Three of its components were detected. Six are now.
+
+Among the three that were not is a file its own author named `backdor`. It reads its payload from the raw request body and writes it to disk. Nothing guards it and nothing checks who is asking.
+
+### Two reasons it was missed, both mine
+The check counted request input by looking for superglobals. This file takes its data from `php://input` instead, so it did not look request-driven at all. The raw request body is request input, and is now treated as such.
+
+The check also required two filesystem primitives. This file uses one. In 1.4.34 an exception was already made for uploads, on the reasoning that no benign unauthenticated upload endpoint exists - and the same argument applies with equal force to any single write. Putting attacker-controlled bytes at a path on the server with nothing checking who asked is remote code deployment, whether or not a second primitive keeps it company.
+
+The two-primitive rule existed to hold false positives down. Measured across seventy-nine files of real theme and plugin code, removing it adds no findings at all, because legitimate code does one of three things: it loads WordPress, it checks something, or it takes no request input. Any of those still clears a file.
+
+### Grading still means something
+The relaxation does not flatten severity. The file manager, with six primitives, is critical. The backdoor, with one, is high. Both are reported; they are not reported as the same thing.
+
+Comment stripping from the previous release now applies here too, so primitives separated from their brackets by a comment are found as readily as the execution sinks were.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all thirty-three prior harnesses re-run as regressions; render-smoke at 9/9 tabs; and a new 11-check suite.
+
+The toolkit is asserted to yield at least five findings, with the backdoor, the file manager and the control panel each named individually, and their severities asserted to differ according to how much each one can do.
+
+The three exits are asserted intact - a guard, an authorisation check, or an absence of request input each still clear a file - and a write on a fixed path with no request input is asserted still ignored, which is the case the two-primitive rule was really protecting.
+
+One assertion in an earlier suite was updated rather than worked around. It stated that a single write primitive does not fire. That was true and is now deliberately false, so it asserts the new behaviour and the case that still stays silent alongside it.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` moves to `1.4.38-1`.
+
+## 1.4.37
+
+### Why
+A two-file sample - one PHP file and a stray error log - produced nothing against any check. Its mechanism is the neatest of everything examined in this series:
+
+    $p = explode( base64_decode( 'Pz4=' ), file_get_contents( __FILE__ ) );
+    preg_replace( $a, serialize( @eval( $p ) ), $b ); exit();
+    ?>==Dstfmoz5... sixteen kilobytes of encoded data ...
+
+`Pz4=` decodes to `?>`. The file reads itself, splits on its own closing tag, and executes what follows. The payload is not in a string, not in a variable, and not inside the PHP block at all - so the decoder-chain check from 1.4.34, which looks for a long encoded literal, had nothing to find.
+
+### The evasion worth fixing on its own
+It also wrote its execution as `@eval` with a comment on each side of the name. PHP permits a comment between a function name and its bracket, so this calls eval while defeating every pattern that expects only whitespace there - including several in this scanner.
+
+Comments are now removed before any check matches a function call. This is a general repair rather than a fix for one sample: any check looking for a call was evadable this way, and none are now. String contents are preserved, so a URL containing a double slash inside quotes survives.
+
+Kept as a separate step rather than folded into the existing escape resolution, because that method is used to compare a file against its own normalised form, and stripping comments as well would make almost every file differ from itself and destroy the comparison.
+
+### Why this one is rated high rather than critical
+The recovered sample carries a Monarx copyright header, and Monarx is a real security product that hosting providers install.
+
+Commercial security and licensing tools protect their own code exactly this way, for exactly the same reason malware does: so that nobody can read what it does. From outside the two are indistinguishable, and this check cannot tell them apart.
+
+So the finding says so. It names any vendor marker it recognises, states plainly that the technique is used by both, and tells the operator to confirm with their host before removing anything. A scanner that deletes the host's own security agent has done more damage than the thing it was hunting, and confidence this check does not have would be the thing that caused it.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all thirty-two prior harnesses re-run as regressions; render-smoke at 9/9 tabs; and a new 21-check suite.
+
+Comment stripping is asserted from both directions: a commented call is asserted invisible to a plain pattern and visible after stripping, while a URL inside a string is asserted to survive.
+
+All three legs of the detection are asserted individually insufficient - reading its own file, executing, and carrying trailing data each stay silent alone - and asserted to fire together, including when the eval is hidden behind comments. Ordinary template markup after a closing tag is asserted not to qualify.
+
+The wording is asserted, which is unusual but appropriate here: the finding must name a recognised vendor when one is present, must not invent one when it is absent, and must discourage deleting on this evidence alone.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` moves to `1.4.37-1`.
+
+## 1.4.36
+
+### Why
+A one-file plugin described in its own header as a "simple js plugin" produced nothing against any check here, including the one added in the previous release.
+
+Its PHP is clean. Genuinely clean - a correct header, an ABSPATH guard, readable functions, no eval, no split identifiers, no filesystem writes. What it holds is a heredoc containing a single line of a hundred and eleven thousand bytes of obfuscated JavaScript, which it prints into wp_footer.
+
+The PHP is not the malware. It is the envelope. Every content check in this scanner reasons about PHP, so a file whose PHP is honest and whose payload is a script sails through all of them.
+
+### The signal, and the one that was rejected
+Automated JavaScript obfuscators rename every identifier to a hexadecimal token - `_0x4f78`, `_0x54f1d9`. There are four thousand nine hundred of them in this sample, against zero across eighty-three files of real theme and plugin code.
+
+Line length was considered first and rejected. The sample's payload is one line of a hundred and eleven thousand bytes, which looks damning until you notice the theme in the same test set ships a legitimate minified bundle that is one line of eighty thousand. Minification shortens names; it does not rename everything to hex. Measuring the wrong one of those two would have flagged every minified asset on every site.
+
+### What changed
+A check for that naming, weighted by where it is found. Inside a PHP file it is critical, because there is no version of a PHP file that legitimately carries obfuscated JavaScript, and the report notes when the file also prints it into pages. In a standalone .js file the bar is eight times higher and the finding is high rather than critical, since a vendor script protected against copying is unusual but not malicious.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all thirty-one prior harnesses re-run as regressions; render-smoke at 9/9 tabs; and a new 21-check suite.
+
+The sample is asserted detected and critical. As with the previous two releases the gap is demonstrated rather than described: the sample is asserted to have no goto, no eval and a valid ABSPATH guard, and all four other content checks are asserted silent on it.
+
+The rejected signal is asserted directly. A synthetic minified bundle and the theme's real eighty-kilobyte single-line vendor file are both asserted not to fire, which is the assertion that matters most here - a check that cannot tell minification from obfuscation would be worse than no check.
+
+A threshold was lowered while writing those tests. The floor sat at two kilobytes, but fifty hex identifiers fit in roughly seven hundred bytes of script plus a small wrapper, so a compact carrier would have passed underneath it. It is now nine hundred bytes, chosen against that arithmetic rather than as a round number.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` moves to `1.4.36-1`.
+
+## 1.4.35
+
+### Why
+A plugin called "Native Image Optimizer" - seven files, proper header, ABSPATH guard, uninstall routine, licence, translation template - produced zero findings against every check in this scanner.
+
+It was a JavaScript injector. Its payload was not in any PHP file: it sat in resources/config.bin behind a custom container, four-byte magic, a campaign number, a key length, then a body reversed and XORed. The PHP only read that file, decoded it, and printed the result into wp_footer at priority 200.
+
+Everything the scanner knows how to find was absent. No eval, no goto, no encoded blob in any PHP file, no filesystem writes, and a correct ABSPATH guard that satisfied the standalone-shell test honestly rather than by accident.
+
+It also chose its audience carefully. It returns early for administrators, editors and authors, for admin screens, AJAX, cron and REST requests, and for anything whose user agent contains crawl, spider, googlebot, yandex, lighthouse or duckduck. Then it sets four cache-defeating constants and no-store headers so the result is never stored. Only a logged-out visitor on an uncached page ever receives the script - which is to say, never the person who owns the site and never a search engine.
+
+### What it could not hide
+The shape of its own evasion. Every meaningful identifier was written in pieces:
+
+    'HTTP'.'_USER_A'.'GENT'    'wp'.'_foo'.'ter'
+    'g'.'oogl'.'ebot'          'cr'.'aw'.'l'
+
+Rejoining those - which the 1.4.25 escape resolution already does - reveals sixteen sensitive names that a plain search of the file finds nowhere at all.
+
+That gap is the finding. There is no reason to write a function name in fragments except to defeat the search someone will run for it, and the measurement is not close: sixteen hidden names in the sample, zero across seventy-nine files of real theme and plugin code.
+
+The names chosen also say what the file is for. Concealing googlebot, crawl, spider and lighthouse alongside is_user_logged_in and administrator is not incidental - it is a description of who must not see the behaviour.
+
+### What changed
+A check that compares each file against itself with its split literals rejoined, and reports the sensitive names visible only afterwards. Two hidden names is high, four or more is critical. A file that uses those same names openly is not suspicious, and a file with no splitting at all is skipped before any comparison happens.
+
+The report says plainly that the file may otherwise look ordinary and that its payload may live outside any PHP file, because in this sample both were true.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all thirty prior harnesses re-run as regressions; render-smoke at 9/9 tabs; and a new 22-check suite.
+
+The sample is asserted detected and critical. Separately and more usefully, it is asserted to have no goto, no eval, no visible base64_decode and a valid ABSPATH guard, and every other content check in the plugin is asserted to stay silent on it - the gap is demonstrated rather than described.
+
+Ordinary concatenation of separate phrases is asserted not to fire, a single hidden name is asserted insufficient, and a file using all those names openly is asserted ignored. Twenty-nine real theme files produce nothing, and the earlier twelve-directory toolkit is confirmed still detected at eleven of eleven.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` moves to `1.4.35-1`.
+
+## 1.4.34
+
+### Why
+A recovered attacker toolkit - twelve directories, three hundred and nine files - measured against the scanner as it stood after 1.4.33. Four of the twelve were detected. This release takes that to eleven of eleven, the twelfth being a genuine plugin planted as a decoy and correctly left alone.
+
+The kit is worth describing, because its structure is the point. Every directory is a real GPL plugin copied under a random seven-letter name - Protect Uploads, Simple Maintenance Mode - with a payload dropped in as `index.php`, the least remarkable filename in a plugin folder. Removing one changes nothing; there are eleven more.
+
+### Two mistakes in the check shipped in 1.4.33
+Measuring found both, and neither was subtle once seen.
+
+The check excluded any file mentioning `wp-load.php`, on the reasoning that a file loading WordPress is subject to WordPress. That is backwards. Requiring `wp-load.php` is what a standalone entry point does - it is a file bootstrapping WordPress for itself, which is exactly what a shell does when it wants WordPress's functions. The legitimate pattern is the opposite: a file refusing to run unless WordPress already loaded it. One shell walked through the check by requiring wp-load. The test is now for that guard, and only for it.
+
+The check also excluded any file containing `$_SESSION`, counting it as authentication. A shell uses a session to remember its own login. A half-megabyte file manager escaped on that clause alone. The test now accepts only real authorisation - a capability, a nonce, HTTP auth.
+
+### One primitive is enough when it is an upload
+The check required two filesystem primitives, to keep false positives near zero. A three-hundred-and-twenty-four-byte dropper in the kit used exactly one: `move_uploaded_file`, with errors silenced, a trigger parameter, and a `../` traversal to write outside its own directory.
+
+There is no benign version of a file that loads no WordPress, checks nothing, and accepts uploads. Requiring a second primitive protected only the smallest and most disposable shells, which are the ones an attacker plants most freely.
+
+### Two techniques nothing was looking for
+**A payload behind a chain of decoders.** Eight of the twelve used `eval(strrev(str_rot13(gzinflate(base64_decode($blob)))))`, with the decoder names split across concatenation so a search for them finds nothing, then called through variables so a search for the call finds nothing either. The existing loader check could not help; it was written for JavaScript and wants atob, charCodeAt and TextDecoder together. Matching now happens after escape resolution and on the name rather than the call, because separating the name from its bracket is the whole technique.
+
+**Configuration dropped to weaken the server.** A third of the kit was not code at all: six identical `php.ini` files and seven `.htaccess` files, sitting unexamined beside the shells because nothing here read anything but PHP. The php.ini set `disable_functions = NONE`, `open_basedir = OFF`, `exec = ON`, `shell_exec = ON` - on CGI and FastCGI hosting that is honoured per directory, so it re-enables precisely the functions a host disables to contain a break-in and removes the jail meant to hold one. It is not a payload. It is what makes the next payload work.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all twenty-nine prior harnesses re-run as regressions; render-smoke at 9/9 tabs; and a new 21-check suite alongside the thirty checks from 1.4.33.
+
+Both 1.4.33 mistakes are asserted from both sides: a shell requiring wp-load is asserted detected while a real ABSPATH guard is asserted to clear a file, and a shell using `$_SESSION` for its own login is asserted detected while a real capability check clears one. The minimal dropper is asserted to fire on its single primitive.
+
+The decoder chain is asserted detected with its names split, and asserted silent when any one of the three parts is absent - decoding without executing, executing without decoding, and a short blob all stay quiet. An ordinary php.ini containing only memory and upload limits is asserted untouched, while `.user.ini` is asserted checked, since it is the same mechanism under a different name.
+
+Fifty-three files of real theme and plugin code produce one finding, and that one is a deliberately planted near-miss.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` moves to `1.4.34-1`.
+
+## 1.4.33
+
+### Why
+Two more files recovered from an infected site, and one of them showed that every content detector in this scanner shared the same blind spot.
+
+The first was the site's root index.php with an obfuscated payload prepended - eighty-eight kilobytes, four thousand goto statements, forty-seven per kilobyte. The flattening check added in 1.4.25 catches it comfortably.
+
+The second was a hundred and fifty lines of clean, readable PHP that uploads, edits, renames and deletes any file on the server, and lists any directory. No password. No WordPress. It scored zero on every detector this plugin has: no goto, no base64, no hex escapes, no eval, no cloaking. Entirely invisible.
+
+It did not need to hide, because nothing was looking for code that simply asks to be run. Every check written so far looked for concealment - encodings, escapes, flattened control flow - and concealment is a tactic, not a definition. A scanner that only knows how to spot hiding will miss every shell that never bothered to.
+
+### What changed
+A check for the thing itself rather than its disguise: a PHP file that does not load WordPress, checks no capability, nonce, password or session of any kind, and performs several different filesystem mutations driven by request input.
+
+There is no benign version of that combination. At best it is a utility script someone left reachable, in which case anyone on the internet can use it to overwrite files and it needs removing just as urgently as a shell does. The report says so, because the two cases need the same action even though they need different explanations.
+
+Any one of three properties clears a file: it loads WordPress, or it checks authorisation of any kind, or it takes no request input. That is what keeps it quiet on real code - a plugin's uninstall routine has the ABSPATH guard, a maintenance script acts on fixed paths, a class that writes files takes them from its caller.
+
+Severity follows the evidence. Two mutation primitives is high and worded for review. Three or more, or a browser upload form, is critical and worded plainly.
+
+Escapes are resolved before matching, so a shell that writes its function names in hex is judged on the same terms as one that does not.
+
+### A floor that was hiding the small ones
+Writing the tests found a defect in the check as first drafted. It skipped files under a hundred and fifty bytes, a threshold copied from the doorway-cloaking check where it belongs - a doorway page needs bulk to be worth serving.
+
+A file manager does not. Two mutation primitives fit comfortably inside a hundred bytes, and a compact shell is more suspicious than a large one, not less. The threshold would have silently skipped exactly the files most worth finding. It is now forty bytes.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all twenty-eight prior harnesses re-run as regressions; render-smoke at 9/9 tabs; and a new 28-check suite.
+
+The recovered sample is asserted detected, rated critical, and named with each of the four primitives it uses. Separately, it is asserted to have no goto, no encoding, no hex escapes and no eval - the gap this closes is asserted directly rather than described.
+
+The exits matter as much as the detection. A file that loads WordPress, one that checks a capability, and one that takes no request input are each asserted not to fire. A single write primitive is asserted insufficient. Severity is asserted to grade by primitive count, and a browser form is asserted to raise it. A shell writing its function names in hex is asserted still caught.
+
+Twenty-nine real theme files sitting in the same tree as the sample are asserted untouched, and the plugin is asserted never to flag itself.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` moves to `1.4.33-1`, because the indicator set grew.
+
+## 1.4.32
+
+### Why
+Two complaints about the Security posture panel, both correct.
+
+The first: permanent blocks and Akismet reports were not shown. Checking why turned up something worse than an oversight. The guard records nine counters. The panel read three. Four of them - addresses reported to Akismet, permanent blocks, range-rotation blocks and many-username blocks - had been written to the database since 1.4.23, 1.4.26 and 1.4.31 and displayed nowhere at all.
+
+Worse still, the daily rollover only carried two counters into history. The rest were accumulated all day and discarded at midnight, so a seven-day figure for them was impossible however the screen chose to ask.
+
+The second: a row reading "Tamper protection (must-use guard) - withdrawn in 1.4.15". That feature was withdrawn seventeen releases ago. The row appeared on every install for ever, reporting the absence of something the operator never had, and offering nothing to act on. It was a footnote about the plugin's own history sitting in a status panel.
+
+### What changed
+Every counter is now declared in one place, carried through the rollover, and returned with both a daily and a seven-day figure.
+
+The panel gains three rows: how many addresses are permanently blocked from signing in, how many have been reported to Akismet as spam, and - once one of them has actually fired - a breakdown of which rule decided the recent blocks, separating a non-existent account from many usernames from range rotation. That last row stays hidden until it has something to say, because a row of zeroes is worse than no row.
+
+The permanent figure is the current size of the list rather than a running total, so removing an address is reflected immediately. A tally of everything ever added would only ever climb, which is not what anyone is asking that row.
+
+The withdrawn-guard row is gone. A row now appears only when there is genuinely something to do - a leftover must-use file that could not be deleted - and it says which file. In every other case there is no row, which is the correct report for a feature that does not exist. The two variables that row computed are removed with it rather than left dead.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all twenty-seven prior harnesses re-run as regressions; render-smoke at 9/9 tabs; and a new 32-check suite.
+
+The strongest assertion reads the counter names out of the source and checks that none is recorded without also being declared and exposed - the specific failure that produced this release cannot recur silently. Survival across the midnight rollover is asserted directly by ageing the stored day and confirming yesterday's permanent blocks and Akismet reports still appear in the seven-day figure.
+
+The permanent total is asserted to fall when an address is removed, proving it reads the list rather than a tally. The withdrawn row is asserted absent, the leftover row asserted conditional, and the dead variables asserted gone.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` unchanged at `1.4.25-1`; no detection logic touched.
+
+## 1.4.31
+
+### Why
+Requested: an attempt to sign in as an account that does not exist here should be blocked permanently, and reported to Akismet.
+
+The reporting half already worked. A bot-only username has counted as conclusive evidence since 1.4.26, and reporting has been on by default since 1.4.27, so those addresses were already going to Akismet. Nothing needed building.
+
+The permanent half needed one design decision made properly rather than quickly. The existing block list is a fixed two-hundred-entry cache that evicts by soonest expiry. A permanent entry placed in there would either be evicted anyway - so not permanent - or would crowd out the ability to block a live attack. Permanence needs its own store, not a flag on a cache.
+
+### What changed
+An address that tries to sign in as a username that does not exist on the site - admin, root, administrator and the rest of that list - is now added to a permanent sign-in denylist on the first attempt. No counter, no cool-off, no expiry.
+
+Two properties bound what that can cost, and both are worth stating because they are what make permanence defensible rather than reckless.
+
+The gate runs on `authenticate`, so a permanent block prevents signing in and nothing else. Whoever holds that address can still read the site perfectly normally. And the rule can only fire for a username that does not exist here, so no real account - the operator's included - can ever put its own address on the list.
+
+The list is bounded at a thousand entries, oldest dropped first. An unbounded store is how this plugin took a site down in 1.4.13, and that is not a lesson worth learning twice.
+
+Every entry can be removed from Diagnostics, where the list appears with the attempted username and the date. A permanent block with no way to undo it is a trap rather than a feature - addresses get reassigned, and correcting that should not need database access.
+
+### Verified
+php -l across all twenty-seven includes and the bootstrap; node --check on admin.js; all twenty-six prior harnesses re-run as regressions; render-smoke at 9/9 tabs; and a new 35-check suite.
+
+Five bot usernames are asserted to produce a permanent block on the first attempt. The gate is asserted to keep rejecting after every transient, counter and temporary block has been cleared, which is what "permanent" has to mean. Reporting to Akismet is asserted to still happen.
+
+The refusals matter more than the blocks. A site that genuinely has an account called admin is asserted never to permanently block anyone for trying it. An allowlisted address and a remembered administrator address are both asserted to be refused outright. Removal is asserted to work and to be logged. The store is asserted capped at a thousand, and asserted separate from the rotating cache so eviction cannot reach it.
+
+Two older suites were updated rather than worked around. They asserted that a bot username appears in the temporary block list, which is now the wrong store - the intent, "is this address blocked", is unchanged and is what they test now. A third assertion measuring an Akismet-spam block duration was switched to a non-bot username, since a permanent block has no duration to measure.
+
+### Meta
+No new files (51 entries). `INDICATOR_VERSION` unchanged at `1.4.25-1`; no detection logic touched.
 
 ## 1.4.30
 

@@ -7,6 +7,8 @@ class WPS_Blocker {
 
     private const IP_BLOCK_OPTION = 'wps_blocked_ips';
     private const IP_BLOCK_DAYS   = 7;
+    /** A malware-uploading address that Akismet also knows as bad earns a longer hold (1.4.72). */
+    private const IP_BLOCK_DAYS_KNOWN = 30;
     private const ZIP_PHP_SCAN_MAX_BYTES = 2097152;
 
     //  Pattern lists 
@@ -33,6 +35,8 @@ class WPS_Blocker {
             'auto-content-profiler',   // 1.3.58: Auto Content Profiler / Pro Team disguise (variable-concat evasion variant)
             'pro-cache-scanner',       // 1.3.68: Pro Cache Scanner / Net IO disguise (Health_Proc_1e3d handler class)
             'total-database-optimizer', // 1.3.69: Total Database Optimizer / Cache Software disguise (WP_Manager_abc5, array-callback evasion)
+            'site-security-toolkit',    // 1.4.49: Site Security Toolkit / Cache Solutions disguise (Core_Loader_c8fc, option wp_1f20bc3f7f_cfg) - catalogued 1.3.79, never blocked
+            'auto-asset-helper',        // 1.4.49: Auto Asset Helper / WP Solutions disguise (Res_Helper_ad74) - catalogued 1.3.79, never blocked
             // session-manager  second plugin name confirmed in same campaign
             'session-manager',
             // WP-antymalwary-bot family
@@ -59,6 +63,141 @@ class WPS_Blocker {
         }
 
         return array_values( array_unique( array_merge( $defaults, $extra ) ) );
+    }
+
+    //  Site-policy plugin denylist (1.4.62)
+
+    /**
+     * Plugins refused by site policy rather than by malware detection.
+     *
+     * These are not malware. They are ordinary plugins the operator has
+     * decided must never run on this site while WP Perf Shield is active. WP
+     * File Manager hands full filesystem access to anyone who reaches the
+     * dashboard and carries a history of critical remote-code-execution holes
+     * (the CVE-2020-25213 lineage), which makes it a standing post-compromise
+     * foothold; FileBird is refused here as an operator preference, nothing
+     * more.
+     *
+     * The separation from the malware list above is the point. Routing these
+     * through `is_blocked()` would log them as "matches a known malicious
+     * pattern" - untrue, and a lie the tamper-evident event log would then
+     * carry forever. This path labels every refusal as a policy decision, and
+     * never adds the uploader's address to the hostile-IP list, because an
+     * administrator uploading a plugin they are not allowed to run is not an
+     * attacker.
+     *
+     * Built-in defaults, plus one operator-managed slug per line from Settings.
+     *
+     * @return string[]
+     */
+    public static function get_policy_banned_slugs(): array {
+        $defaults = [
+            'wp-file-manager', // full-filesystem file manager; CVE-2020-25213 lineage
+            'filebird',        // media-library folder organiser; operator preference
+        ];
+
+        $saved = get_option( WPS_OPTION, [] );
+        $extra = [];
+        if ( is_array( $saved ) && ! empty( $saved['policy_banned_slugs'] ) && is_string( $saved['policy_banned_slugs'] ) ) {
+            $extra = array_filter( array_map( 'trim', explode( "\n", $saved['policy_banned_slugs'] ) ) );
+            $extra = array_filter( array_map( 'sanitize_title', $extra ) );
+        }
+
+        return array_values( array_unique( array_merge( $defaults, $extra ) ) );
+    }
+
+    /**
+     * On by default. The whole policy denylist can be switched off from
+     * Settings without clearing the list, so a control that has no legitimate
+     * off state does not become one.
+     */
+    public static function policy_ban_enabled(): bool {
+        $s = get_option( WPS_OPTION, [] );
+        return ! is_array( $s ) || ( $s['policy_ban_enabled'] ?? '1' ) !== '0';
+    }
+
+    /**
+     * Is this plugin file refused by site policy? Folder/slug substring match
+     * only - these are named plugins, so testing the plugin path against the
+     * list is the whole of it. No hashes, no payload signatures: nothing here
+     * is malware, and pretending otherwise would be the mistake this method
+     * exists to avoid.
+     */
+    public static function is_policy_banned( string $plugin_file ): bool {
+        if ( ! self::policy_ban_enabled() ) {
+            return false;
+        }
+        $lower = strtolower( $plugin_file );
+        foreach ( self::get_policy_banned_slugs() as $slug ) {
+            if ( $slug !== '' && strpos( $lower, $slug ) !== false ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Does this upload carry a policy-banned plugin? The upload filename is
+     * matched as a substring (so a renamed `wp-file-manager-copy.zip` is still
+     * caught), and for a ZIP each entry is matched as a path segment, so a
+     * plugin whose own code merely mentions `filebird` in a filename is not a
+     * false hit. Content is never hashed or signature-scanned here: the folder
+     * name is the entire test.
+     */
+    private static function policy_upload_match( string $filename, array $file ): string {
+        $slugs = self::get_policy_banned_slugs();
+        $name  = strtolower( $filename );
+
+        foreach ( $slugs as $slug ) {
+            if ( $slug !== '' && strpos( $name, $slug ) !== false ) {
+                return 'file=' . self::short_log_value( $filename );
+            }
+        }
+
+        if ( ! self::is_zip_file( $filename ) || ! class_exists( 'ZipArchive' ) ) {
+            return '';
+        }
+
+        $tmp_name = (string) ( $file['tmp_name'] ?? '' );
+        if ( $tmp_name === '' || ! is_readable( $tmp_name ) ) {
+            return '';
+        }
+
+        $zip = new ZipArchive();
+        if ( $zip->open( $tmp_name ) !== true ) {
+            return '';
+        }
+
+        try {
+            $count = min( (int) $zip->numFiles, 500 );
+            for ( $i = 0; $i < $count; $i++ ) {
+                $stat = $zip->statIndex( $i );
+                if ( ! is_array( $stat ) ) {
+                    continue;
+                }
+                $entry = strtolower( str_replace( '\\', '/', (string) ( $stat['name'] ?? '' ) ) );
+                if ( $entry === '' ) {
+                    continue;
+                }
+                foreach ( $slugs as $slug ) {
+                    if ( $slug === '' ) {
+                        continue;
+                    }
+                    // Path-segment match: the plugin folder itself, not an
+                    // incidental mention inside some other plugin's filename.
+                    if ( $entry === $slug
+                        || strpos( $entry, $slug . '/' ) === 0
+                        || strpos( $entry, '/' . $slug . '/' ) !== false
+                    ) {
+                        return 'entry=' . self::short_log_value( $entry );
+                    }
+                }
+            }
+        } finally {
+            $zip->close();
+        }
+
+        return '';
     }
 
     /** @return string[] */
@@ -90,6 +229,19 @@ class WPS_Blocker {
             '/pro-cache-scanner[-_][a-z0-9]{3,8}\.php$/i',     // 1.3.68
             '/total-database-optimizer[-_][a-z0-9]{3,8}\//i',     // 1.3.69
             '/total-database-optimizer[-_][a-z0-9]{3,8}\.php$/i', // 1.3.69
+            '/site-security-toolkit[-_][a-z0-9]{3,8}\//i',        // 1.4.49
+            '/site-security-toolkit[-_][a-z0-9]{3,8}\.php$/i',    // 1.4.49
+            '/auto-asset-helper[-_][a-z0-9]{3,8}\//i',            // 1.4.49
+            '/auto-asset-helper[-_][a-z0-9]{3,8}\.php$/i',        // 1.4.49
+            // 1.4.50: the theme-loader / RC4 JS injector family names itself
+            // `Plugin-<8 hex>` rather than using a fixed slug, so it cannot live
+            // in the slug list above - the name IS the shape. Two confirmed
+            // samples: Plugin-7e4eb3ff (1.3.79) and Plugin-390a770b (1.4.36).
+            // Exactly eight hex digits, so `Plugin-7e4eb3` and `Plugin-7e4eb3ff9`
+            // do not match, and neither does an ordinary slug like
+            // `plugin-directory`.
+            '/(^|\/)Plugin-[0-9a-f]{8}\//i',                       // 1.4.50
+            '/(^|\/)Plugin-[0-9a-f]{8}\.php$/i',                   // 1.4.50
             '/^languages\/wp-locale-handler\.php$/i',
             // session-manager + random suffix (second known campaign plugin)
             '/session-manager[-_][a-z0-9]{3,8}\//i',
@@ -123,8 +275,19 @@ class WPS_Blocker {
             'c87d8c472f827704a2ef6beb997729ff', // auto-content-profiler-0b8d.php (1.3.58, variable-concat evasion variant)
             '15e17041c615dc272d5cd5ac3bcd5d6f', // pro-cache-scanner-6d52.php (1.3.68)
             '80322b56aaec6af92d392f8daa36aee7', // total-database-optimizer-9a95.php (1.3.69, array-callback evasion variant)
+            '608576a9322aab3585fe7e7eb109f368', // site-security-toolkit-1f30.php (1.4.49, 9,674 bytes, hashed from the sample in hand)
+            '73f07f1438b9a710b5bf1893186d1e67', // Plugin-7e4eb3ff.php (1.4.50, 130,672 bytes, hashed from the sample in hand)
+            '7bbf81ab731b59b3c0fed628c1f3cf3d', // auto-asset-helper-2763.php (1.4.53, 10,739 bytes, hashed from the sample in hand - the entry 1.4.49 deliberately left out)
+            'ab86726bb8ed4527cb6ea787f9a12c1a', // Plugin-b45b652c.php (1.4.57, 129,503 bytes, hashed from the sample in hand)
+            '748f6d05c328364ebf6a0cec1aec350d', // Plugin-45e0930c.php (1.4.58, 127,542 bytes, hashed from the sample in hand)
             'b86b46e36620c041a5033a8191b05f1fb744f0451beb5b9d639463de1d46d664', // SHA-256, XOR 60
-            'b911ac7f91e15f87bb1f5acf9f62a0374f433159e15fe085cf004065be3950000', // SHA-256, XOR 84
+            // 1.4.51: a 65-character entry sat here labelled "SHA-256, XOR 84".
+            // SHA-256 is 64 characters, so it could never equal any hash and had
+            // been dead since it was added. It is removed rather than corrected:
+            // the XOR-84 sample is not held, and guessing which character was
+            // spurious would be inventing a fingerprint. That build stays covered
+            // by its MD5 (cdec71647d65e4e6542c19848e07e7bd) and by the structural
+            // ClickFix checks, which never depended on this entry.
             '2a5b7a6602bc5bace45131153d665554b36404d7c40b72e7c56e06c9a6f7d15d', // SHA-256, XOR 113
             '8effe4bd104ee4716ae3fb975b6b6e37069f347dfe09c0569f9aea0c77c8a789', // SHA-256, XOR 114
             '0df2fa44c40cc0ae76fa32ebf756cfe3c4614f80a90dd8290b061d433dedc27b', // SHA-256 native-render-toolkit-9401.php
@@ -138,6 +301,11 @@ class WPS_Blocker {
             'd7ec2991f822bc9d8811526f83e84dad6002d8ca8471fd3a763f40252e59ea32', // SHA-256 auto-content-profiler-0b8d.php (1.3.58)
             '894108561a3b5be93a76ce2bda74602ed5b5305649aae65b43460565ca220201', // SHA-256 pro-cache-scanner-6d52.php (1.3.68)
             '1e5992209203641e6b12b309596c1eb87a46c985eded099214ea036eb316adb3', // SHA-256 total-database-optimizer-9a95.php (1.3.69)
+            '3bb3738a66d94f5b5020fab817afd4fd94bbe6e11cbdaa477eec49d27a555ae9', // SHA-256 site-security-toolkit-1f30.php (1.4.49)
+            'eb45ec5c13b35b4589047550e41656f5395aeb3e33b610fdd60d1473f0f3e642', // SHA-256 Plugin-7e4eb3ff.php (1.4.50)
+            'de3bc67ff123719c1fa36e6d86b960f007290d84f23d4b79d39610c177cda451', // SHA-256 auto-asset-helper-2763.php (1.4.53)
+            'ee72a3a0c968e3248df20d48e0c2d954e184c37fa7c283bb0625c5249448d31e', // SHA-256 Plugin-b45b652c.php (1.4.57)
+            'dfe3321053f7577873b4b15d03ad40318656096c9d0280ce4aebc3cef192da66', // SHA-256 Plugin-45e0930c.php (1.4.58)
 
             //  Second-stage PHP backdoors (RCE + credential harvester)
             '9c77bbb0998b95f0562800b6086dd11e', // wp-backup-verify.php
@@ -357,7 +525,7 @@ class WPS_Blocker {
         }
 
         wp_die(
-            '<h2>Request blocked by WP Perf Shield</h2><p>This IP address has attempted to upload known malware.</p>',
+            '<h2>Request blocked by WP Perf Shield</h2><p>This address has been blocked for abusive activity.</p>',
             'Request Blocked',
             [ 'response' => 403 ]
         );
@@ -404,6 +572,9 @@ class WPS_Blocker {
         if ( self::is_blocked( $plugin_file ) ) {
             unset( $actions['activate'] );
             $actions['wps'] = '<span style="color:#a00;font-weight:500">&#9940; Blocked by Perf Shield</span>';
+        } elseif ( self::is_policy_banned( $plugin_file ) ) {
+            unset( $actions['activate'] );
+            $actions['wps'] = '<span style="color:#a00;font-weight:500">&#9940; Banned by site policy</span>';
         }
         return $actions;
     }
@@ -417,6 +588,19 @@ class WPS_Blocker {
                 . '<p><strong>' . esc_html( $plugin_file ) . '</strong> matches a known malicious pattern.</p>'
                 . '<p><a href="' . esc_url( admin_url( 'plugins.php' ) ) . '">&larr; Back to Plugins</a></p>',
                 'Plugin Blocked',
+                [ 'response' => 403 ]
+            );
+        }
+
+        if ( self::is_policy_banned( $plugin_file ) ) {
+            WPS_Logger::log_event( 'policy_activation_blocked', $plugin_file );
+            WPS_Logger::notify_admin( 'Plugin activation blocked by site policy', $plugin_file );
+            wp_die(
+                '<h2>&#9940; Plugin banned by site policy</h2>'
+                . '<p><strong>' . esc_html( $plugin_file ) . '</strong> is on this site\'s banned-plugin list and cannot be activated while WP Perf Shield is running.</p>'
+                . '<p>This is a policy decision, not a malware detection. If it is a mistake, remove the plugin from WP Perf Shield &rarr; Settings &rarr; Banned plugins.</p>'
+                . '<p><a href="' . esc_url( admin_url( 'plugins.php' ) ) . '">&larr; Back to Plugins</a></p>',
+                'Plugin Banned',
                 [ 'response' => 403 ]
             );
         }
@@ -435,6 +619,9 @@ class WPS_Blocker {
             if ( self::is_blocked( $p ) ) {
                 WPS_Logger::log_event( 'removed_from_db', $p );
                 WPS_Logger::notify_admin( 'Blocked plugin removed from active list', $p );
+            } elseif ( self::is_policy_banned( $p ) ) {
+                WPS_Logger::log_event( 'policy_removed_from_db', $p );
+                WPS_Logger::notify_admin( 'Banned plugin removed from active list (site policy)', $p );
             } else {
                 $clean[] = $p;
             }
@@ -453,6 +640,10 @@ class WPS_Blocker {
                 WPS_Logger::log_event( 'removed_from_network_db', $plugin_file );
                 WPS_Logger::notify_admin( 'Blocked network plugin removed from active list', $plugin_file );
                 unset( $plugins[ $plugin_file ] );
+            } elseif ( is_string( $plugin_file ) && self::is_policy_banned( $plugin_file ) ) {
+                WPS_Logger::log_event( 'policy_removed_from_network_db', $plugin_file );
+                WPS_Logger::notify_admin( 'Banned network plugin removed from active list (site policy)', $plugin_file );
+                unset( $plugins[ $plugin_file ] );
             }
         }
 
@@ -467,9 +658,17 @@ class WPS_Blocker {
         }
         $dirty = false;
         foreach ( $active as $k => $p ) {
-            if ( is_string( $p ) && self::is_blocked( $p ) ) {
+            if ( ! is_string( $p ) ) {
+                continue;
+            }
+            if ( self::is_blocked( $p ) ) {
                 WPS_Logger::log_event( 'force_deactivated', $p );
                 WPS_Logger::notify_admin( 'Blocked plugin force-deactivated', $p );
+                unset( $active[ $k ] );
+                $dirty = true;
+            } elseif ( self::is_policy_banned( $p ) ) {
+                WPS_Logger::log_event( 'policy_force_deactivated', $p );
+                WPS_Logger::notify_admin( 'Banned plugin force-deactivated (site policy)', $p );
                 unset( $active[ $k ] );
                 $dirty = true;
             }
@@ -492,9 +691,17 @@ class WPS_Blocker {
 
         $dirty = false;
         foreach ( $active as $plugin_file => $timestamp ) {
-            if ( is_string( $plugin_file ) && self::is_blocked( $plugin_file ) ) {
+            if ( ! is_string( $plugin_file ) ) {
+                continue;
+            }
+            if ( self::is_blocked( $plugin_file ) ) {
                 WPS_Logger::log_event( 'network_force_deactivated', $plugin_file );
                 WPS_Logger::notify_admin( 'Blocked network plugin force-deactivated', $plugin_file );
+                unset( $active[ $plugin_file ] );
+                $dirty = true;
+            } elseif ( self::is_policy_banned( $plugin_file ) ) {
+                WPS_Logger::log_event( 'policy_network_force_deactivated', $plugin_file );
+                WPS_Logger::notify_admin( 'Banned network plugin force-deactivated (site policy)', $plugin_file );
                 unset( $active[ $plugin_file ] );
                 $dirty = true;
             }
@@ -523,6 +730,22 @@ class WPS_Blocker {
                 WPS_Logger::log_event( 'upload_blocked', self::format_upload_context( $filename, $context ), $ip );
                 self::record_upload_offender( $ip, $filename, $context );
                 $file['error'] = 'This file is blocked by WP Perf Shield.';
+                return $file;
+            }
+        }
+
+        // 1.4.62: site-policy denylist. A banned plugin is refused, but no
+        // hostile-IP record is written - the person uploading it is almost
+        // always the administrator, and a policy refusal is not an attack.
+        if ( self::policy_ban_enabled() ) {
+            $policy_match = self::policy_upload_match( $filename, $file );
+            if ( $policy_match !== '' ) {
+                WPS_Logger::log_event(
+                    'policy_upload_blocked',
+                    self::format_upload_context( $filename, $context, 'Banned by site policy' ) . ' ' . $policy_match,
+                    $ip
+                );
+                $file['error'] = 'This plugin is banned by site policy and was not uploaded.';
                 return $file;
             }
         }
@@ -757,6 +980,12 @@ class WPS_Blocker {
             'auto-content-profiler',      // 1.3.58: ClickFix variant slug
             'pro-cache-scanner',          // 1.3.68: ClickFix variant slug
             'total-database-optimizer',   // 1.3.69: ClickFix variant slug
+            'Site Security Toolkit',      // 1.4.49: ClickFix variant Plugin Name disguise
+            'Auto Asset Helper',          // 1.4.49: ClickFix variant Plugin Name disguise
+            'site-security-toolkit',      // 1.4.49: ClickFix variant slug
+            'auto-asset-helper',          // 1.4.49: ClickFix variant slug
+            'ENDPLUGINJS',                // 1.4.50: heredoc terminator unique to the theme-loader JS injector family
+            'ENDPLUGINFN',                // 1.4.50: second heredoc terminator in the same family
             'wp-locale-handler',
             'polygon.drpc.org',
             'polygon-bor-rpc.publicnode',
@@ -814,6 +1043,104 @@ class WPS_Blocker {
      * @param int    $seconds How long the block should last.
      * @param array<string, mixed> $extra Optional detail merged into the record.
      */
+    /**
+     * 1.4.43: stop session cookies leaving the site.
+     *
+     * Removing an exfiltrator fixes the site once. This stops the theft while
+     * the file is still present - during the window between an intrusion and
+     * the next scan, and for any copy the scanner has not found.
+     *
+     * WordPress routes every wp_remote_* call through the pre_http_request
+     * filter before a socket is opened, so this sees the destination and the
+     * body and can refuse. The recovered sample used wp_remote_post, and so do
+     * most implants of this kind, because it is the path of least resistance
+     * inside a plugin.
+     *
+     * HONEST LIMIT, stated here because it belongs in the code and not only in
+     * the documentation: this cannot see curl_exec, fsockopen or a raw stream.
+     * Those bypass the WordPress HTTP API entirely. It closes the common case,
+     * not the category. Removal and salt rotation remain the actual fix.
+     *
+     * Requests to the site's own host are never touched, so nothing internal
+     * breaks.
+     *
+     * @param mixed $pre
+     * @param array<string, mixed> $args
+     * @param string $url
+     * @return mixed
+     */
+    public static function guard_outbound_request( $pre, $args, $url ) {
+        if ( false !== $pre ) {
+            return $pre; // something else already answered
+        }
+        if ( ! self::outbound_guard_enabled() ) {
+            return $pre;
+        }
+
+        $host = strtolower( (string) wp_parse_url( (string) $url, PHP_URL_HOST ) );
+        if ( '' === $host ) {
+            return $pre;
+        }
+
+        // Never interfere with the site talking to itself, or with the hosts
+        // WordPress and its ecosystem legitimately use.
+        $own = strtolower( (string) wp_parse_url( (string) get_option( 'siteurl' ), PHP_URL_HOST ) );
+        $own = preg_replace( '/^www\./', '', $own );
+        if ( '' !== $own && ( $host === $own || preg_replace( '/^www\./', '', $host ) === $own ) ) {
+            return $pre;
+        }
+        foreach ( [ 'wordpress.org', 'akismet.com', 'gravatar.com', 'w.org' ] as $ok ) {
+            if ( $host === $ok || substr( $host, -strlen( '.' . $ok ) ) === '.' . $ok ) {
+                return $pre;
+            }
+        }
+
+        // Flatten whatever is being sent so a body given as an array is read.
+        $body = $args['body'] ?? '';
+        if ( is_array( $body ) ) {
+            $flat = '';
+            array_walk_recursive( $body, static function ( $v, $k ) use ( &$flat ) {
+                $flat .= $k . '=' . ( is_scalar( $v ) ? $v : '' ) . '&';
+            } );
+            $body = $flat;
+        }
+        $body = (string) $body;
+        if ( '' === $body ) {
+            return $pre;
+        }
+
+        // Only session material. A version string or a site URL is not this.
+        if ( ! preg_match( '/wordpress_logged_in_[0-9a-f]{6,}|wordpress_sec_[0-9a-f]{6,}|wp-settings-time-\d+/i', $body ) ) {
+            return $pre;
+        }
+
+        if ( class_exists( 'WPS_Logger' ) ) {
+            WPS_Logger::log_event(
+                'exfiltration_blocked',
+                'Blocked an outbound request to ' . $host . ' carrying WordPress session cookies. '
+                    . 'Something on this site is trying to send login sessions elsewhere; scan now, and rotate the '
+                    . 'authentication salts in wp-config.php, because any session already sent stays valid until you do.',
+                $host
+            );
+        }
+        if ( class_exists( 'WPS_EDR' ) && method_exists( 'WPS_EDR', 'record' ) ) {
+            WPS_EDR::record( 'exfiltration_blocked', [
+                'object_type' => 'host',
+                'object_name' => $host,
+                'severity'    => 'critical',
+                'notes'       => 'outbound request carrying session cookies was refused',
+            ] );
+        }
+
+        return new WP_Error( 'wps_exfiltration_blocked', 'Request blocked: it carried WordPress session cookies to an external host.' );
+    }
+
+    /** On by default. Blocking session cookies leaving the site has no legitimate cost. */
+    public static function outbound_guard_enabled(): bool {
+        $s = get_option( WPS_OPTION, [] );
+        return ! is_array( $s ) || ( $s['outbound_guard'] ?? '1' ) !== '0';
+    }
+
     public static function record_ip_block( string $ip, string $reason, int $seconds, array $extra = [] ): bool {
         if ( $ip === '' || ! self::auto_ip_block_enabled() ) {
             return false;
@@ -863,6 +1190,17 @@ class WPS_Blocker {
         $was_blocked = isset( $blocked[ $ip ] );
         $attempts = $was_blocked ? (int) ( $blocked[ $ip ]['attempts'] ?? 0 ) + 1 : 1;
 
+        // 1.4.72: reputation-weighted hold. A malware upload is already
+        // conclusive, so a clean Akismet answer never SHORTENS the block (unlike
+        // a login mistype); a known-bad answer lengthens it.
+        $days     = self::IP_BLOCK_DAYS;
+        $rep_note = '';
+        if ( class_exists( 'WPS_Login_Guard' ) && method_exists( 'WPS_Login_Guard', 'akismet_reputation' )
+            && 'spam' === WPS_Login_Guard::akismet_reputation( $ip, 'wps-malware-upload' ) ) {
+            $days     = self::IP_BLOCK_DAYS_KNOWN;
+            $rep_note = ' (known-bad reputation, extended hold)';
+        }
+
         $blocked[ $ip ] = [
             'first_seen'    => $blocked[ $ip ]['first_seen'] ?? gmdate( 'Y-m-d H:i:s' ) . ' UTC',
             'last_seen'     => gmdate( 'Y-m-d H:i:s' ) . ' UTC',
@@ -870,8 +1208,8 @@ class WPS_Blocker {
             'last_filename' => substr( sanitize_file_name( $filename ), 0, 180 ),
             'last_pathway'  => substr( self::pathway_label( $context ), 0, 240 ),
             'last_user'     => substr( (string) ( $context['user'] ?? 'guest' ), 0, 120 ),
-            'reason'        => $reason . ': ' . substr( sanitize_file_name( $filename ), 0, 180 ),
-            'expires'       => $now + ( self::IP_BLOCK_DAYS * DAY_IN_SECONDS ),
+            'reason'        => $reason . ': ' . substr( sanitize_file_name( $filename ), 0, 180 ) . $rep_note,
+            'expires'       => $now + ( $days * DAY_IN_SECONDS ),
         ];
 
         if ( count( $blocked ) > 200 ) {
@@ -889,6 +1227,13 @@ class WPS_Blocker {
 
         if ( ! $was_blocked ) {
             WPS_Logger::notify_admin( 'Malware upload IP auto-blocked', $ip . ' attempted to upload ' . $filename . "\n" . self::format_upload_context( $filename, $context ) );
+        }
+
+        // 1.4.71: a malware upload is conclusive abuse — contribute the address
+        // to Akismet through the login guard's safeguarded reporter (never a
+        // CDN/proxy address, never a range, once per address).
+        if ( class_exists( 'WPS_Login_Guard' ) && method_exists( 'WPS_Login_Guard', 'report_attacker_ip' ) ) {
+            WPS_Login_Guard::report_attacker_ip( $ip, 'malware upload attempt: ' . substr( sanitize_file_name( $filename ), 0, 120 ) );
         }
     }
 

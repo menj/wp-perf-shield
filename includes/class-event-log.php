@@ -45,6 +45,23 @@ class WPS_Event_Log {
 	const SCHEMA_VERSION = 1;
 	const MAX_ROWS       = 10000;
 
+	/**
+	 * Seconds to wait on the advisory append lock before falling back to the
+	 * transaction path (CRIT-005, 1.4.63). Short: a chain append is a handful
+	 * of small statements, so anything approaching this ceiling means real
+	 * contention, and the caller is better served by the FOR UPDATE fallback
+	 * than by blocking a page load.
+	 */
+	const LOCK_TIMEOUT = 5;
+
+	/**
+	 * When non-empty, record()/verify_chain()/etc. operate on an isolated
+	 * scratch table and a scratch anchor option instead of the real chain
+	 * (1.4.64, the in-plugin CRIT-005 self-test). The real table, its anchor
+	 * option and its mirror files are never touched while this is set.
+	 */
+	private static $selftest_ns = '';
+
 	/** Content fields, in canonical hash order. Never reorder: hashes depend on it. */
 	private const CONTENT_FIELDS = [
 		'ts', 'event_type', 'username', 'user_role', 'user_id', 'session_id',
@@ -60,8 +77,12 @@ class WPS_Event_Log {
 	}
 
 	public static function table(): string {
-		$db = self::db();
-		return $db ? $db->prefix . 'wps_events' : 'wp_wps_events';
+		$db     = self::db();
+		$prefix = $db ? $db->prefix : 'wp_';
+		if ( self::$selftest_ns !== '' ) {
+			return $prefix . 'wps_events_st_' . self::$selftest_ns;
+		}
+		return $prefix . 'wps_events';
 	}
 
 	/** True when the DB is reachable and the table exists (creating it on first call). */
@@ -69,6 +90,9 @@ class WPS_Event_Log {
 		$db = self::db();
 		if ( ! $db || ! function_exists( 'get_option' ) ) {
 			return false;
+		}
+		if ( self::$selftest_ns !== '' ) {
+			return self::ensure_table(); // scratch table: create on demand, no real schema shortcut
 		}
 		if ( (int) get_option( 'wps_events_schema', 0 ) === self::SCHEMA_VERSION ) {
 			return true;
@@ -118,8 +142,10 @@ class WPS_Event_Log {
 		if ( $ok === false ) {
 			return false;
 		}
-		update_option( 'wps_events_schema', self::SCHEMA_VERSION, false );
-		self::migrate_legacy();
+		if ( self::$selftest_ns === '' ) {
+			update_option( 'wps_events_schema', self::SCHEMA_VERSION, false );
+			self::migrate_legacy();
+		}
 		return true;
 	}
 
@@ -201,18 +227,25 @@ class WPS_Event_Log {
 		return trim( str_replace( "<?php exit; ?>", '', $raw ) );
 	}
 
+	/** Option key holding the chain anchor - namespaced during a self-test so the real anchor is never read or written. */
+	private static function chain_option(): string {
+		return self::$selftest_ns !== '' ? 'wps_event_chain_st_' . self::$selftest_ns : 'wps_event_chain';
+	}
+
 	/** @return array{head: string, count: int, genesis: string} */
 	private static function read_anchor(): array {
 		$default = [ 'head' => '', 'count' => 0, 'genesis' => '' ];
-		$opt = function_exists( 'get_option' ) ? get_option( 'wps_event_chain', null ) : null;
+		$opt = function_exists( 'get_option' ) ? get_option( self::chain_option(), null ) : null;
 		if ( is_array( $opt ) && isset( $opt['head'], $opt['count'], $opt['genesis'] ) ) {
 			return [ 'head' => (string) $opt['head'], 'count' => (int) $opt['count'], 'genesis' => (string) $opt['genesis'] ];
 		}
-		$file = self::anchor_file();
-		if ( $file && is_file( $file ) ) {
-			$disk = json_decode( self::read_guarded( $file ), true );
-			if ( is_array( $disk ) && isset( $disk['head'], $disk['count'], $disk['genesis'] ) ) {
-				return [ 'head' => (string) $disk['head'], 'count' => (int) $disk['count'], 'genesis' => (string) $disk['genesis'] ];
+		if ( self::$selftest_ns === '' ) {
+			$file = self::anchor_file();
+			if ( $file && is_file( $file ) ) {
+				$disk = json_decode( self::read_guarded( $file ), true );
+				if ( is_array( $disk ) && isset( $disk['head'], $disk['count'], $disk['genesis'] ) ) {
+					return [ 'head' => (string) $disk['head'], 'count' => (int) $disk['count'], 'genesis' => (string) $disk['genesis'] ];
+				}
 			}
 		}
 		return $default;
@@ -220,12 +253,49 @@ class WPS_Event_Log {
 
 	private static function write_anchor( array $anchor ): void {
 		if ( function_exists( 'update_option' ) ) {
-			update_option( 'wps_event_chain', $anchor, false );
+			update_option( self::chain_option(), $anchor, false );
 		}
-		$file = self::anchor_file();
-		if ( $file ) {
-			self::write_guarded( $file, (string) wp_json_encode( $anchor ) );
+		if ( self::$selftest_ns === '' ) {
+			$file = self::anchor_file();
+			if ( $file ) {
+				self::write_guarded( $file, (string) wp_json_encode( $anchor ) );
+			}
 		}
+	}
+
+	/**
+	 * Enter an isolated scratch namespace for the diagnostic self-test. Every
+	 * record()/verify_chain() call afterwards targets a throwaway table and a
+	 * throwaway anchor option; the real chain, its anchor option and its mirror
+	 * files are neither read nor written. Always pair with end_selftest() in a
+	 * finally.
+	 */
+	public static function begin_selftest( string $ns ): bool {
+		if ( ! preg_match( '/^[a-z0-9]{1,16}$/', $ns ) ) {
+			return false;
+		}
+		self::$selftest_ns = $ns;
+		if ( function_exists( 'delete_option' ) ) {
+			delete_option( self::chain_option() ); // start from a clean genesis
+		}
+		return self::ensure_table();
+	}
+
+	/** Leave the scratch namespace, dropping the scratch table and its anchor option. */
+	public static function end_selftest(): void {
+		if ( self::$selftest_ns === '' ) {
+			return;
+		}
+		$db    = self::db();
+		$table = self::table();
+		// Guard: only ever drop a table that is unmistakably a scratch table.
+		if ( $db && method_exists( $db, 'query' ) && strpos( $table, 'wps_events_st_' ) !== false ) {
+			$db->query( 'DROP TABLE IF EXISTS ' . $table );
+		}
+		if ( function_exists( 'delete_option' ) ) {
+			delete_option( self::chain_option() );
+		}
+		self::$selftest_ns = '';
 	}
 
 	//  Recording 
@@ -244,23 +314,155 @@ class WPS_Event_Log {
 		$db  = self::db();
 		$row = self::build_row( $fields );
 
-		$anchor            = self::read_anchor();
-		$row['prev_hash']  = $anchor['head'];
-		$row['curr_hash']  = self::compute_hash( $row, $row['prev_hash'] );
-		$row['hmac_signature'] = hash_hmac( 'sha256', $row['curr_hash'], self::hmac_key() );
+		/*
+		 * CRIT-005 (1.4.63): serialise the append so two concurrent writers
+		 * cannot both attach to the same head and fork the chain.
+		 *
+		 * The head is read from the TABLE inside the lock - the newest chained
+		 * row's curr_hash - not from the cached wps_event_chain option. That is
+		 * deliberate and does two things at once: it closes the race, and it
+		 * makes an append self-healing, because the authoritative head is
+		 * always the last row actually committed to disk. A stale or
+		 * previously-forked anchor can no longer misdirect a new link.
+		 *
+		 * The previous sequence (read anchor -> compute -> insert -> advance
+		 * anchor) ran with no lock and no transaction. Under concurrent load it
+		 * forked the chain, and verify_chain() then reported that fork as
+		 * tampering - a false alarm indistinguishable from a real one, and the
+		 * likely source of an unexplained tamper report on a busy site.
+		 */
+		$lock      = self::acquire_append_lock();
+		$id        = null;
+		$committed = false;
 
-		$ok = $db->insert( self::table(), $row );
-		if ( $ok === false ) {
-			return null;
+		try {
+			$head                  = self::current_head();
+			$row['prev_hash']      = $head;
+			$row['curr_hash']      = self::compute_hash( $row, $head );
+			$row['hmac_signature'] = hash_hmac( 'sha256', $row['curr_hash'], self::hmac_key() );
+
+			$ok = $db->insert( self::table(), $row );
+			if ( $ok === false ) {
+				return null; // finally still releases the lock / rolls back
+			}
+			$id = (int) $db->insert_id;
+
+			// Advance the cached anchor. Safe under the lock; count is taken
+			// from the table so a formerly-lost increment cannot leave it
+			// permanently adrift.
+			$anchor          = self::read_anchor();
+			$anchor['head']  = $row['curr_hash'];
+			$anchor['count'] = self::chained_row_count();
+			self::write_anchor( $anchor );
+
+			// Prune inside the lock too: it re-anchors genesis and deletes the
+			// oldest rows, and must not race an append writing the same anchor.
+			self::maybe_prune();
+
+			$committed = true;
+		} finally {
+			self::release_append_lock( $lock, $committed );
 		}
-		$id = (int) $db->insert_id;
 
-		$anchor['head']  = $row['curr_hash'];
-		$anchor['count'] = $anchor['count'] + 1;
-		self::write_anchor( $anchor );
-
-		self::maybe_prune();
 		return $id;
+	}
+
+	/**
+	 * The authoritative chain head: the newest chained row's curr_hash, or the
+	 * empty string when no chained rows exist yet (genesis). Pre-chain import
+	 * rows carry an empty curr_hash and are skipped, so they never masquerade
+	 * as the head.
+	 */
+	private static function current_head(): string {
+		$db = self::db();
+		if ( ! $db ) {
+			return '';
+		}
+		$head = $db->get_var(
+			"SELECT curr_hash FROM " . self::table() . " WHERE curr_hash <> '' ORDER BY id DESC LIMIT 1"
+		);
+		return is_string( $head ) ? $head : '';
+	}
+
+	/** Count of chained (non-import) rows, for the anchor's count field. */
+	private static function chained_row_count(): int {
+		$db = self::db();
+		if ( ! $db ) {
+			return 0;
+		}
+		return (int) $db->get_var( "SELECT COUNT(*) FROM " . self::table() . " WHERE curr_hash <> ''" );
+	}
+
+	/**
+	 * Serialise chain appends (CRIT-005).
+	 *
+	 * Preferred: a MySQL/MariaDB advisory lock (GET_LOCK). The lock name is
+	 * derived from the table, so two sites sharing a database server but not a
+	 * prefix do not serialise each other, and a multisite install serialises
+	 * per network table as intended.
+	 *
+	 * Fallback, when GET_LOCK is unavailable or does not return success: a
+	 * transaction that locks the current tail row FOR UPDATE, which serialises
+	 * appenders on InnoDB. HONEST LIMIT, stated where it lives: on an empty
+	 * table there is no tail row to lock, so the fallback alone cannot serialise
+	 * the very first two concurrent genesis appends. WordPress runs on
+	 * MySQL/MariaDB, where GET_LOCK is present, so the fallback is the rare
+	 * path; it degrades safely rather than dropping the guard silently.
+	 *
+	 * @return array{type:string, name?:string}
+	 */
+	/**
+	 * The advisory-lock name that serialises appends, derived from the table so
+	 * unrelated sites on one server do not block each other. Public so the
+	 * diagnostic self-test locks the exact same name record() does, rather than
+	 * a copy that could drift.
+	 */
+	public static function append_lock_name(): string {
+		return 'wpsapp_' . substr( md5( self::table() ), 0, 32 ); // <= 64 chars, GET_LOCK ceiling
+	}
+
+	private static function acquire_append_lock(): array {
+		$db = self::db();
+		if ( ! $db || ! method_exists( $db, 'get_var' ) ) {
+			return [ 'type' => 'none' ];
+		}
+
+		$name = self::append_lock_name();
+		$got  = null;
+		if ( method_exists( $db, 'prepare' ) ) {
+			$got = $db->get_var( $db->prepare( 'SELECT GET_LOCK(%s, %d)', $name, self::LOCK_TIMEOUT ) );
+		}
+		if ( (string) $got === '1' ) {
+			return [ 'type' => 'get_lock', 'name' => $name ];
+		}
+
+		if ( method_exists( $db, 'query' ) ) {
+			$db->query( 'START TRANSACTION' );
+			// Lock the current tail row so a second appender blocks here until
+			// the first commits.
+			$db->get_var( 'SELECT id FROM ' . self::table() . " WHERE curr_hash <> '' ORDER BY id DESC LIMIT 1 FOR UPDATE" );
+			return [ 'type' => 'for_update' ];
+		}
+
+		return [ 'type' => 'none' ];
+	}
+
+	/**
+	 * Release whatever acquire_append_lock() took. For the transaction path,
+	 * commit on success and roll back an incomplete append, so the anchor is
+	 * never advanced without its event row.
+	 */
+	private static function release_append_lock( array $lock, bool $committed ): void {
+		$db = self::db();
+		if ( ! $db ) {
+			return;
+		}
+		$type = $lock['type'] ?? 'none';
+		if ( $type === 'get_lock' && ! empty( $lock['name'] ) && method_exists( $db, 'query' ) && method_exists( $db, 'prepare' ) ) {
+			$db->query( $db->prepare( 'DO RELEASE_LOCK(%s)', $lock['name'] ) );
+		} elseif ( $type === 'for_update' && method_exists( $db, 'query' ) ) {
+			$db->query( $committed ? 'COMMIT' : 'ROLLBACK' );
+		}
 	}
 
 	/** Normalise/truncate incoming fields onto the schema; nulls preserved. */

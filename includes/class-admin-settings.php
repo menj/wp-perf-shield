@@ -95,6 +95,30 @@ class WPS_Admin_Settings {
 							</td>
 						</tr>
 						<tr>
+							<th><label for="xmlrpc_strip_multicall">XML-RPC multicall</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="xmlrpc_strip_multicall" name="xmlrpc_strip_multicall" value="1" <?php checked( ( $settings['xmlrpc_strip_multicall'] ?? '1' ) !== '0' ); ?>>
+									<span>
+										<strong>Strip <code>system.multicall</code> from XML-RPC</strong><br>
+										<span class="description">Removes the one method that lets a single request carry many credential guesses at once, while leaving normal XML-RPC sign-in working. On by default and safe to leave on: Jetpack and the mobile apps use direct methods, not multicall. Turn it off only if a tool you rely on batches calls through <code>system.multicall</code> on purpose.</span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="post_guard_enabled">External post writing</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="post_guard_enabled" name="post_guard_enabled" value="1" <?php checked( ( $settings['post_guard_enabled'] ?? '0' ) === '1' ); ?>>
+									<span>
+										<strong>Block external post creation, editing and deletion</strong><br>
+										<span class="description">Refuses writes to the posts REST routes (<code>/wp/v2/posts</code>) and unregisters the post-writing XML-RPC methods, unless the request is a genuine administrator dashboard session &ndash; a test an Application Password, Basic Auth, JWT, OAuth or an unauthenticated bot cannot pass. This is the injection route behind auto-blogging and doorway/SEO-spam posts. Dashboard publishing (Gutenberg, Classic Editor) and scheduled posts are unaffected, and blocked attempts are logged. <strong>Off by default</strong>, because it will break headless WordPress, mobile-app posting, and Zapier/IFTTT-style integrations that publish through the API &ndash; turn it on only if nothing legitimately posts to this site from outside the dashboard.</span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						<tr>
 							<th><label for="xmlrpc_auth_disabled">XML-RPC sign-in</label></th>
 							<td>
 								<label class="wps-toggle-row">
@@ -114,6 +138,30 @@ class WPS_Admin_Settings {
 									<span>
 										<strong>Report confirmed attacking addresses back to Akismet as spam</strong><br>
 										<span class="description">When an address is blocked on conclusive evidence &ndash; many different usernames, a repeat offender, or a bot-only username &ndash; report it to Akismet so every site using Akismet benefits. <strong>On by default.</strong> This contributes to a shared database, so an address you report is flagged for every site using Akismet: the plugin therefore reports only addresses your own site has already proven to be attacking, never one blocked on a single mistyped password, and each address only once. Automatic reporting also stands down when the blocked address falls in a known CDN or proxy range (such as Cloudflare), since behind a proxy that address may not be the real attacker &ndash; you can still report those by hand from the blocked-addresses list in Diagnostics, where a human has looked first. Requires an active Akismet key.</span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="akismet_report_all_blocks">Report every blocked address</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="akismet_report_all_blocks" name="akismet_report_all_blocks" value="1" <?php checked( ( $settings['akismet_report_all_blocks'] ?? '1' ) !== '0' ); ?>>
+									<span>
+										<strong>Report every blocked address, not only the conclusive ones</strong><br>
+										<span class="description">Extends the setting above so that <em>any</em> address the login guard blocks is reported &ndash; including a first-offence block on a single username, the case otherwise held back as a possible mistyped password &ndash; and so that when a rotating range is blocked, the individual addresses that actually attacked from it are reported (never the whole range, which would flag innocent neighbours). <strong>On by default, at the operator's instruction.</strong> Be aware this is more aggressive: a wrongly-blocked address is then flagged for every site using Akismet. The two safeguards above still hold &ndash; a CDN or proxy address is never auto-reported, and each address is reported at most once. Turn this off to report only addresses proven to be attacking. Requires "Report attackers to Akismet" above to be on.</span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="akismet_enrichment">Ask Akismet about attackers</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="akismet_enrichment" name="akismet_enrichment" value="1" <?php checked( ( $settings['akismet_enrichment'] ?? '1' ) !== '0' ); ?>>
+									<span>
+										<strong>Consult Akismet when deciding how long to block an address</strong><br>
+										<span class="description">The opposite direction to the setting above: this asks Akismet whether an address is already known for abuse, and lengthens the block if it is. Nothing about your site is contributed by this &ndash; it is a question, not a report &ndash; so you can leave it on while turning reporting off, or the reverse. <strong>On by default.</strong> Your own site's evidence always sets the baseline duration; Akismet can only extend it, never shorten it. Requires an active Akismet key.</span>
 									</span>
 								</label>
 							</td>
@@ -205,6 +253,32 @@ class WPS_Admin_Settings {
 				</div>
 
 				<div class="wps-card wps-card--pad-lg">
+					<h2 class="wps-card-h">Banned plugins</h2>
+					<p class="wps-sm wps-muted wps-p">Ordinary plugins &mdash; not malware &mdash; that this site refuses to run. A banned plugin cannot be uploaded or activated while WP Perf Shield is active, and is deactivated on sight if it is already running. Every refusal is recorded as a policy decision, and the uploader's address is never added to the hostile-IP list for it.</p>
+					<table class="form-table wps-p0">
+						<tr>
+							<th>Enforce the banned list</th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" name="policy_ban_enabled" value="1" <?php checked( ( $settings['policy_ban_enabled'] ?? '1' ) !== '0' ); ?>>
+									<span>
+										<strong>Refuse banned plugins on upload and activation</strong><br>
+										<span class="description">On by default. Two plugins ship banned out of the box: <code>wp-file-manager</code> (WP File Manager &ndash; full dashboard filesystem access, with a history of critical remote-code-execution holes) and <code>filebird</code> (FileBird). Untick to switch the whole list off without clearing it.</span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="policy_banned_slugs">Additional banned slugs</label></th>
+							<td>
+								<textarea id="policy_banned_slugs" name="policy_banned_slugs" rows="3" class="wps-mono wps-sm"><?php echo esc_textarea( (string) ( $settings['policy_banned_slugs'] ?? '' ) ); ?></textarea>
+								<p class="description">One plugin folder slug per line, added to the two built-in bans above. Any plugin whose folder name contains one of these is refused. Leave this empty to ban only the two defaults.</p>
+							</td>
+						</tr>
+					</table>
+				</div>
+
+				<div class="wps-card wps-card--pad-lg">
 					<h2 class="wps-card-h">Appearance</h2>
 					<p class="wps-sm wps-muted wps-p">Colour scheme for the WP Perf Shield screens only.</p>
 					<table class="form-table wps-p0">
@@ -217,6 +291,25 @@ class WPS_Admin_Settings {
 									<option value="dark"  <?php selected( $appearance, 'dark' ); ?>>Dark</option>
 								</select>
 								<p class="description">Auto follows the operating system's light or dark preference.</p>
+							</td>
+						</tr>
+					</table>
+				</div>
+
+				<div class="wps-card wps-card--pad-lg">
+					<h2 class="wps-card-h">Public identification</h2>
+					<p class="wps-sm wps-muted wps-p">Whether an anonymous visitor can tell that this site runs WP Perf Shield. Off by default, and nothing else about the plugin is visible on the front end.</p>
+					<table class="form-table wps-p0">
+						<tr>
+							<th><label for="public_marker">Identify the plugin publicly</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="public_marker" name="public_marker" value="1" <?php checked( ( $settings['public_marker'] ?? '0' ) === '1' ); ?>>
+									<span>
+										<strong>Add a generator meta tag to front-end pages</strong><br>
+										<span class="description">Emits <code>&lt;meta name="generator" content="WP Perf Shield" /&gt;</code> so technology profilers such as Wappalyzer and BuiltWith can recognise the plugin. The version number is deliberately never included: releases regularly close specific evasion techniques, so publishing which one you run would tell an attacker which bypasses still work against this site. Leaving this off means an attacker cannot tell from the outside what is watching. Turning it on trades a little of that for visibility.</span>
+									</span>
+								</label>
 							</td>
 						</tr>
 					</table>

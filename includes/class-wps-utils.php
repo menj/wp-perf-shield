@@ -220,6 +220,158 @@ class WPS_Utils {
 	 *
 	 * @return array{count: int, per_kb: float}
 	 */
+	/**
+	 * 1.4.37: remove PHP comments before matching a function call.
+	 *
+	 * PHP permits a comment between a function name and its bracket, so
+	 * `/*     *\/@eval/*     *\/($x)` calls eval while defeating every pattern
+	 * that looks for `eval` followed by whitespace and a bracket. A sample
+	 * recovered from a live site used exactly that, and it walked past the
+	 * decoder-chain check added in 1.4.34 for that reason alone.
+	 *
+	 * Kept separate from deobfuscate_literals() deliberately. That method is
+	 * used to compare a file against itself with its split literals rejoined,
+	 * and removing comments as well would make almost every file differ from
+	 * its own normalised form, destroying that comparison.
+	 *
+	 * String contents are preserved: only comments outside strings go, so a
+	 * URL containing // inside quotes survives.
+	 */
+	/**
+	 * 1.4.47: normalise a file once per scan, not once per check.
+	 *
+	 * Six content checks call strip_php_comments() and deobfuscate_literals()
+	 * on every file they examine. Both are character-level PHP loops, and on a
+	 * four-hundred-kilobyte file one pass costs about fifty milliseconds. Six
+	 * passes over three hundred such files is eighty-five seconds, which is
+	 * how a scan came to exceed a thirty-second execution limit and trip safe
+	 * mode on a live site.
+	 *
+	 * The work was never the problem; doing it six times was. Each file is now
+	 * normalised once and the result shared.
+	 *
+	 * Bounded by total bytes held rather than by entry count, because one
+	 * enormous file can cost more memory than a thousand small ones - the
+	 * distinction that made an unbounded store take a site down in 1.4.13.
+	 *
+	 * Keyed on a hash of the CONTENT, not on path, size and mtime. The first
+	 * draft used mtime and a test caught it serving stale results: PHP caches
+	 * stat() calls, so filemtime() returned the old value for a file edited
+	 * moments earlier. That is the same clearstatcache defect this project hit
+	 * in 1.4.2 and again in 1.4.13. Hashing the input removes the class of
+	 * problem rather than working around it - the content is what is being
+	 * transformed, so the content is the correct key.
+	 *
+	 * @var array<string, string>
+	 */
+	private static $normal_cache = [];
+	private static $normal_bytes = 0;
+
+	private const NORMAL_CACHE_MAX_BYTES = 8388608; // 8 MB held at most
+
+	/**
+	 * The comment-stripped, literal-rejoined form of a file, computed once.
+	 */
+	public static function normalised( string $path, string $raw ): string {
+		$key = 'n:' . md5( $raw );
+		if ( isset( self::$normal_cache[ $key ] ) ) {
+			return self::$normal_cache[ $key ];
+		}
+
+		$out = self::deobfuscate_literals( self::strip_php_comments( $raw ) );
+
+		// Never cache more than the ceiling. Past it, keep computing and
+		// return correctly - slower, but never a memory problem.
+		$len = strlen( $out );
+		if ( ( self::$normal_bytes + $len ) <= self::NORMAL_CACHE_MAX_BYTES ) {
+			self::$normal_cache[ $key ] = $out;
+			self::$normal_bytes        += $len;
+		}
+		return $out;
+	}
+
+	/**
+	 * The comment-stripped form alone, for checks that do not need literals
+	 * rejoined. Shares the same ceiling, since it is the expensive half.
+	 */
+	public static function stripped( string $path, string $raw ): string {
+		$key = 's:' . md5( $raw );
+		if ( isset( self::$normal_cache[ $key ] ) ) {
+			return self::$normal_cache[ $key ];
+		}
+		$out = self::strip_php_comments( $raw );
+		$len = strlen( $out );
+		if ( ( self::$normal_bytes + $len ) <= self::NORMAL_CACHE_MAX_BYTES ) {
+			self::$normal_cache[ $key ] = $out;
+			self::$normal_bytes        += $len;
+		}
+		return $out;
+	}
+
+	/** Release the cache. Called when a scan finishes. */
+	public static function clear_normalised_cache(): void {
+		self::$normal_cache = [];
+		self::$normal_bytes = 0;
+	}
+
+	public static function strip_php_comments( string $content, int $max_bytes = 2097152 ): string {
+		if ( '' === $content || strlen( $content ) > $max_bytes ) {
+			return $content;
+		}
+		$out    = '';
+		$len    = strlen( $content );
+		$i      = 0;
+		$quote  = '';
+		while ( $i < $len ) {
+			$ch = $content[ $i ];
+
+			if ( '' !== $quote ) {
+				$out .= $ch;
+				if ( '\\' === $ch && $i + 1 < $len ) {
+					$out .= $content[ $i + 1 ];
+					$i   += 2;
+					continue;
+				}
+				if ( $ch === $quote ) {
+					$quote = '';
+				}
+				++$i;
+				continue;
+			}
+
+			if ( "'" === $ch || '"' === $ch ) {
+				$quote = $ch;
+				$out  .= $ch;
+				++$i;
+				continue;
+			}
+
+			if ( '/' === $ch && $i + 1 < $len && '*' === $content[ $i + 1 ] ) {
+				$end = strpos( $content, '*/', $i + 2 );
+				$i   = ( false === $end ) ? $len : $end + 2;
+				// A comment can separate tokens, so leave a space behind it.
+				$out .= ' ';
+				continue;
+			}
+			if ( '/' === $ch && $i + 1 < $len && '/' === $content[ $i + 1 ] ) {
+				$end  = strpos( $content, "\n", $i );
+				$i    = ( false === $end ) ? $len : $end;
+				$out .= ' ';
+				continue;
+			}
+			if ( '#' === $ch && ( $i + 1 >= $len || '[' !== $content[ $i + 1 ] ) ) {
+				$end  = strpos( $content, "\n", $i );
+				$i    = ( false === $end ) ? $len : $end;
+				$out .= ' ';
+				continue;
+			}
+
+			$out .= $ch;
+			++$i;
+		}
+		return $out;
+	}
+
 	public static function goto_density( string $content ): array {
 		$n = preg_match_all( '/\bgoto\s+[A-Za-z_][A-Za-z0-9_]*\s*;/', $content );
 		$n = is_int( $n ) ? $n : 0;
@@ -288,6 +440,23 @@ class WPS_Utils {
 			'user_ini_clean_failed_post_verify'  => 'warning',
 			'wfwaf_clean_failed_post_verify'     => 'warning',
 			'wp_config_clean_skipped'       => 'warning',
+			// 1.4.73: injected spam content, found at scan time and at save time.
+			'injected_spam_content'         => 'high',
+			'spam_post_injection_detected'  => 'high',
+
+			// 1.4.62: site-policy plugin bans. Not malware - an operator
+			// refusing an ordinary plugin - so these sit at warning, not the
+			// 'blocked' -> 'high' band the prefix fallback would otherwise
+			// assign. Every key here is emitted by WPS_Blocker's policy path.
+			'policy_activation_blocked'          => 'warning',
+			'policy_upload_blocked'              => 'warning',
+			'policy_force_deactivated'           => 'warning',
+			'policy_network_force_deactivated'   => 'warning',
+			'policy_removed_from_db'             => 'warning',
+			'policy_removed_from_network_db'     => 'warning',
+
+			// 1.4.64: the event-chain self-test run marks a routine verification.
+			'chain_selftest'                     => 'ok',
 
 			// Work completed successfully - green, not grey, because a
 			// remediation that worked is worth seeing.

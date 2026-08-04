@@ -66,6 +66,16 @@ class WPS_Admin_Docs {
 				'label' => 'Changelog',
 				'blurb' => 'Every release: why it happened, what changed, and how it was verified.',
 			],
+			'roadmap'   => [
+				'file'  => 'doc/remediation-roadmap.md',
+				'label' => 'Remediation roadmap',
+				'blurb' => 'Current state of the security review programme: what is fixed, what is open, and what to do next.',
+			],
+			'variants'  => [
+				'file'  => 'doc/variants.md',
+				'label' => 'Variant catalogue',
+				'blurb' => 'Every malware family WP Perf Shield recognises: mechanism, indicators, detection, and what stops it.',
+			],
 			'ssot'      => [
 				'file'  => 'doc/ssot.md',
 				'label' => 'Reference (SSOT)',
