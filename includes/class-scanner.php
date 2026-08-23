@@ -155,6 +155,20 @@ class WPS_Scanner {
 		//  Access & identity markers 
 		'a3f8b2c1d4e5f607',          // hardcoded RAT access key (16 hex, in every variant)
 
+		//  X7ROOT file-manager family (1.4.74) 
+		// Recovered sample: a full unauthenticated file manager (upload, edit,
+		// rename, delete, chmod any path) dropped as the ROOT index.php of a
+		// genuine, unmodified plugin folder - "Protect Uploads" v0.3 in the
+		// captured case, but the technique does not depend on which plugin it
+		// hides inside. Every other index.php in a WordPress plugin is the
+		// standard near-empty "silence is golden" stub; this one is tens of
+		// kilobytes. It self-identifies in a header comment, which is the most
+		// reliable signature available: exotic, fixed, and present in every
+		// build seen so far. It also actively defeats hosting-level hardening
+		// on load (open_basedir cleared, disable_functions cleared).
+		'Dark X7ROOT',
+		'X7ROOT File Manager',
+
 		//  Removed signatures (v1.2.0  v1.2.1) 
 		// Dropped in v1.2.0: bare operator-domain strings ('menj.pics',
 		// 'compelling-evidence.com', 'bismikaallahuma.org')  caused false
@@ -482,6 +496,7 @@ class WPS_Scanner {
 			'check_hardening_bypass_config' => [ __CLASS__, 'check_hardening_bypass_config' ], // 1.4.34: php.ini dropped to re-enable exec and remove open_basedir
 			'check_encoded_payload_loader' => [ __CLASS__, 'check_encoded_payload_loader' ], // 1.4.34: eval() behind a chain of split-name decoders
 			'check_unauthenticated_file_manager' => [ __CLASS__, 'check_unauthenticated_file_manager' ], // 1.4.33: plain-text web shell, no obfuscation to find
+			'check_disguised_plugin_index' => [ __CLASS__, 'check_disguised_plugin_index' ], // 1.4.74: oversized index.php hiding inside an otherwise-genuine plugin/theme folder
 			'check_doorway_cloaking' => [ __CLASS__, 'check_doorway_cloaking' ], // 1.4.25: serves crawlers different content than the owner
 			'check_control_flow_flattening' => [ __CLASS__, 'check_control_flow_flattening' ], // 1.4.25: goto-density obfuscation // 1.3.44: hunt for PHP files under .well-known/ (none of the IETF protocols using .well-known are PHP)
 			'check_generic_webshell_patterns' => [ __CLASS__, 'check_generic_webshell_patterns' ], // 1.3.46: high-confidence webshell pattern detection (eval/assert with user input, RFI, /e modifier)
@@ -4519,6 +4534,152 @@ class WPS_Scanner {
 				}
 			} catch ( \Throwable $t ) {
 				continue;
+			}
+		}
+
+		return $found;
+	}
+
+	/**
+	 * 1.4.74: catch the disguise technique itself, not just this build's
+	 * content - a webshell dropped as the ROOT index.php of an otherwise
+	 * genuine plugin or theme folder, sized like a real file manager while
+	 * every sibling index.php at every other directory level is the standard
+	 * WordPress boilerplate "silence is golden" stub (a handful of bytes).
+	 * That size gap is structural: it survives content changes, re-encoding,
+	 * or a different family entirely reusing the same trick, in a way a
+	 * content signature cannot. This runs independently of, and in addition
+	 * to, the signature and unauthenticated-file-manager checks - a payload
+	 * that evaded both by adding a fake auth check is still caught here,
+	 * because the size gap does not depend on what the file contains.
+	 *
+	 * Deliberately conservative to avoid flagging a legitimate plugin's real
+	 * bootstrap file: only fires when (a) at least two OTHER index.php files
+	 * in the same plugin/theme are stub-sized, (b) the root index.php is
+	 * dramatically larger, (c) it carries no WordPress plugin header and no
+	 * bootstrap guard, and (d) it takes request input. A genuine plugin's
+	 * main file is never named index.php in the WordPress Plugin Boilerplate
+	 * layout this technique impersonates - that file always carries a
+	 * "Plugin Name:" header - so this cannot mistake the real bootstrap file
+	 * for the payload.
+	 */
+	private static function check_disguised_plugin_index(): array {
+		$found = [];
+		$roots = [];
+		if ( defined( 'WP_PLUGIN_DIR' ) && is_dir( WP_PLUGIN_DIR ) ) {
+			$roots[] = rtrim( WP_PLUGIN_DIR, '/\\' );
+		}
+		if ( function_exists( 'get_theme_root' ) ) {
+			$tr = get_theme_root();
+			if ( is_string( $tr ) && is_dir( $tr ) ) {
+				$roots[] = rtrim( $tr, '/\\' );
+			}
+		}
+		if ( ! $roots ) {
+			return $found;
+		}
+
+		$stub_ceiling = 100;   // bytes; the real stub is 26 bytes, generous margin
+		$shell_floor  = 2000;  // bytes; the recovered sample was 21584
+
+		foreach ( $roots as $root ) {
+			$dirs = @scandir( $root );
+			if ( ! is_array( $dirs ) ) {
+				continue;
+			}
+			foreach ( $dirs as $slug ) {
+				if ( self::out_of_time() || self::scan_budget_exceeded() ) {
+					break 2;
+				}
+				if ( '.' === $slug || '..' === $slug ) {
+					continue;
+				}
+				$pdir = $root . '/' . $slug;
+				if ( ! is_dir( $pdir ) ) {
+					continue;
+				}
+				$root_index = $pdir . '/index.php';
+				if ( ! is_file( $root_index ) ) {
+					continue;
+				}
+				$size = @filesize( $root_index );
+				if ( false === $size || $size < $shell_floor ) {
+					continue;
+				}
+
+				// Need at least two sibling stub-sized index.php files
+				// elsewhere in the same plugin/theme to establish that THIS
+				// plugin's own convention is a near-empty stub - otherwise a
+				// plugin that simply doesn't follow that convention would be
+				// judged against a baseline that was never its own.
+				$stub_count = 0;
+				try {
+					$iter = new RecursiveIteratorIterator(
+						new RecursiveDirectoryIterator( $pdir, FilesystemIterator::SKIP_DOTS ),
+						RecursiveIteratorIterator::LEAVES_ONLY
+					);
+					$iter->setMaxDepth( 4 );
+					$seen = 0;
+					foreach ( $iter as $f ) {
+						if ( ++$seen > 2000 ) {
+							break;
+						}
+						if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
+							continue;
+						}
+						if ( 'index.php' !== $f->getFilename() ) {
+							continue;
+						}
+						$fp = $f->getPathname();
+						if ( realpath( $fp ) === realpath( $root_index ) ) {
+							continue; // the candidate itself, not a sibling
+						}
+						$fsize = $f->getSize();
+						if ( false !== $fsize && $fsize <= $stub_ceiling ) {
+							++$stub_count;
+							if ( $stub_count >= 2 ) {
+								break;
+							}
+						}
+					}
+				} catch ( \Throwable $t ) {
+					continue;
+				}
+				if ( $stub_count < 2 ) {
+					continue;
+				}
+
+				$raw = @file_get_contents( $root_index );
+				if ( false === $raw ) {
+					continue;
+				}
+				$c = class_exists( 'WPS_Utils' ) ? WPS_Utils::normalised( $root_index, $raw ) : $raw;
+
+				// A genuine plugin main file always carries this header in
+				// the layout being impersonated; a bootstrap guard means it
+				// refuses to run standalone either way. Either disqualifies.
+				if ( preg_match( '/Plugin Name\s*:/i', $c )
+					|| preg_match( '/defined\s*\(\s*[\'"](?:ABSPATH|WPINC|WP_UNINSTALL_PLUGIN)[\'"]\s*\)/i', $c )
+				) {
+					continue;
+				}
+				if ( ! preg_match( '/\$_(?:GET|POST|FILES|REQUEST|COOKIE)\b|php:\/\/input/i', $c ) ) {
+					continue;
+				}
+
+				$found[] = [
+					'severity' => 'critical',
+					'type'     => 'Disguised web shell (oversized index.php in plugin/theme folder)',
+					'subject'  => self::display_path( $root_index ) . ' is ' . number_format( (int) $size ) . ' bytes, versus '
+						. $stub_count . '+ sibling index.php files in the same folder that are the standard near-empty stub',
+					'path'     => $root_index,
+					'action'   => 'Every index.php WordPress ships inside a plugin or theme is a silence-only stub of a few bytes - this one is not, and it takes request input with no WordPress bootstrap guard and no plugin header. '
+						. 'This is very likely a web shell placed inside a genuine plugin or theme folder to blend in with the directory listing. '
+						. 'Do not assume the rest of this folder is safe just because it matches a known plugin. Quarantine this file, then verify the folder\'s other files against the official source before restoring anything.',
+				];
+				if ( class_exists( 'WPS_Logger' ) ) {
+					WPS_Logger::log_event( 'disguised_plugin_index_found', self::display_path( $root_index ) . ' size=' . $size );
+				}
 			}
 		}
 
@@ -10052,6 +10213,9 @@ class WPS_Scanner {
 	private static function sig_family( string $sig ): string {
 		if ( in_array( $sig, self::SIGNATURES_ANTY, true ) ) {
 			return 'WP-antymalwary-bot family';
+		}
+		if ( in_array( $sig, [ 'Dark X7ROOT', 'X7ROOT File Manager' ], true ) ) {
+			return 'X7ROOT unauthenticated file manager';
 		}
 		if ( in_array( $sig, self::SIGNATURES_BACKDOOR, true ) ) {
 			return 'PHP backdoor/RAT (class-wp-compat family)';

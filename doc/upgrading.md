@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.74
+
+**Detects a specific live web-shell family found this session: "Dark X7ROOT File Manager", dropped as the root `index.php` of an otherwise genuine plugin folder.** A scan now catches it two ways: by its self-identifying signature, and - more durably - by the disguise technique itself, since every real plugin's index.php files at every folder level are near-empty stubs and this one is not. The structural check works even against a variant that changes its content entirely. Nothing to configure; runs as part of the normal scan.
+
 ## 1.4.73
 
 **Finds injected casino/gambling/SEO-spam posts and comments - and catches new ones as they are published.** If posts you did not write have appeared (the "slot gacor / togel / casino" spam), a scan now finds them and lists their IDs, and any future injection is flagged the moment it lands, whatever published it. It is careful not to flag your own writing: a post has to carry SEO-spam tokens, or stuff gambling keywords alongside hidden markup, before it counts - an ordinary article that mentions gambling or judi is left alone.

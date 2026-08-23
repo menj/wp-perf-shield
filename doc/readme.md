@@ -23,6 +23,7 @@ It is built for incident response and post-compromise hardening rather than broa
 - Forensics report for media uploads, admin accounts, timestamps, theme tampering, options, PHP backdoors, and WordPress core integrity.
 - Hardening helpers for `wp-config.php` constants, `.htaccess` marker blocks, transient cleanup, session invalidation, and auth salt rotation.
 - Opt-in Content-Security-Policy, off by default and report-only first, whose `connect-src` directive can block the injected ClickFix script from reaching its C2 or on-chain stage; reports collect in the Hardening tab so the policy can be tuned before enforcing.
+- Detection of a web shell disguised as the root index.php of a genuine plugin or theme folder, by its own signature and, independently, by the size gap against the near-empty index.php stubs WordPress ships at every other folder level.
 - Detection of injected casino/gambling/SEO-spam content in posts and comments, at scan time and in real time as a post is saved, tuned so it flags SEO-spam signatures without flagging legitimate writing that merely mentions gambling. Detection only — it never deletes content.
 - PHP-guarded structured event log under `wp-perf-shield/logs/events.php`.
 - Tamper-evident event chain with a concurrency-safe append, and an in-plugin Event-chain self-test in Diagnostics that verifies the chain against the live database on the host — including that its append lock excludes across two connections — without external tooling.
@@ -187,7 +188,7 @@ Custom entries are normalized and validated before saving.
 
 ## Version
 
-Current plugin version: `1.4.73`
+Current plugin version: `1.4.74`
 
 Author: [MENJ](https://github.com/menj)
 

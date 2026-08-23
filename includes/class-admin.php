@@ -524,6 +524,7 @@ class WPS_Admin {
 			'upload_blocked'          => 'Upload blocked',
 			'external_post_write_blocked' => 'External post write blocked',
 			'injected_spam_content'       => 'Injected spam content found',
+			'disguised_plugin_index_found' => 'Disguised web shell found',
 			'spam_post_injection_detected' => 'Spam post injection detected',
 			'upload_path_blocked'     => 'Upload pathway blocked',
 			'policy_activation_blocked'        => 'Activation refused (site policy)',

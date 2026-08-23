@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.73
+Stable tag: 1.4.74
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -106,6 +106,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.74 =
+Adds detection for the "Dark X7ROOT File Manager" web shell, found live this session disguised as the root index.php of a genuine, unmodified plugin folder. Two independent checks: a named signature for immediate identification, and a structural check that catches the disguise technique itself - an oversized, unauthenticated, request-handling index.php at a plugin/theme root sitting beside multiple genuine near-empty stub index.php files, which is how WordPress plugins normally look at every folder level. The structural check is conservative and tested against both a synthetic tree and the actual captured sample; it does not fire on a real plugin bootstrap file, a guarded file, or a large file that takes no request input.
 
 = 1.4.73 =
 Adds detection of injected casino/gambling/SEO-spam content in posts and comments - the content side of an auto-blogging/injection compromise, which the file and option checks miss. A shared signature matcher flags SEO-spam tokens (slot gacor, rtp live, maxwin, togel) outright, and ordinary gambling words only in bulk with hidden markup or a link wall, so it does not flag legitimate writing that mentions gambling. A new scanner check finds spam already published (with sample IDs, detection-only - it never deletes), and a real-time save_post hook flags new injections whatever the vector. Includes entry-point-first guidance so removing content does not simply invite republication.

@@ -1,5 +1,22 @@
 # WP Perf Shield changelog
 
+## 1.4.74
+
+Adds detection for the "Dark X7ROOT File Manager" web shell and, more importantly, the disguise technique it uses: dropping an unauthenticated file manager as the ROOT `index.php` of a genuine, unmodified plugin folder. Found live during this session, packaged as a normal-looking plugin folder (`Protect Uploads` v0.3, entirely genuine) with the payload hiding among its files.
+
+### Two independent detections, deliberately not one
+* **Named signature.** `Dark X7ROOT` and `X7ROOT File Manager` - the shell's own self-identifying header text - are added to the backdoor signature family, with their own label (`X7ROOT unauthenticated file manager`) rather than the generic RAT name, so a hit is identified immediately rather than just flagged.
+* **Structural check** (`check_disguised_plugin_index`, new). The signature above stops working the moment a variant changes its header text. What does not change so easily is the shape of the disguise: every `index.php` WordPress ships inside a plugin or theme, at every directory level, is a silence-only stub of a handful of bytes - the sample's own `includes/index.php` and `admin/index.php` are both exactly 26 bytes. A 21KB `index.php` sitting at the plugin's own root, next to those stubs, is the tell, independent of whatever the payload's content looks like this week.
+
+The structural check is deliberately conservative, checked against real filesystem trees rather than assumed correct: it only fires when at least two *other* index.php files in the same folder are stub-sized, the root index.php is dramatically larger, it carries no `Plugin Name:` header and no WordPress bootstrap guard, and it takes request input. A plugin that simply doesn't use the stub convention, one whose oversized root file is a legitimate guarded bootstrap, and one that is merely large but takes no request input are all left alone - each was built as a test case and confirmed not to fire.
+
+### Verified
+`php -l` clean across all 36 includes and the bootstrap. New harness `disguised-plugin-index.php` (13/13) against a synthetic tree covering the attack shape and four distinct negative cases (no stub siblings, only one sibling, a real bootstrap guard, no request input), plus the family-naming regression. A second harness runs the check against the **actual captured sample, byte for byte** - not a recreation - and confirms it is flagged. All fourteen harnesses pass (121 assertions).
+
+### Meta
+Version markers move to 1.4.74. New scanner check `check_disguised_plugin_index`, new event `disguised_plugin_index_found` (critical, emitted and severity-mapped). Two new signature-family entries. No new settings. `INDICATOR_VERSION` unchanged - a scanner-check addition is not an indicator-list change by the SSOT's own rule.
+
+
 ## 1.4.73
 
 Adds detection of the injected content itself - the casino/gambling/SEO-spam this whole class of attack exists to publish. Every check before this looked at code and configuration; none looked at what the injection actually writes into `wp_posts` and `wp_comments`. That was the gap.

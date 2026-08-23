@@ -442,6 +442,7 @@ class WPS_Utils {
 			'wp_config_clean_skipped'       => 'warning',
 			// 1.4.73: injected spam content, found at scan time and at save time.
 			'injected_spam_content'         => 'high',
+			'disguised_plugin_index_found'  => 'critical',
 			'spam_post_injection_detected'  => 'high',
 
 			// 1.4.62: site-policy plugin bans. Not malware - an operator
