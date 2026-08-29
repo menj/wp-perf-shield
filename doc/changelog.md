@@ -1,5 +1,357 @@
 # WP Perf Shield changelog
 
+## 1.4.87
+
+Asked directly whether detection had actually been strengthened, the honest answer was no - three batches in a row had been answered with "already covered" and no code written. Testing that claim adversarially broke it inside a minute.
+
+### The gap
+A known-caught sample was mutated the way an attacker would, with no cleverness required:
+
+* **A** - stop splitting identifiers, so `'wp_'.'foot'.'er'` becomes `'wp_footer'`.
+* **B** - move the encoded blob out of the source into a sibling file the loader reads.
+
+Each mutation alone survived, caught by one check. **Both together were caught by nothing.** The two checks had been described as independent confirmation; they were not. One keyed on the splitting, the other required the blob to be a literal in the file, and the two mutations removed exactly one precondition each. "Two independent detections" was a statement about how the checks were written, not about what they actually depended on, and that difference is the whole finding.
+
+### The fix
+`check_db_resident_payload` no longer requires the blob to be a literal in the source. What the loader cannot drop, whatever else it shuffles, is reading its payload out of an option and decoding it - that is the mechanism rather than a detail of packaging. The check now keys on that shape: a decoder applied to `get_option()` (directly, or one step apart through a variable), the same option written back, and the result put somewhere it runs. Where the blob physically sits is now irrelevant, which is the point. A hardcoded blob still qualifies on its own, as before.
+
+All three mutations are detected again, and the unmutated samples still are.
+
+### False positives, checked rather than assumed
+Relaxing a rule is where false positives come from, so three legitimate shapes were built and asserted silent: a plugin storing settings in an option, a plugin decoding an option into JSON, and - the closest call - a plugin that decodes a licence key from an option *and* writes it back. None fire, because none of them puts the decoded value somewhere it executes.
+
+### The harness is the durable part
+`mutation-resistance.php` builds the mutations from a real sample every run and asserts detection survives each one and their combination. It exists because the failure here was not a missing signature but misplaced confidence, and the only thing that catches that is testing a claim instead of repeating it. Future changes to these checks now have to survive an adversary, not just a fixture.
+
+### Verified
+`php -l` clean across all 36 includes. New harness `mutation-resistance.php` (7/7): the original and all three mutations detected, the combined mutation explicitly named as the 1.4.86 regression, and three legitimate option-decoding plugins left alone. All twenty-six harnesses pass (265 assertions).
+
+### Meta
+Version markers move to 1.4.87. No new checks or events - one existing check made to depend on the mechanism rather than on the packaging. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.86
+
+The packed family moved its payload into the database, which changes what removal means.
+
+### What arrived
+Three more of the four-hex-suffix plugins - `auto-content-profiler-0b8d`, `pro-cache-scanner-6d52`, `total-database-optimizer-9a95` - all "Core Web Vitals" performance tools by invented authors, all hooking `wp_footer` at an absurd priority, all with identifiers split to defeat searching.
+
+**All three were already detected** by the split-string check from 1.4.79, which is the system working. But they have changed in a way that matters for cleanup, and the existing finding did not say so.
+
+### The payload is now in wp_options
+Earlier variants shipped their payload in a `.pkg` or `.dat` file beside the loader. These carry it in the database: the constructor reads an option with a random-looking name, and if it is missing or short, decodes a hardcoded base64 blob and writes it straight back with `update_option()`.
+
+That inverts the cleanup. Deleting the plugin folder removes the loader and **leaves the payload sitting in wp_options**, where the next loader to arrive - a re-drop of the same plugin, or a different one that knows the option name - finds it waiting. An operator who deletes the folder, sees the scan go quiet, and considers the job finished has done half of it. This is the database-resident payload every incident-response guide warns about, and it is invisible to file scanning by construction.
+
+`check_db_resident_payload` requires all three of: a hardcoded encoded blob long enough to be a program, an `update_option` writing it, and a `get_option` reading it back. Plugins cache things in options all the time; they do not ship a large encoded blob in their source and re-seed it whenever it goes missing. The finding names the option, and the option is quarantined - reversibly, like every other removal - rather than left behind.
+
+### A defect found while building it, worth recording
+The first version wrapped the entire directory walk in one `try`, so a single throwing file returned an empty result **for every file after it**. Three samples in the same directory produced one finding, then nothing - a check that reports a clean site because it fell over on the first file. That is the same shape as the roadmap's TASK-1 finding about one broken detector aborting a whole scan, reproduced by hand in a new check. Errors are now caught per file: one unreadable or pathological file is skipped, and the walk continues.
+
+The throw itself was a missing `WPS_OPTION` constant in the test fixture rather than a fault in the code - which is the second time in three releases that an incomplete harness has convincingly presented working code as broken. The lesson is the same both times, and it is not about this constant: a test that omits a dependency does not fail loudly, it fails *plausibly*.
+
+### Verified
+`php -l` clean across all 36 includes. New harness `db-resident-payload.php` (9/9): all three real samples detected with the option named and the folder-deletion warning present; a legitimate plugin that uses options but ships no blob is left alone; and the per-file isolation is asserted directly, since three findings from one directory are only possible if one file cannot blank the walk. All twenty-five harnesses pass (258 assertions).
+
+### Meta
+Version markers move to 1.4.86. One new scanner check and one new event, `db_resident_payload_found` (critical; emitted, severity-mapped and labelled). Attributes to Akismet through the 1.4.85 path where evidence exists. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.85
+
+Akismet extended to two places it was not being used, and one place it honestly cannot be.
+
+### What Akismet cannot do, said plainly
+Akismet is an address-reputation and comment-spam service. It does not accept file hashes, and a malware file sitting on disk has no address attached to it. "Report this virus to Akismet as spam" cannot be done literally, and a release that claimed otherwise would be lying about what it had built. What can be done is to report **the address responsible**, where the plugin has evidence of one - and there were two such places going unused.
+
+### Injected spam comments - Akismet's actual purpose
+`check_injected_spam_content` has been finding confirmed gambling and SEO-spam comments since 1.4.73, and those rows carry `comment_author_IP`. This is the one case in the entire plugin where Akismet is being asked to do precisely what it exists for: these are comment-spam senders, their address is recorded against the comment, and submit-spam is the endpoint built to receive exactly this. The plugin was sitting on confirmed spam with the sender's address attached and reporting nothing. It now reports them, capped at twenty-five per scan so a spam wave contributes senders rather than duplicates.
+
+### Malware attributed to an address, on evidence
+When a scan confirms malware - a hidden-admin backdoor, a self-concealing plugin, a comment-split obfuscated file, a search-evading packer - the plugin now checks its own hostile-IP records for an address that was active **when that file was written**, using the file's modification time against the recorded activity window plus a six-hour margin. If one matches, it is reported with the timing stated in the submission note.
+
+This is deliberately narrow, because a wrong report is not a small error: it degrades that address for every site querying Akismet. So it only considers addresses the plugin **already blocked** for hostile behaviour rather than going looking for candidates, it requires the timing to line up, it blames at most one address per file, and it never submits a range. No timing match means no report - the plugin says nothing rather than guessing.
+
+### Verified
+`php -l` clean across all 36 includes. New harness `akismet-malware-reporting.php` (11/11): nothing is reported with no blocked addresses on record; an address active a month before the file is not blamed; an address active while the file was written is reported with the timing evidence in the note and the attribution logged; a blocked range is never submitted; at most one address is blamed per file; a missing file attributes nothing; and the author of a confirmed spam comment is reported while an ordinary commenter is not. All twenty-four harnesses pass (249 assertions).
+
+Every report still goes through the shared safeguarded path, so the rules that protect third parties are unchanged and not negotiable: never a CDN, proxy or private address; never a CIDR range; once per address; and nothing at all when reporting is switched off.
+
+### Meta
+Version markers move to 1.4.85. One new event, `malware_source_attributed` (high; emitted, severity-mapped and labelled). No new settings - the existing "Report attackers to Akismet" switch governs all of it. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.84
+
+A packer that beat the check written specifically to catch packers.
+
+### What arrived
+`JawirGenk.php` - 76KB across four lines, 121 `goto` jumps with matching labels, every string written in hex and octal escapes, and command and control through a Telegram bot. Five uploads alongside it were repeats already covered.
+
+`check_obfuscated_goto_backdoor` exists precisely for control-flow-flattened packers, and it read this one as clean.
+
+### Why it missed
+The check scores five independent tells and requires three, at least one of which must be an execution or payload tell rather than layout alone. Against this file it scored two:
+
+* control-flow flattening - **yes**, 121 jumps
+* packed layout - **yes**, 75KB across four lines
+* character-array reconstruction - no
+* large encoded blob - **no**, because the payload is written in escapes rather than base64, so there is no long unbroken run to find
+* dynamic execution - **no**, because `eval` is spelled in escape codes and the raw text contains no readable `eval(`
+
+Two tells, floor of three, and the two that failed were the two that would have proved intent. The escaping did all of that work. The plugin has been able to resolve escapes since 1.4.34 - `WPS_Utils::normalised()` is used by several other checks for exactly this reason - but this check never called it. It was reading the disguise instead of what was underneath.
+
+### The fix
+The payload and execution tells now run against the escape-resolved text. A sixth tell was added: a hardcoded messaging-bot or webhook endpoint (Telegram, Discord, Slack) that is **hidden in the raw file and only visible after resolving escapes**. A plainly visible webhook URL is ordinary and is not counted; one that has been deliberately obscured, in a file that is also control-flow flattened, is where the collected data goes. That tell can satisfy the "real evidence" requirement alongside execution and payload, because command and control is evidence of intent by any reasonable reading.
+
+Against the sample the file now scores three tells and is reported as critical, with the Telegram endpoint named in the finding.
+
+### A note on the harness
+The first run of the new harness showed the file still undetected after the fix, which looked like the fix having failed. It had not: the harness loaded the scanner but not `WPS_Utils`, so `class_exists()` returned false and the check fell back to the raw text - the exact behaviour it has in a real installation only if that class is missing, which it never is. The harness was wrong, not the code. Worth recording because the failure was indistinguishable from a real one until it was traced, and a test that omits a dependency can convincingly report a working fix as broken.
+
+### Verified
+`php -l` clean across all 36 includes. New harness `goto-packer-escapes.php` (8/8): the real sample is detected as critical with the flattening and the hidden Telegram endpoint both surfaced; a large minified but honest file is left alone; and - verify the verification - the harness asserts that the raw text contains no readable `eval(` and no readable Telegram endpoint while the resolved text does, which is precisely why the old check failed. All twenty-three harnesses pass (238 assertions).
+
+### Meta
+Version markers move to 1.4.84. No new checks or events; one existing check repaired and given a sixth tell. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.83
+
+The plugin has been answering the wrong question about unexpected plugins.
+
+### The correction
+Presented with a clean copy of WP File Manager, the previous release reported it as a site-policy matter at *warning* severity and quarantined it. The operator's response was the point: **they never installed it.** Nobody did.
+
+That reframes it entirely. Whether the plugin's code is clean is beside the point - what matters is that somebody who was not the owner was able to put a plugin on the server. A file manager appearing on a site whose owner never installed one is not untidiness to be swept up at warning severity; it is evidence of access, and its folder date is an approximate timestamp for when that access was used.
+
+An intruder's first move is frequently to install a real, working, entirely legitimate tool - a file manager, a backup plugin, a database client. It draws less attention than a web shell, it will not match any malware signature, and it does the same job. Every content-based check in this scanner is designed to answer "what is in this file", and against that strategy all of them return clean, correctly and uselessly.
+
+### New: the plugin roster
+`check_unattributed_plugins` ignores plugin content completely. It keeps a roster of plugins seen arriving through the upgrader - the dashboard or WP-CLI, the routes a person actually uses - and reports any plugin folder present on disk that arrived by neither. The EDR's existing `upgrader_process_complete` hook now attributes installs into that roster as they happen.
+
+The first scan **adopts everything present as the baseline and reports nothing**, because it cannot distinguish "installed normally before this plugin existed" from "planted". A check that flagged every pre-existing plugin on the day it was installed would be switched off within the hour and would be right about nothing. From that point on, anything new must arrive through the upgrader or it is reported - once, not on every scan - and a plugin that is deleted and later replanted is reported again.
+
+It is **detection only, deliberately**. The plugin may be one the owner installed by SFTP, and deleting on that basis would be wrong. What the plugin *is* remains the other checks' job; this one answers only how it arrived. The finding says plainly that the plugin is not the finding, gives the folder date as a starting point for the investigation, and directs the operator outwards from it: accounts created or promoted in that window, access logs for that period, every other plugin in the list, then rotate salts and administrator passwords - because whoever installed it had at least administrator-level access and may still have it.
+
+### Verified
+`php -l` clean across all 36 includes. New harness `plugin-roster.php` (15/15) covering the whole lifecycle: silent baseline adoption on first run, silence when nothing changes, a clean-code plugin appearing unannounced reported as critical with the right wording, reported once rather than repeatedly, no auto-deletion, an upgrader-installed plugin never reported, and a deleted-then-replanted plugin reported again. The harness rebuilds its own fixture so it is repeatable rather than passing once. All twenty-two harnesses pass (230 assertions).
+
+### Meta
+Version markers move to 1.4.83. One new scanner check, two new events - `unattributed_plugin_found` (critical) and `plugin_roster_baselined` (info) - both emitted, severity-mapped and labelled. New option `wps_plugin_roster`. No new settings. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.82
+
+Detection without removal is not protection.
+
+### The gap
+Asked directly whether the files from the previous batch would actually be removed, the answer turned out to be *most of them*. Checking rather than assuming: of the three malicious samples, two were quarantined and removed, and one - `about.php`, the self-reading loader in `wp-content/uploads` - was correctly identified as a backdoor and then **left on disk**, with a note telling the operator to deal with it.
+
+`check_encoded_payload_loader` had never set `auto_delete`. It reported. Every other check of comparable severity removes what it finds, so a live remote-code loader was being described accurately and left running.
+
+### The fix
+That check now requests removal like the others, and the finding goes through the same quarantine-first path: the file is moved to the hardened store before deletion, so it is recoverable and the evidence is preserved.
+
+**It targets the FILE, never the directory.** This check runs across the whole site including `wp-content/uploads` and the WordPress root, where a planted loader sits among legitimate files. Removing a parent directory there could take the media library with it. A loader that is part of a purpose-built malicious plugin is caught by the plugin-level checks as well, and those do remove the whole folder - which is correct, because there the folder *is* the malware.
+
+### Verified
+`php -l` clean across all 36 includes. The harness now asserts removal, not just detection: both the hidden-admin backdoor and the uploads loader are queued for removal with the correct target; the uploads loader never targets the uploads directory itself; and neither the genuine ManageWP and Burst mu-plugins nor the legitimate user-management test plugin is ever queued. `hidden-admin-and-selfread.php` is 17/17; all twenty-one harnesses pass (215 assertions).
+
+### Meta
+Version markers move to 1.4.82. No new checks or events - this makes an existing one act on what it finds. Removal continues to honour the operator's auto-delete and quarantine settings. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.81
+
+A hidden-administrator backdoor, a loader that hides its payload outside PHP entirely, and two files that turned out to be genuine.
+
+### What arrived
+* **`backup-reminder-3`** - presents as "Backup Reminder" by "BlueLeaf Media". It creates an administrator account with hex-escaped credentials (so the username never appears in a search of the file), recreates it on `init` and `admin_init` after deletion, and filters `pre_user_query` and `rest_user_query` so the account is invisible on the Users screen and through the REST API. This is precisely the "rogue admin that comes back after you delete it" pattern.
+* **`567f8e0a/about.php`** - byte-identical to the `content.php` recovered previously (same MD5), renamed to another entry in the `lock360` allowlist. It impersonates **Monarx Security**, a real vendor, in its header.
+* **`mu-plugins`** - **both files are genuine.** `0-worker.php` is the real ManageWP Worker loader, and it correctly checks the main plugin is active before including anything. `burst_rest_api_optimizer.php` is Burst Statistics' real performance filter; it unsets *other* plugins during its own REST requests, which is not self-concealment and is correctly excluded by the 1.4.77 check. Reported here because "found in mu-plugins" is not the same as "malicious", and saying so is part of the job.
+* **`wp-file-manager`** - a **clean** copy this time: no injected `.htaccess` files, unlike the compromised copy analysed earlier. Still refused by the site-policy denylist, but it is not compromised.
+
+### New: hidden administrator backdoors
+`check_hidden_admin_backdoor` requires BOTH halves before it reports anything: privilege creation (`wp_create_user`/`wp_insert_user` with an administrator role) AND concealment of users from the listing (`pre_user_query`, `rest_user_query`, or user-list-table filters). Creating an administrator is something installers, migration tools and WP-CLI helpers legitimately do; hiding one is not, and the combination has no innocent reading. Recreation on a request hook and escape-coded credentials are reported as additional signals when present.
+
+The finding gives the order that matters: remove the code FIRST, then the account, then rotate passwords and salts - because deleting the account while the code is still there simply restores it on the next page load, which is exactly why such accounts appear to come back by themselves.
+
+### Repaired: the loader that keeps its payload outside PHP
+`about.php` defeated the encoded-payload check through two independent evasions, both now fixed:
+
+* **The blob is not a quoted string.** It sits as raw bytes AFTER the closing PHP tag; the file reads itself and splits on that tag to recover it. A rule that only looks inside quotes finds nothing. The check now also accepts a long unquoted base64-ish run, which in a PHP file is data rather than code.
+* **The sink is wedged apart by comments** and prefixed with the error-suppression operator, so the pattern requiring the word `eval` immediately before its bracket never matched. The pattern now allows the at-sign and a comment where only whitespace would normally sit.
+
+**A trap worth recording:** the first attempt at that comment cited the closing PHP tag inside a `//` comment, which ends PHP mode and broke the file. This project's own conventions already warn about it; it was still made. Noted here so the warning has a worked example attached to it.
+
+### Verified
+`php -l` clean across all 36 includes. New harness `hidden-admin-and-selfread.php` (12/12): the real backdoor is flagged with all four signals surfaced and the correct remediation order; a legitimate plugin that creates administrators but hides nothing is left alone; **both genuine mu-plugins are asserted clean across every check**; and the self-reading loader is caught with its decoder chain reported. All twenty-one harnesses pass (210 assertions).
+
+### Meta
+Version markers move to 1.4.81. One new scanner check and one new event, `hidden_admin_backdoor_found` (critical; emitted, severity-mapped and labelled). Two regex repairs to `check_encoded_payload_loader`. No new settings. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.80
+
+Four more artefacts from the same campaign, two new detections, and two repairs to checks that this batch proved incomplete.
+
+### What arrived
+* **`lock360.php`** - the shell the `.htaccess` allowlist of 1.4.76 existed to protect, finally in hand. It is a remote code loader: it takes `api`, `ac`, `path` and `t` from the request, fetches PHP from `c.zvo1.xyz` (falling back to `c2.icw7.com`), writes it to a temporary file, includes it, and unlinks it. Nothing persists on disk between requests, so the operator can run anything at any time and leave almost no trace. Alongside it sat `content.php`, whose header impersonates **Monarx Security**, a real security vendor, as cover for its eval payload - and an `error_log` timestamped 11 August 2026, which dates the compromise. Already caught by the unauthenticated-file-manager check.
+* **`page-database-optimizer-c339`** - the packed family again, now using a `.cache` extension and numerically-named decoy files in `languages/`.
+* **`white-lable-cms`** - a seventeen-line typosquat of the genuine "White Label CMS" plugin (note the misspelling), whose entire body loads a script from `niaoend.com` into every page.
+* **`event`** - a *genuine, unmodified* Automattic block plugin with two 70KB files planted in `assets/`.
+
+### Two new detections
+**Junk comments wedged between tokens** (`check_comment_split_keywords`). The planted files in the Automattic plugin are written as `diE//junk` newline `( /*junk*/INclUde_onCE//junk` newline `~ /*junk*/uRldeCode(`. PHP ignores comments and does not care about keyword case, so this runs exactly as `die( include_once( urldecode( ... ) ) )` - but searching for `include_once` or `urldecode` finds nothing, and the random capitalisation defeats a case-sensitive signature too. The check measures comment density and then strips comments to see whether dangerous calls appear that the raw text does not contain. That difference is the obfuscation: an honest file, however heavily commented, shows no such gap because its calls are readable either way.
+
+Because this family plants files inside real software, the finding removes **the planted file**, not the surrounding plugin, and says explicitly that the rest of the folder may be genuine and should be verified against the official source rather than assumed good or bad wholesale.
+
+**Plugins that exist only to load a remote script** (`check_remote_script_injection`). Flags a tiny plugin that echoes a raw `<script src>` for an off-site host from a head or footer hook and does nothing else. Deliberately narrow: real plugins register third-party scripts through `wp_enqueue_script()` and have other code besides, and a list of hosts that legitimately serve script from a plugin is excluded. What the remote server sends can change at any time without touching the site again, so what it does today is no evidence of what it will do tomorrow - the finding says so.
+
+### Two repairs
+* **The opaque-data check analysed one file at a time.** It required a single PHP file both to name the data blob and to read it. The `c339` variant splits exactly that: the main file names `storage/config.cache` and passes it to a constructor, and the handler class reads and decodes it without ever naming the file. Each file alone looked innocent. Evidence is now gathered across every PHP file in the plugin, because the unit of analysis is the plugin, not the file.
+* **The comment-split check as first written missed the sample it was written from.** It counted only comments wedged directly between an identifier and its bracket; the real file also separates tokens with line comments, tildes and newlines, and scored 1 against a threshold of 15. Recorded here because it is the second time in three releases that a check written from a sample failed against that same sample - a pattern worth naming: the pattern that looks decisive while reading is often not the one that generalises, and only running the check against the file settles it.
+
+### Verified
+`php -l` clean across all 36 includes. New harness `comment-split-and-script-injection.php` (11/11): both real samples flagged with the hidden calls surfaced and the attacker host named; a heavily-commented honest file and a legitimate analytics plugin using `wp_enqueue_script` both left alone; removal correctly targets the planted file rather than the genuine plugin around it; and the `c339` cross-file payload is caught. All twenty harnesses pass (198 assertions).
+
+### Meta
+Version markers move to 1.4.80. Two new scanner checks and two new events, `comment_split_keywords_found` and `remote_script_injection_found` (both critical; emitted, severity-mapped and labelled). No new settings. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.79
+
+A packed plugin family that defeated every existing content check, and the two structural detections built from it.
+
+### What arrived
+Three uploads. One, **xdav-tracker**, is byte-identical to the sample analysed in 1.4.77 - now bundled with the same `lock360.php` allowlist `.htaccess` from 1.4.76, which ties those two kits to one campaign. It needed no new work.
+
+The other two are new and related: **`native-layout-manager-d7f2`** ("Optimized monitoring and analytics") and **`starter-render-enhancer-d5b7`** ("Automated database maintenance"). Plausible names, plausible descriptions, GPL headers, `.pot` files - and a random four-character hex suffix, the same convention as the deleted `auto-resource-analytics-4d22` folder seen previously.
+
+**Every relevant check returned zero.** That was measured before anything was written: the encoded-payload loader, the obfuscated loader, the self-hiding check, the file-manager check and the disguised-index check all read these plugins as clean. The harness asserts it, so the gap stays proven rather than remembered.
+
+### Why they were invisible
+Two techniques, neither of which any content check was looking for.
+
+* **The payload is not in any PHP file.** It lives in `data/cache.pkg`, `resources/config.pkg` and `resources/state.dat`. The PHP is a stub that loads them. Scanners that read PHP see a trivial, clean plugin, which is the entire point of the packaging.
+* **Identifiers are split across concatenation.** `'wp_'.'foot'.'er'`, `'i'.'ni'.'t'`, `'class'.'-engine.'.'php'`, `'Res_'.'Proc_c'.'ca7'`. The runtime result is identical to writing the name plainly; the only thing splitting changes is that grep and every signature list stop finding it.
+
+One variant is **self-reconstructing**: if its PHP class file is missing, it XOR-decrypts `state.dat` with an eight-byte key stored in that same file's first bytes, confirms the result starts with `<?php`, and writes the PHP back to disk. Deleting the PHP restores it on the next page load. Only removing the data file - in practice, the whole folder - ends it, which is why the finding reports the folder and says so plainly.
+
+Behind the obfuscation, joining the split literals reveals the familiar shape: `wp_footer` link injection, `wp_remote_post` to a controller, `gzinflate`, and cloaking on `is_admin`, `is_user_logged_in` and user-agent.
+
+### Two new structural checks
+* **`check_split_string_obfuscation`** - flags identifiers split to defeat search. The bar is deliberately high, because concatenation is ordinary in real code: it counts only adjacent string LITERALS joined mid-word (word character either side of the seam), needs at least six in one file, and additionally requires that joining them reveals a real API name that was not findable before. `'Hello ' . 'world'` and `$path = ABSPATH . 'uploads'` are not counted. The recovered handler scores 152.
+* **`check_opaque_data_payload`** - flags a plugin whose executable content lives in a non-PHP data file. Requires the blob to be genuinely opaque (over a quarter non-printable bytes in its first 2 KB) so ordinary assets are not candidates, requires a PHP file in the same plugin to actually read it, and then requires either that the plugin writes PHP out of it (the dropper shape) or hands it to a decoder or executing sink. Known asset extensions are excluded outright. Fonts, binary caches read but never executed, and JSON config are all left alone - each is a test case.
+
+### Verified
+`php -l` clean across all 36 includes. New harness `packed-plugin-family.php` (12/12): both real samples are flagged, the hidden API names are surfaced, the dropper behaviour is named explicitly and removal targets the whole folder with a warning that deleting the PHP alone is not enough; ordinary concatenation, `.woff2` fonts, and a plugin reading a binary cache without executing it are all left alone; and - verify the verification - every pre-1.4.79 check is asserted to find nothing on these samples. All nineteen harnesses pass (187 assertions).
+
+### Meta
+Version markers move to 1.4.79. Two new scanner checks and two new events, `split_string_obfuscation_found` and `opaque_data_payload_found` (both critical; emitted, severity-mapped and labelled). No new settings. `INDICATOR_VERSION` unchanged - these are structural techniques, not indicator-list entries.
+
+
+## 1.4.78
+
+Two defects in the encoded-payload check, both found by testing a live sample against the shipped code rather than by reading it.
+
+### What arrived
+Three files from the same compromised site. Two needed no new work: a copy of **WP File Manager 8.0.4** byte-identical to the compromised one already analysed, carrying the same 188 injected `.htaccess` files (caught by 1.4.76), and **`auto-resource-analytics-4d22`** - an empty directory, the remains of a deleted malicious plugin whose random four-hex suffix matches the ClickFix naming convention this plugin was first built against.
+
+The third, **Filester 2.1.2**, is a legitimate file-manager plugin carrying a planted loader at `files/2025/tmp/rssax/cqho/admin.php` - inside the plugin's own user-writable upload area, under four levels of meaningless nesting. Its tail chains eval over htmlspecialchars_decode, base64_decode, urldecode and base64_decode again.
+
+**The existing check did not catch it.** That was measured, not assumed: the sample was run against the shipped `check_encoded_payload_loader()` and returned zero findings.
+
+### Two defects, both fixed
+* **The walk stopped too shallow.** `setMaxDepth( 5 )`, and the payload sat seven levels below the plugin root. Burying a file deeper is the cheapest evasion there is, and the depth limit made it work. Now `PAYLOAD_MAX_DEPTH = 10`, a named constant rather than a literal, chosen to clear the deepest real nesting seen so far with room to spare while staying inside the scan's existing time budget.
+* **The decoder list was incomplete.** The check requires two decoder layers before it will flag a file. This loader has four - but only `base64_decode` was on the list; `urldecode` and `htmlspecialchars_decode` were not, so it counted as one layer and fell under the floor. These are not obscure functions: they are the ordinary way a packer moves a blob through a URL or an HTML attribute. Added, with `rawurldecode`, `html_entity_decode` and `stripslashes` alongside them.
+
+Either defect alone was enough to miss the file. Both were invisible to code review and obvious the moment a real sample was run through the real function.
+
+### Verified
+`php -l` clean across all 36 includes. New harness `encoded-payload-depth.php` (8/8): the real sample seven levels deep is now detected as critical; a deeply-nested legitimate file that decodes data but never executes it is not flagged; and - verify the verification - the harness asserts the depth constant now exceeds the old limit, that both transport decoders are counted, and that the sample carries fewer than one classic decoder, so the old list could not have flagged it whatever the depth. All eighteen harnesses pass (175 assertions).
+
+### Meta
+Version markers move to 1.4.78. No new checks or events - this repairs an existing one. `INDICATOR_VERSION` unchanged. Note for future work: other checks in the scanner still walk to depth 3 to 6, and the same burying trick applies to them; they were left alone here rather than changed without a sample proving each case, but the pattern is now on record.
+
+
+## 1.4.77
+
+Three malicious artefacts from one compromised site, and the detections built from them.
+
+### What arrived
+* **VeyronHacklink Connector** - a Turkish SEO "hacklink" backlink injector. It declares itself in its own header ("Merkezi backlink connector"), ships hardcoded credentials for `veyronlink.co`, pulls a link list on an hourly cron, renders it into `wp_footer`, registers its own REST route, and - the part that matters - **self-promotes into `mu-plugins`** so it survives plugin deletion and never appears in the Plugins list. A matching MU loader arrived separately, confirming that promotion had already happened.
+* **XDav Tracker** - twenty-three lines, disguised as a computer-vision plugin. Hides itself from the Plugins list, serves an XOR-plus-base64 obfuscated script through `shutdown` to ordinary visitors, and returns early for administrators so the operator never sees it.
+* **"WPForms Iite"** - a homoglyph typosquat of WPForms Lite (capital I, not lowercase L) containing no forms code at all: two unauthenticated PHP file managers buried under decoy nesting (`2023/cache/src/zfs/boh/`, `2023/includes/media/v1/exdl/`), one announcing itself as "File Manager Tanpa Password".
+
+### Named signatures
+`VeyronHacklink`, `veyronlink.co`, `veyron_connector`, `backlink-connector/v1` and `Merkezi backlink` under a new **Veyron hacklink backlink-injection family** label; `File Manager Tanpa Password` and `PHP File manager ver` under **dropped PHP file manager (web shell)**. Verified to match all five sample files, including the standalone MU loader.
+
+### Structural check: self-concealing plugins
+Signatures die when a variant changes a string. What the XDav sample cannot change and still work is its concealment, so that is what the new check looks for:
+
+* **A plugin that removes ITSELF from the Plugins list.** The self-reference is required - hiding *other* plugins is a genuine feature of management and white-label tools, so the unset must target `plugin_basename( __FILE__ )` or an equivalent.
+* **A plugin that withholds its front-end output from administrators.** An early return gated on `is_admin()` or `manage_options`, in a file that also hooks `wp_footer`/`wp_head`/`shutdown`, is cloaking rather than a capability check: a real capability check gates privileged *actions*, it does not hide public output from privileged *people*.
+
+Runtime-assembled code (`new Function`, `atob`, `eval`) raises severity but is never required. Neither signal has a legitimate use, which is what makes them reliable.
+
+**A defect caught by testing, recorded because it nearly shipped.** The first version of the cloaking rule used a single regex with a `[^)]` run between the guard and the `return`. The recovered sample's guard is a compound condition containing nested `function_exists(...)` calls, so that run stopped at the first inner bracket and never reached the return - the check failed to detect the very sample it was written from, while still passing every other assertion. It now matches in two steps: locate the guard token, then confirm a bare `return;`/`exit` within a short window. Assertions written against the real sample are what surfaced this; a synthetic fixture written to match the regex would have passed and shipped a half-working check.
+
+### Verified
+`php -l` clean across all 36 includes. New harness `self-hiding-plugin.php` (16/16): the real XDav sample is detected with all three signals; a white-label tool hiding another plugin, a plugin with ordinary footer output, and an admin-gated feature with no front-end emit are all left alone; family naming is correct for both new families with X7ROOT and the htaccess kit still mapping correctly. Signature matching confirmed against all five malicious files. All seventeen harnesses pass (167 assertions).
+
+### Meta
+Version markers move to 1.4.77. New scanner check `check_self_hiding_plugins`, new event `self_hiding_plugin_found` (critical; emitted, severity-mapped and labelled). Seven new signatures under two new family labels. No new settings. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.76
+
+Detects web-shell persistence hidden in `.htaccess` - a class of compromise where no PHP file on the site is modified at all, and every code-based scan therefore returns clean.
+
+### What it catches
+Recovered from a live compromise: 188 byte-identical `.htaccess` files injected through every directory of a WP File Manager install. Each denied all PHP **except** a fixed allowlist - `about.php`, `radio.php`, `content.php`, `lock360.php` - none of which WordPress or that plugin ships. The plugin's own files were byte-identical to the clean release, so nothing in any PHP file was touched.
+
+The rule reads like hardening, which is the point of it. What gives it away is the allowlist. Legitimate deny-PHP hardening - including this plugin's own `logs/.htaccess` - denies and stops there; it has no reason to carve out exceptions for individual PHP filenames, because the whole intent is that no PHP runs in that directory. An allowlist inverts that intent: it exists so specific files stay reachable *after* everything else is blocked, and those files are the attacker's shells. It also defends the kit against partial cleanup - remove the shells but miss one of these files and the door is still propped open.
+
+### Two layers, as with X7ROOT
+* **Structural check** (`check_htaccess_php_allowlist`, new): flags any `.htaccess` that denies PHP while allowlisting PHP filenames WordPress does not ship. The signal is the *shape*, so a variant that renames its shells is still caught - verified with a synthetic `zqx9purple.php` variant. Findings are grouped: the same rule replicated across a tree is one incident, not two hundred findings. One such file is enough; mass replication raises the message but is never required.
+* **Named signatures**: `lock360.php` and `radio.php` join the backdoor signature list under their own family label. `about.php` and `content.php` are plausible as legitimate theme templates, so they are matched only in `.htaccess` context, never as free-standing filename signatures. `index.php`, `admin.php` and `wp-login.php` appear in the kit's allowlist too and are deliberately excluded - they are real WordPress filenames and would fire everywhere.
+
+The finding names every allowlisted filename, because that list is effectively the attacker's own inventory of their shells, and tells the operator to search the whole webroot for them - and to find the entry point before cleaning, or the kit is simply replaced.
+
+### Verified
+`php -l` clean across all 36 includes. New harness `htaccess-allowlist.php` (17/17): the attack is detected and grouped into one critical finding; a renamed shell is still caught; WordPress's own filenames are never reported as foreign; plain `Deny from all` hardening, a WordPress-only allowlist, and the standard WordPress rewrite block all fail to trigger it; family naming is correct and the X7ROOT mapping still holds. A second harness runs the check against the **actual captured sample** and reports all 188 files with exactly the four attacker filenames extracted. All sixteen harnesses pass (151 assertions).
+
+### Meta
+Version markers move to 1.4.76. New scanner check `check_htaccess_php_allowlist`, new event `htaccess_php_allowlist_found` (critical; emitted, severity-mapped and labelled). Two new signature entries under a new family label. No new settings. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.75
+
+Completes the site-policy denylist: a banned plugin found installed is now removed, not merely blocked.
+
+### The gap
+1.4.62 stopped a banned plugin being uploaded or activated, and force-deactivated it if it was already running - but it never removed the files. A deactivated copy still sits on disk, still reachable over HTTP, still carrying whatever got it banned. For WP File Manager that is the CVE-2020-25213 remote-code-execution lineage.
+
+A live sample made the case concrete: a copy of WP File Manager 8.0.4 whose plugin files were byte-identical to the clean release, but with **188 attacker-written .htaccess files** injected through its folder tree. Each denied all PHP except a fixed allowlist - `about.php`, `radio.php`, `content.php`, `lock360.php` - none of which the plugin ships. That is a persistence mechanism dressed as hardening: it keeps the attacker's own shells reachable while blocking everyone else's. Nothing in the plugin's own files was modified, so signature scanning alone would have called it clean.
+
+### What it does
+A new scan check finds a banned plugin present on disk and hands it to the ordinary auto-remediation path, which **quarantines first** (reversible, evidence preserved) and only then removes. It honours the operator's auto-delete switch, and the whole check is gated on the policy denylist being enabled - switch that off and nothing is removed. If the folder carries ten or more .htaccess files, the finding says so and tells the operator to treat the whole install as compromised rather than assume removing one folder is the end of it.
+
+Matching is by **exact folder name**, deliberately unlike the upload guard's deliberately loose substring match. A deletion must not be loose: `wp-file-manager-helper` is a different plugin and is left alone. The plugin never removes itself, whatever a denylist says.
+
+### Framing, which is not cosmetic
+WP File Manager and FileBird are legitimate software. The finding says "banned by site policy", never "malware", and the event sits at *warning*, not the malware band. The event log is tamper-evident and permanent; a false malware attribution against a clean vendor is a lie it would carry forever. Same rule that put the policy denylist in its own list rather than in the malware blocklist back in 1.4.62.
+
+### Verified
+`php -l` clean across all 36 includes. New harness `policy-banned-installed.php` (13/13): both banned plugins detected and queued for removal; an innocent plugin untouched; `wp-file-manager-helper` untouched (exact match, not substring); the plugin's own folder never removed; the finding carries auto_delete with the right path, is not labelled malware, sits at warning-band severity, reports the .htaccess pattern, and tells the operator it is reversible; and nothing at all is removed when the policy denylist is switched off. All fifteen harnesses pass (134 assertions).
+
+### Meta
+Version markers move to 1.4.75. New scanner check `check_policy_banned_plugins_installed`, new event `policy_banned_plugin_found` (warning; emitted, severity-mapped and labelled). No new settings - governed by the existing banned-plugins and auto-delete switches. `INDICATOR_VERSION` unchanged.
+
+
 ## 1.4.74
 
 Adds detection for the "Dark X7ROOT File Manager" web shell and, more importantly, the disguise technique it uses: dropping an unauthenticated file manager as the ROOT `index.php` of a genuine, unmodified plugin folder. Found live during this session, packaged as a normal-looking plugin folder (`Protect Uploads` v0.3, entirely genuine) with the payload hiding among its files.

@@ -467,6 +467,18 @@ class WPS_EDR {
 			'object_name' => $names ? substr( implode( ', ', $names ), 0, 190 ) : null,
 			'notes'       => 'plugin ' . ( ( $extra['action'] ?? '' ) === 'install' ? 'installed' : 'updated' ) . ' through the upgrader',
 		] );
+
+		// 1.4.83: attribute these slugs in the plugin roster. A plugin that
+		// arrives through the upgrader was installed by someone using the
+		// dashboard or WP-CLI - that is an authorised route, whoever they
+		// were. A plugin folder that simply appears on disk with no such
+		// record did not come that way, and that difference is the whole
+		// point of the roster.
+		if ( class_exists( 'WPS_Scanner' ) && method_exists( 'WPS_Scanner', 'attribute_plugin_install' ) ) {
+			foreach ( $names as $n ) {
+				WPS_Scanner::attribute_plugin_install( $n );
+			}
+		}
 	}
 
 	public static function on_attachment_added( $post_id ): void {

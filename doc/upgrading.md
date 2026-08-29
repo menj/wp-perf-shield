@@ -59,6 +59,100 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.87
+
+**Strengthens detection of the fake "performance" plugin family against simple evasion.** Testing found that two small changes an attacker could make in minutes - tidying up the deliberately broken-up code, and moving the hidden payload into a separate file - would together have slipped past the previous version, even though each change on its own was caught.
+
+The check now looks for what the plugin actually *does* - reading its hidden code out of a WordPress option, decoding it, and running it - rather than for how that code happens to be packaged. Where the payload physically sits no longer matters.
+
+**Nothing to configure**, and legitimate plugins that store or decode settings in options are unaffected. Worth a fresh scan after upgrading.
+
+## 1.4.86
+
+**These fake plugins now hide their payload in your database, not just in their own files.** Three more of the random-suffix "performance" plugins arrived, and all three were already being caught - but they have changed something important: the code they run is stored in a WordPress option, and the plugin writes it back whenever it goes missing.
+
+**This changes how you clean up.** Deleting the plugin folder removes the loader and leaves the payload in your database, waiting for the next one. The scan now names the option and quarantines it along with the folder, so removal is complete. If you have deleted one of these plugins in the past and moved on, it is worth running a fresh scan.
+
+## 1.4.85
+
+**Akismet now hears about spam comment authors and about who planted malware.** Two things were going unreported. Confirmed gambling and SEO-spam comments carry the sender's address, and that is exactly what Akismet is for - those senders are now reported. And when a scan confirms malware, the plugin checks its own records for an address that was blocked on your site while that file was being written, and reports it with the timing as evidence.
+
+**It will not guess.** A malware file with no matching address in your records is not blamed on anybody, because a wrong report harms an innocent address on every site that uses Akismet. Only addresses already blocked for hostile behaviour are considered, only one is blamed per file, and ranges are never submitted.
+
+**Nothing to configure** - your existing "Report attackers to Akismet" setting governs all of it, and turning it off stops everything.
+
+## 1.4.84
+
+**Fixes a blind spot against packed backdoors that hide their strings in escape codes.** A real sample - 76KB on four lines, 121 `goto` jumps, sending data out through a Telegram bot - was read as clean because the words that would have proven what it does were written as `\x65\x76\x61\x6c` rather than as text. The check now resolves those escapes before judging, and additionally flags a messaging-bot or webhook address that has been deliberately hidden in a file which is already obfuscated.
+
+**Nothing to configure.** If earlier scans came back clean, this class of file was invisible to them, so a fresh scan after upgrading is worthwhile.
+
+## 1.4.83
+
+**A plugin you did not install is now treated as a break-in, not as clutter.** WP Perf Shield keeps a record of plugins that arrive through the dashboard or WP-CLI, and reports any plugin folder that appears by neither route - regardless of whether its code is clean. An intruder's first move is often to install a real, working tool such as a file manager, precisely because it looks innocent and matches no malware signature.
+
+**The first scan after upgrading is silent.** It adopts the plugins you already have as the starting point, since it cannot know which of them you installed yourself. Anything appearing after that is reported once.
+
+**It does not delete anything** - you may have installed something by SFTP, and that is legitimate. If a report does appear, treat the folder date as roughly when someone got in: check for accounts created or promoted around then, review your access logs for that window, and change all administrator passwords and rotate your salts.
+
+## 1.4.82
+
+**Backdoors found in your uploads folder are now removed, not just reported.** The check that finds encoded payload loaders identified them correctly but left them on disk, so a live backdoor could be sitting in a scan report while still running. It now removes them like every other check of that severity.
+
+**Removal is quarantine-first and reversible**, and it deliberately removes only the offending file rather than the folder around it, since these are usually planted among legitimate files in uploads. Your auto-delete and quarantine settings still govern the behaviour. Worth a fresh scan after upgrading.
+
+## 1.4.81
+
+**Detects hidden administrator accounts - the kind that come back after you delete them.** A scan now flags code that creates an administrator and then hides it from the Users screen and the REST API. One sample presented itself as a backup plugin, wrote its credentials in escape codes so they could not be searched for, and recreated the account on every page load.
+
+**If a scan reports this, the order matters:** remove the flagged code first, then delete the account, then change every remaining administrator password and rotate your salts. Deleting the account first achieves nothing - the code puts it straight back, which is why such accounts seem to return by themselves.
+
+**Also fixes** a loader that hid its payload after the closing PHP tag rather than in a string, which earlier versions read as clean. Worth a fresh scan after upgrading.
+
+## 1.4.80
+
+**Detects two more techniques from the campaign already covered in recent releases.** First, code broken apart with junk comments - `diE//junk` then `(INclUde_onCE//junk` - which runs normally but cannot be found by searching for what it does. Second, tiny plugins whose only purpose is loading a script from someone else's server into every page of your site, typically installed under a near-miss spelling of a real plugin's name.
+
+**One thing to be aware of if a scan flags this.** This family plants files inside genuine, unmodified plugins - one sample was a real Automattic plugin with two files added to its `assets/` folder. So a finding does not mean the whole plugin is fake. The finding removes the planted file and tells you to check the rest of that folder against the official version rather than assuming either way.
+
+**Also fixes** a case where a malicious plugin escaped detection by splitting its payload handling across two files, each of which looked harmless alone. Worth a fresh scan after upgrading.
+
+## 1.4.79
+
+**Detects a family of fake plugins that hide their payload in data files.** These install under believable names with a random four-character suffix - `native-layout-manager-d7f2`, `starter-render-enhancer-d5b7`, `auto-resource-analytics-4d22` - and keep almost no code in their PHP files, so a scan that reads code sees nothing wrong. A scan now flags them two ways: by the payload sitting in an opaque data file the plugin loads and runs, and by identifiers being split into pieces (`'wp_'.'foot'.'er'`) so that searching the file for them finds nothing.
+
+**One of them rebuilds itself if you delete the PHP.** It keeps an encrypted copy in a data file and writes the PHP back on the next page load. The finding says so, and targets the whole folder for removal rather than the file.
+
+**Worth a fresh scan after upgrading**, and worth looking through your plugins list for anything with a random four-character suffix on the end of a plausible-sounding name. Nothing to configure.
+
+## 1.4.78
+
+**Fixes two blind spots that let a real backdoor through.** A planted loader inside a legitimate file-manager plugin - buried seven folders deep in its own uploads area, and chaining four decode layers - was not being detected. The scan stopped five folders deep, and two of the decode functions it used were not on the list the check counts. Both are fixed: the payload scan now walks deeper, and transport decoders like `urldecode` count as layers.
+
+**Nothing to configure**, and no new settings. If you have run a scan before and it came back clean, it is worth running once more after upgrading: this class of file was invisible to earlier versions.
+
+## 1.4.77
+
+**Detects plugins that hide themselves from you.** A scan now flags any plugin that removes its own entry from the Plugins list, or that shows its front-end output to visitors while withholding it from administrators. Neither has a legitimate use, and together they are how an injected plugin stays invisible to the person running the site while serving spam or scripts to everyone else. Caught structurally, so a variant that rewrites its payload is still found.
+
+**Also adds signatures** for the VeyronHacklink backlink-injection family (which self-promotes into mu-plugins to survive deletion) and for two unauthenticated PHP file managers found dropped inside a fake "WPForms Iite" plugin - a homoglyph typosquat using a capital I in place of the L.
+
+**Nothing to configure.** If a scan flags one of these, remove it and then look for how it was installed: a rogue administrator account, other mu-plugins, or PHP under wp-content/uploads.
+
+## 1.4.76
+
+**Finds web shells hidden by .htaccess rules, where no PHP file has been modified at all.** A scan now flags any `.htaccess` that blocks PHP while allowlisting specific PHP filenames WordPress does not ship - a persistence trick that looks like hardening but exists to keep an attacker's shells reachable after everything else is blocked. It reports every allowlisted filename, which is effectively the attacker's own list of where their shells are.
+
+**It will not flag ordinary hardening.** A plain `Deny from all`, a WordPress-only allowlist, and the standard WordPress rewrite rules are all left alone; the trigger is specifically an allowlist naming files WordPress and its plugins do not ship. Nothing to configure.
+
+## 1.4.75
+
+**Banned plugins are now removed, not just blocked.** WP File Manager and FileBird were already refused on upload and activation and deactivated if running, but the files stayed on disk - still reachable, still carrying whatever got them banned. A scan now finds an installed banned plugin and removes it.
+
+**It is quarantined first, so this is reversible.** If a removal was not what you wanted, restore it from Diagnostics; to keep a plugin permanently, remove its slug under Settings then Banned plugins before the next scan. Removal honours your auto-delete setting, and switching the banned-plugins list off stops it entirely. Matching is by exact folder name, so a different plugin with a similar name is never touched.
+
+**If you are running WP File Manager deliberately, act before you upgrade** - otherwise the next scan will quarantine it.
+
 ## 1.4.74
 
 **Detects a specific live web-shell family found this session: "Dark X7ROOT File Manager", dropped as the root `index.php` of an otherwise genuine plugin folder.** A scan now catches it two ways: by its self-identifying signature, and - more durably - by the disguise technique itself, since every real plugin's index.php files at every folder level are near-empty stubs and this one is not. The structural check works even against a variant that changes its content entirely. Nothing to configure; runs as part of the normal scan.

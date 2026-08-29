@@ -443,6 +443,20 @@ class WPS_Utils {
 			// 1.4.73: injected spam content, found at scan time and at save time.
 			'injected_spam_content'         => 'high',
 			'disguised_plugin_index_found'  => 'critical',
+			// 1.4.75: policy removal, not malware. Warning, not high: an ordinary
+			// plugin the site has chosen not to run is notable, not an incident.
+			'policy_banned_plugin_found'    => 'warning',
+			'htaccess_php_allowlist_found'  => 'critical',
+			'self_hiding_plugin_found'      => 'critical',
+			'split_string_obfuscation_found' => 'critical',
+			'opaque_data_payload_found'     => 'critical',
+			'comment_split_keywords_found'  => 'critical',
+			'remote_script_injection_found' => 'critical',
+			'hidden_admin_backdoor_found'   => 'critical',
+			'unattributed_plugin_found'     => 'critical',
+			'malware_source_attributed'     => 'high',
+			'db_resident_payload_found'     => 'critical',
+			'plugin_roster_baselined'       => 'info',
 			'spam_post_injection_detected'  => 'high',
 
 			// 1.4.62: site-policy plugin bans. Not malware - an operator

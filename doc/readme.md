@@ -7,7 +7,7 @@ It is built for incident response and post-compromise hardening rather than broa
 ## Features
 
 - Real-time activation blocking for known malicious slugs, renamed patterns, and file hashes.
-- Site-policy plugin denylist, separate from malware blocking: ordinary plugins the operator refuses to run (WP File Manager and FileBird by default) cannot be uploaded or activated, and are deactivated if already present. Recorded as policy decisions, never as malware, and the uploader's address is never added to the hostile-IP list.
+- Site-policy plugin denylist, separate from malware blocking: ordinary plugins the operator refuses to run (WP File Manager and FileBird by default) cannot be uploaded or activated, and are deactivated if already present. Recorded as policy decisions, never as malware, and the uploader's address is never added to the hostile-IP list. A banned plugin found installed on disk is quarantined and removed on the next scan (reversible, and gated on both the banned-plugins and auto-delete switches).
 - Built-in MD5 indicators plus custom MD5/SHA-256 hash support.
 - Normal and multisite network-active plugin scrubbing.
 - Detection for wp-content drop-in persistence loaders that restore `mu-plugins/session-manager.php` from `wp_session_tokens_config`.
@@ -23,6 +23,13 @@ It is built for incident response and post-compromise hardening rather than broa
 - Forensics report for media uploads, admin accounts, timestamps, theme tampering, options, PHP backdoors, and WordPress core integrity.
 - Hardening helpers for `wp-config.php` constants, `.htaccess` marker blocks, transient cleanup, session invalidation, and auth salt rotation.
 - Opt-in Content-Security-Policy, off by default and report-only first, whose `connect-src` directive can block the injected ClickFix script from reaching its C2 or on-chain stage; reports collect in the Hardening tab so the policy can be tuned before enforcing.
+- Detection of plugins that keep their payload in a WordPress option and re-seed it when deleted, so removal covers the database as well as the folder.
+- A plugin roster that reports any plugin appearing without an installation recorded through the dashboard or WP-CLI, whatever its code contains — the tool an intruder brings.
+- Detection of hidden administrator backdoors: code that creates an administrator account and conceals it from the Users screen and REST API, recreating it after deletion.
+- Detection of code obfuscated by junk comments wedged between tokens, and of tiny typosquat plugins whose only behaviour is loading a remote script into every page.
+- Detection of packed fake plugins that keep their payload in an opaque data file rather than in PHP, including self-reconstructing droppers that rebuild their own code after deletion, and of identifiers split across concatenation to defeat searching.
+- Detection of self-concealing plugins: any plugin that removes its own entry from the Plugins list, or serves its front-end output to visitors while withholding it from administrators, caught structurally so a rewritten payload is still found.
+- Detection of web-shell persistence written into `.htaccess`: rules that block PHP while allowlisting filenames WordPress does not ship, caught structurally so a renamed shell is still found, without flagging ordinary deny-PHP hardening.
 - Detection of a web shell disguised as the root index.php of a genuine plugin or theme folder, by its own signature and, independently, by the size gap against the near-empty index.php stubs WordPress ships at every other folder level.
 - Detection of injected casino/gambling/SEO-spam content in posts and comments, at scan time and in real time as a post is saved, tuned so it flags SEO-spam signatures without flagging legitimate writing that merely mentions gambling. Detection only — it never deletes content.
 - PHP-guarded structured event log under `wp-perf-shield/logs/events.php`.
@@ -188,7 +195,7 @@ Custom entries are normalized and validated before saving.
 
 ## Version
 
-Current plugin version: `1.4.74`
+Current plugin version: `1.4.87`
 
 Author: [MENJ](https://github.com/menj)
 
