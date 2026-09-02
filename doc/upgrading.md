@@ -59,6 +59,46 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.91
+
+**You can now tell the plugin to leave something alone.** Every finding has a "Mark Safe" button with a choice of protecting just that file or the whole folder. Diagnostics has a "Protected from automatic removal" panel listing everything you have protected, where you can also protect a path directly - before it is ever flagged - and revoke any decision later.
+
+Anything protected is never removed automatically by any check, including signature matches. Findings are still reported so you do not lose visibility; what changes is that nothing acts on them without you.
+
+**This supersedes the advice in 1.4.88 to disable automatic deletion.** If you turned it off, you can turn it back on: protect your own code first, and the earlier failure mode cannot repeat.
+
+If the plugin has ever halted automatic removal on itself, there is now a button to clear that too, instead of needing database access.
+
+## 1.4.90
+
+**Automatic removal is now much more conservative, without the plugin noticing less.** Detection is unchanged - the scanner still finds everything it did. What changed is what it deletes on its own.
+
+Behavioural findings about files inside installed plugins, themes or mu-plugins are now **reported for you to review**, never removed automatically. That single rule is what would have prevented the outages. Files matched against known malware signatures are still removed, and behavioural findings in places where executable code has no business existing - your uploads folder, cache directories, plugin temp folders - are still removed, because a mistake there costs a stray file rather than a working site.
+
+WordPress core is never removed automatically by anything, and anything you mark Safe overrides all of it.
+
+**Findings the plugin declined to act on now show a "Needs your review" status and a removal button**, so you can act on them yourself. Previously that button was hidden, which left those findings visible but impossible to action.
+
+## 1.4.89
+
+**Fixes WordPress core files being quarantined.** Two faults. A genuine `wp-admin/setup-config.php` was being reported as critical credential theft - it is the installer, and it reads the database password field because that is its job - and the core protection added in 1.4.88 did not actually cover it, because that protection only applied to detectors on a fixed list and this one was not on it.
+
+Content-based checks no longer judge WordPress core at all. Core is verified against the official WordPress checksums instead, which is the only method that can tell a modified core file from an untouched one. And core is now never removed automatically by anything, regardless of how confident a detector is: deleting a core file breaks the site rather than cleaning it, and the correct fix for genuinely infected core is to replace it from an official WordPress release.
+
+**If earlier versions quarantined core files on your site**, restore them from Quarantine in Diagnostics, or reinstall WordPress from Dashboard, Updates, Reinstall Now - which replaces core without touching your content, plugins or settings.
+
+## 1.4.88
+
+**Read this one.** Earlier versions of this plugin could quarantine a legitimate plugin, break your site, and then do it again on the next scan even after you had approved the file. That is fixed, and the fix is structural.
+
+**Nothing is removed automatically any more unless a central policy allows it.** Marking a target safe is now an absolute veto on automatic removal, stored permanently and checked immediately before anything is moved or deleted - not merely a display filter. If the plugin cannot tell whether something is safe, it refuses to remove it.
+
+**Behavioural findings can no longer delete whole plugins or any WordPress core file.** They are reported for you to act on. Performance Lab, WP-Optimize, Abstract Box and Auto-justify Content are additionally recorded as known-legitimate and will not be auto-removed on a behavioural finding.
+
+**If the plugin ever tries to remove something you approved, it stops entirely** - all automatic removal halts, and you are emailed. Findings keep being reported. You clear the halt from Diagnostics after reviewing.
+
+**Current limitation, stated plainly:** the dashboard button for marking a target Safe is not in this release. The mechanism and its protections are in place and tested, but setting a Safe decision currently requires the API rather than the interface. If you need to protect a specific file today, the safer route is to turn automatic deletion off in Settings until that interface ships.
+
 ## 1.4.87
 
 **Strengthens detection of the fake "performance" plugin family against simple evasion.** Testing found that two small changes an attacker could make in minutes - tidying up the deliberately broken-up code, and moving the hidden payload into a separate file - would together have slipped past the previous version, even though each change on its own was caught.

@@ -1,5 +1,132 @@
 # WP Perf Shield changelog
 
+## 1.4.91
+
+The Safe control that should have shipped with 1.4.88.
+
+### Why this was the missing piece
+The remediation veto has existed since 1.4.88 and has been tested since 1.4.88, but there was no way for an operator to use it. The plugin could refuse to remove something; nobody could tell it to. That is not a control, it is a promise - and the person it was promised to had already watched this plugin quarantine legitimate software twice, with the documented advice being "turn automatic deletion off until the interface ships".
+
+The prompting case was an operator's own mu-plugin, `rest-lockdown.php` - defensive code they had written in response to the very incident this plugin exists to catch. It is not flagged by the current build, but that is a property of 1.4.90's calibration rather than anything the operator could rely on. Being spared by a heuristic is not the same as being protected.
+
+### What was added
+* **A "Mark Safe" control beside every finding**, with a scope choice of this file or this folder and everything in it. It sits next to the delete button deliberately: the moment you are told a file is a threat is the moment you know whether it is yours.
+* **A "Protected from automatic removal" panel in Diagnostics**, listing everything protected with its scope, reason and date, each revocable. It also takes a path directly, so a file can be protected BEFORE it is ever flagged rather than after the damage.
+* **A control to clear the automatic-removal halt** when the circuit breaker has tripped, which previously required editing the database.
+
+Protection applies to every check, including confirmed signature matches - the veto is absolute by design, because an operator who says "this is mine" is a better authority on their own code than any heuristic here. Findings are still reported, so visibility is unchanged; what changes is that nothing acts on them without the operator.
+
+### Verified
+`php -l` clean across all 37 includes. New harness `safe-ui.php` (14/14) drives the whole round trip using the operator's own file: marking succeeds and is logged, removal is then denied for behavioural, confirmed and unknown finding types alike, the decision survives into a new request, protecting by the site-relative path an operator would actually type resolves to the same identity rather than creating a duplicate entry, directory scope covers the folder, and revoking one decision does not disturb another. All thirty harnesses pass (331 assertions).
+
+### Meta
+Version markers move to 1.4.91. Three new admin actions (`wps_mark_safe`, `wps_revoke_safe`, `wps_reset_breaker`), all capability-checked and nonce-protected. No new checks or events. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.90
+
+Calibration. Less destructive than before, without becoming a plugin that watches things happen.
+
+### The axis is not aggression
+"Less aggressive" and "not too lax" sound like opposite ends of one dial, and treating them that way would mean detecting less - which helps nobody. The two failures are on different axes: **detection** should stay sensitive, **removal** should be conservative. Nothing here reduces what the scanner finds. What changes is what it destroys without asking.
+
+### What decides: location, not confidence
+Every outage had the same shape - a behavioural guess about a file INSIDE a plugin someone installed on purpose, acted on automatically. But refusing all behavioural removal would be its own failure: a web shell dropped in the uploads folder would be reported forever while nothing happened to it.
+
+What separates those cases is not how clever the detector is. It is where the file sits. Executable PHP in `wp-content/uploads`, in a cache directory, or in a plugin's own `cache/`, `logs/` or `tmp/` folder has no legitimate reason to exist - WordPress does not put it there and no plugin needs it to be there. A wrong guess in those places costs a media folder a file that should not have been in it. The same guess inside `wp-content/plugins/<something>` is a guess about working software, where being wrong costs a site.
+
+So:
+
+* **Confirmed content match** - a signature or hash - removable anywhere except core.
+* **Behavioural finding where no executable belongs** - uploads, caches, temp - removed.
+* **Behavioural finding inside installed software** - **reported, never removed automatically.** This single rule would have prevented both outages.
+* **WordPress core** - never removed automatically, by anything.
+* **Operator Safe** - vetoes all of the above.
+
+`mu-plugins` is deliberately treated as installed software rather than a suspicious location: legitimate loaders live there - ManageWP and Burst Statistics both do - and both were wrongly suspected earlier in this work.
+
+### The other half of not being lax
+A finding that is reported but cannot be acted on is no better than one that was missed, and the Overview screen was hiding the manual removal button precisely when the policy had declined to act automatically. Those are the findings the operator is being asked to judge, so they are exactly the ones that need the control. The button now appears for them, and the status reads **"Needs your review"** rather than "Skipped" - a policy decision is not a failure, and labelling it like one invites people to ignore it.
+
+### Verified
+`php -l` clean across all 37 includes. New harness `calibration.php` (11/11) asserts both directions explicitly: behavioural findings inside plugins, themes, mu-plugins and whole packages are reported rather than removed, and core is never removed; while behavioural findings on PHP in uploads, in caches and in plugin cache subdirectories ARE removed, confirmed malware inside a plugin IS still removed, and a Safe decision still overrides even a removable location.
+
+Three assertions in `safe-veto.php` had to be rebased onto an uploads path, because their baseline - "removal is permitted before a Safe decision" - was measured inside a plugin package, where removal is now correctly declined by policy rather than by Safe. The tests were right when written and describe superseded behaviour now; rebasing them keeps the Safe contrast meaningful rather than accidentally passing for the wrong reason. All twenty-nine harnesses pass (317 assertions).
+
+### Meta
+Version markers move to 1.4.90. No new checks or events; one new policy rule and an Overview correction. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.89
+
+Core files were still being quarantined after 1.4.88. Two separate faults, one of them introduced by the fix that was supposed to prevent exactly this.
+
+### Why a clean core file was reported at all
+`check_credential_exfiltration` flagged a genuine `wp-admin/setup-config.php` as *"Credentials or session cookies sent off-site"*, critical, marked for automatic deletion. The file is the WordPress installer. It reads `$_POST['pwd']` because that is the database password field on the setup form, and it is supposed to.
+
+No content rule can distinguish that from a credential stealer, and none needs to: **core is verified by checksum**. `check_core_checksums()` already compares every core file against the official WordPress API, which answers the question exactly rather than by inference. A modified core file is caught there, cryptographically; an unmodified one has nothing to answer for. Content heuristics now skip core entirely and leave that judgement to the checksum check, which is the only method that can actually make it.
+
+### Why 1.4.88's core protection did not stop the removal
+The policy denied core removal only when the finding came from a detector on a hardcoded list of *heuristic* types - and treated everything absent from that list as confirmed. The credential check was not on the list, so core protection never applied to it.
+
+That is the wrong shape for a safety rule. **An allowlist of things trusted to be certain fails safe when it is incomplete; a denylist of things known to be uncertain fails dangerous.** Every detector added after 1.4.88, and every one simply forgotten, would have been granted permission to delete WordPress core. The list is now inverted: a small set of CONFIRMED detectors (signature and hash matches) is named, and anything else - including detectors that do not exist yet - is treated as inference.
+
+Core protection is also no longer conditional on confidence at all. Deleting a core file does not disinfect a site, it breaks it; the remedy for genuinely infected core is to restore that file from an official WordPress release. There is no case where silently deleting part of core is the right automatic action, so how sure the detector feels is irrelevant.
+
+The definition of core was widened too. It matched `wp-admin/`, `wp-includes/` and root files beginning `wp-`, which silently excluded `index.php`, `xmlrpc.php` and `license.txt` - core files that do not follow that naming and were therefore removable.
+
+### Verified
+`php -l` clean across all 37 includes. New harness `core-protection.php` (13/13) using the genuine `setup-config.php` from WordPress trunk: it is no longer reported by ANY content heuristic; core is refused removal under a critical type, a behavioural type, a confirmed signature type and an unknown future type; the wider core surface including `index.php` and `xmlrpc.php` is protected; and - the check that stops this becoming a blanket amnesty - a malicious plugin file is still removable, an unknown detector still may not remove a whole package, and a confirmed detector still may. All twenty-eight harnesses pass (306 assertions).
+
+### On the testing
+Three times in recent releases a harness has reported working code as broken because it loaded a dependency late or incompletely - here, requiring the policy class after running the checks, so `class_exists()` was false and the core skip silently did nothing. The new harness loads dependencies first and says why in a comment. An incomplete test does not fail loudly; it fails plausibly, and a plausible failure costs more than an obvious one.
+
+### Meta
+Version markers move to 1.4.89. No new checks or events. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.88
+
+This plugin took a production site down. Twice. This release exists to make that impossible rather than unlikely.
+
+### What happened
+A behavioural check quarantined WP-Optimize's cache classes as a self-concealing plugin. The package became incomplete and WordPress stopped booting. The operator restored the files and marked the finding safe. **The next scan quarantined them again.**
+
+### The actual cause
+Not a single bad detector. **Detection authorised removal directly.** Any check could set `auto_delete` on a finding and the remediator acted on it, with nothing in between able to say no. There was no operator veto anywhere in the codebase - marking something safe filtered a display, and no later scan consulted it before destroying the file.
+
+That makes the recent direction of this work actively dangerous. Release after release added broader behavioural checks with automatic removal attached, and the mutation-resistance work in 1.4.87 deliberately widened one of them further. Widening a heuristic widens its blast radius; without a brake, the only question was which legitimate package would be hit first. It was WP-Optimize.
+
+### The brake
+`WPS_Remediation_Policy` is now the sole authority for destructive action, and every removal path asks it first. Three rules, each mapping to a way the site was actually broken:
+
+* **Safe is a veto, not a filter.** If a target is Safe, automatic remediation is denied - not deprioritised, not skipped-unless-critical. A detector that is certain must ask the operator. Safe state lives in its own option, is keyed by canonical site-relative identity, and is never touched by scan cleanup, finding expiry or quarantine purging.
+* **Fail closed.** If the trust store cannot be read, or a path cannot be resolved to a canonical identity, removal is denied. An unknown trust state is not permission.
+* **Heuristics may not remove packages or core.** A signature match on a file is evidence about that file. A behavioural guess about a plugin is not grounds to delete the plugin, and nothing heuristic touches WordPress core - which is what kept returning `wp-admin/setup-config.php` to the remediation queue.
+
+Identity is canonical, so a Safe decision survives the ways a path can be spelled: absolute or relative, realpath or not, duplicated slashes, traversal segments. It also survives a different detector finding the same target, and a new finding ID, because trust attaches to the target rather than to the finding.
+
+Scope is explicit and never silently broadened: a file decision protects that file, a directory or package decision protects its descendants.
+
+### Two gates, on purpose
+The policy is consulted in the scan loop, and again inside `WPS_Quarantine::quarantine()` immediately before anything moves. The second gate exists because "already checked upstream" is precisely the assumption that let this happen: any future caller - a bulk action, a cron job, a REST handler, a detector added next year - arrives at that function, and the check has to live where the damage occurs rather than where we currently remember to look. It re-reads trust state, so a Safe decision made while a long scan was running is still honoured.
+
+### The circuit breaker
+If a Safe target reaches the destructive gate at all, an earlier gate was skipped - a defect of exactly the kind that broke the site. The response is a hard stop: all automatic removal halts, a `security_policy_violation` is recorded, and the administrator is emailed. Findings continue to be reported. Continuing carefully after detecting a Safe bypass is not an option, because the failure mode is destroying the site.
+
+### Known-legitimate packages
+Performance Lab, WP-Optimize, Abstract Box and Auto-justify Content are recorded as known-good: heuristic findings inside them are reported, never auto-removed. Each entry is a real false positive that caused or nearly caused an outage, not a guess.
+
+### Verified
+`php -l` clean across all 37 includes. New harness `safe-veto.php` (28/28) reproduces the outage directly: removal permitted before the Safe decision, denied after it, denied across ten consecutive scans, and not bypassable by a different detector, a redrop signal, or any path spelling. Also asserts fail-closed on an unreadable store, core and package protection, the four known-good packages, scope behaviour in both directions, the breaker tripping and notifying on a Safe bypass, Safe surviving the breaker cycle, and revocation being explicit and narrow. All twenty-seven harnesses pass (293 assertions).
+
+### Honest scope
+The brief lists roughly sixty tasks across ten phases. This release implements Phase 0 and the parts of Phases 1-7 that carry the release-gate blockers: the veto, canonical identity, fail-closed behaviour, policy-mediated remediation, the pre-quarantine gate, the breaker, and the known-good list. **Not yet done:** the admin interface for marking targets Safe (the API exists and is tested; the button does not), quarantine lineage and hash comparison for redrop classification (REDROP-004/005), and the Safe-override workflow (TRUST-002). Until the interface ships, Safe decisions can be set programmatically but not from the dashboard, which is a real limitation and is stated here rather than left to be discovered.
+
+### Meta
+Version markers move to 1.4.88. New class `WPS_Remediation_Policy`. New events `safe_marked`, `safe_revoked`, `remediation_denied`, `remediation_denied_safe`, `remediation_halted`, `remediation_resumed`. `INDICATOR_VERSION` unchanged.
+
+
 ## 1.4.87
 
 Asked directly whether detection had actually been strengthened, the honest answer was no - three batches in a row had been answered with "already covered" and no code written. Testing that claim adversarially broke it inside a minute.

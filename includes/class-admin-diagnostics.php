@@ -1067,6 +1067,71 @@ class WPS_Admin_Diagnostics {
 		}
 		$list = WPS_Login_Guard::permanent_blocks();
 
+		// 1.4.91: the Safe list.
+		//
+		// Rendered before the permanent denylist because it answers the more
+		// urgent question for anyone who has just had their own code removed:
+		// what is protected, and how do I protect something else. A veto with
+		// no interface is not a control, and until this release that is exactly
+		// what it was.
+		if ( class_exists( 'WPS_Remediation_Policy' ) ) {
+			$safe_msg = isset( $_GET['wps_safe'] ) ? sanitize_key( (string) wp_unslash( $_GET['wps_safe'] ) ) : '';
+			$safe_map = [
+				'marked'  => [ 'good', 'Marked Safe. It will not be removed automatically. Automatic removal is refused for it from now on, by every check.' ],
+				'revoked' => [ 'muted', 'Safe decision revoked. This target can be acted on automatically again.' ],
+				'resumed' => [ 'good', 'Automatic removal resumed.' ],
+				'failed'  => [ 'warn', 'That path could not be resolved, so nothing was changed.' ],
+			];
+			if ( isset( $safe_map[ $safe_msg ] ) ) {
+				echo '<div class="wps-status wps-' . esc_attr( $safe_map[ $safe_msg ][0] ) . ' wps-mb6">' . esc_html( $safe_map[ $safe_msg ][1] ) . '</div>';
+			}
+
+			if ( WPS_Remediation_Policy::breaker_tripped() ) {
+				echo '<div class="wps-card wps-card--pad-lg wps-mt14">';
+				echo '<h2 class="wps-card-h">Automatic removal is halted</h2>';
+				echo '<p class="wps-sm wps-p">WP Perf Shield tried to remove something you had marked Safe, which should not be possible. It has stopped removing anything automatically until you clear this. Scanning and reporting continue as normal.</p>';
+				echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="wps-inline-form">';
+				echo '<input type="hidden" name="action" value="wps_reset_breaker">';
+				echo wp_nonce_field( 'wps_reset_breaker', '_wpnonce', true, false );
+				echo '<button type="submit" class="button">I have reviewed this &mdash; resume automatic removal</button>';
+				echo '</form></div>';
+			}
+
+			$safe_list = WPS_Remediation_Policy::list_safe();
+			echo '<div class="wps-card wps-card--pad-lg wps-mt14">';
+			echo '<h2 class="wps-card-h">Protected from automatic removal</h2>';
+			echo '<p class="wps-sm wps-muted wps-p">Anything listed here is never removed automatically, by any check, however confident it is. Use it for your own code and for legitimate software this plugin has misjudged. Findings for these targets are still reported so you keep the visibility &ndash; what changes is that nothing acts on them without you.</p>';
+
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="wps-inline-form wps-mb6">';
+			echo '<input type="hidden" name="action" value="wps_mark_safe">';
+			echo wp_nonce_field( 'wps_mark_safe', '_wpnonce', true, false );
+			echo '<label class="wps-sm">Protect a path <input type="text" name="path" placeholder="wp-content/mu-plugins/rest-lockdown.php" class="wps-mono wps-sm regular-text"></label> ';
+			echo '<select name="scope" class="wps-sm"><option value="file">this file only</option><option value="directory">this folder and everything in it</option></select> ';
+			echo '<label class="wps-sm">Reason <input type="text" name="reason" placeholder="my own code" class="wps-sm"></label> ';
+			echo '<button type="submit" class="button">Protect</button>';
+			echo '</form>';
+
+			if ( empty( $safe_list ) ) {
+				echo '<p class="wps-muted wps-p0">Nothing is protected yet.</p></div>';
+			} else {
+				echo '<div class="wps-scroll-x"><table class="wps-logs">';
+				echo '<thead><tr><th>Target</th><th>Scope</th><th>Reason</th><th>Marked</th><th class="wps-logs-act"><span class="screen-reader-text">Revoke</span></th></tr></thead><tbody>';
+				foreach ( $safe_list as $sid => $meta ) {
+					echo '<tr><td class="wps-mono wps-sm">' . esc_html( (string) $sid ) . '</td>';
+					echo '<td class="wps-sm">' . esc_html( (string) ( $meta['scope'] ?? 'file' ) ) . '</td>';
+					echo '<td class="wps-sm wps-muted">' . esc_html( (string) ( $meta['reason'] ?? '' ) ) . '</td>';
+					echo '<td class="wps-sm wps-muted">' . esc_html( ! empty( $meta['at'] ) ? gmdate( 'Y-m-d H:i', (int) $meta['at'] ) . ' UTC' : '' ) . '</td>';
+					echo '<td class="wps-logs-act"><form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+					echo '<input type="hidden" name="action" value="wps_revoke_safe">';
+					echo wp_nonce_field( 'wps_revoke_safe', '_wpnonce', true, false );
+					echo '<input type="hidden" name="path" value="' . esc_attr( (string) $sid ) . '">';
+					echo '<button type="submit" class="button-link">Revoke</button>';
+					echo '</form></td></tr>';
+				}
+				echo '</tbody></table></div></div>';
+			}
+		}
+
 		$msg = isset( $_GET['wps_unblocked'] ) ? sanitize_key( (string) wp_unslash( $_GET['wps_unblocked'] ) ) : '';
 		if ( '1' === $msg ) {
 			echo '<div class="wps-status wps-good wps-mb6">Address removed from the permanent denylist. It can sign in again.</div>';

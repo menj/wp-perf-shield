@@ -3836,6 +3836,24 @@ class WPS_Scanner {
 					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
 						continue;
 					}
+
+					// 1.4.89: content heuristics do not judge WordPress core.
+					//
+					// A genuine wp-admin/setup-config.php was being reported as
+					// critical credential exfiltration and queued for deletion.
+					// It is the installer: it reads $_POST['pwd'] because that
+					// is the database password field, and it is supposed to.
+					// No content rule can tell that apart from a credential
+					// stealer, and it does not need to - core is verified by
+					// check_core_checksums() against the official WordPress
+					// API, which answers the question exactly rather than by
+					// inference. A modified core file is caught there, by
+					// checksum; an unmodified one has nothing to answer for.
+					if ( class_exists( 'WPS_Remediation_Policy' )
+						&& WPS_Remediation_Policy::is_core_file( $f->getPathname() )
+					) {
+						continue;
+					}
 					$path = $f->getPathname();
 					$real = realpath( $path ) ?: $path;
 					if ( isset( $seen[ $real ] ) ) {
@@ -11551,6 +11569,29 @@ class WPS_Scanner {
 			}
 
 			$target = $f['delete_path'];
+
+			// 1.4.88: the policy decides, not the detector.
+			//
+			// Before this, any check that set auto_delete removed what it named
+			// and nothing could refuse. That is how a legitimate plugin was
+			// quarantined, restored, marked safe, and quarantined again on the
+			// next scan. Detection proposes; this gate disposes.
+			if ( class_exists( 'WPS_Remediation_Policy' ) ) {
+				$decision = WPS_Remediation_Policy::decide( $f );
+				if ( ! $decision['allowed'] ) {
+					$f['auto_delete_skipped'] = true;
+					$f['trust_state']         = $decision['trust'];
+					$f['policy_rule']         = $decision['rule'];
+					$f['action']             .= ' REMOVAL DENIED BY POLICY: ' . $decision['reason']
+						. '. The finding stands and can be acted on by hand after review.';
+					WPS_Logger::log_event(
+						'remediation_denied',
+						$decision['rule'] . ': ' . WPS_Remediation_Policy::identity( (string) $target ) . ' - ' . $decision['reason']
+					);
+					continue;
+				}
+			}
+
 			if ( self::is_protected_auto_delete_path( (string) $target ) ) {
 				$f['auto_delete_skipped'] = true;
 				$f['action'] .= ' Auto-delete skipped: active theme critical files require surgical cleaning or restore from backup.';

@@ -31,6 +31,9 @@ class WPS_Admin {
 		add_action( 'admin_post_wps_report_ip', [ __CLASS__, 'handle_report_ip' ] );
 		add_action( 'admin_post_wps_unblock_permanent', [ __CLASS__, 'handle_unblock_permanent' ] );
 		add_action( 'admin_post_wps_permanent_block', [ __CLASS__, 'handle_permanent_block' ] );
+		add_action( 'admin_post_wps_mark_safe', [ __CLASS__, 'handle_mark_safe' ] );
+		add_action( 'admin_post_wps_revoke_safe', [ __CLASS__, 'handle_revoke_safe' ] );
+		add_action( 'admin_post_wps_reset_breaker', [ __CLASS__, 'handle_reset_breaker' ] );
 		add_action( 'admin_post_wps_chain_selftest', [ __CLASS__, 'handle_chain_selftest' ] );
 		add_action( 'admin_post_wps_save_settings', [ self::class, 'save_settings' ] );
 	}
@@ -218,6 +221,68 @@ class WPS_Admin {
 				admin_url( 'tools.php' )
 			)
 		);
+		exit;
+	}
+
+
+	/**
+	 * 1.4.91: mark a target Safe from the dashboard.
+	 *
+	 * The veto has existed since 1.4.88 with no way for an operator to use it,
+	 * which made it a promise rather than a control: the plugin could refuse to
+	 * remove something, but nobody could tell it to. This is that control.
+	 *
+	 * Scope is taken from the operator, not inferred. A file decision protects
+	 * that file; a directory decision protects what is inside it. Nothing is
+	 * broadened silently.
+	 */
+	public static function handle_mark_safe(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Insufficient permissions.' );
+		}
+		check_admin_referer( 'wps_mark_safe' );
+		$path   = isset( $_POST['path'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['path'] ) ) : '';
+		$scope  = isset( $_POST['scope'] ) ? sanitize_key( (string) wp_unslash( $_POST['scope'] ) ) : 'file';
+		$reason = isset( $_POST['reason'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['reason'] ) ) : '';
+		$ok     = false;
+		if ( class_exists( 'WPS_Remediation_Policy' ) && '' !== $path ) {
+			$ok = WPS_Remediation_Policy::mark_safe( $path, $scope, $reason );
+		}
+		wp_safe_redirect( add_query_arg(
+			[ 'page' => 'wp-perf-shield', 'tab' => 'diagnostics', 'wps_safe' => $ok ? 'marked' : 'failed' ],
+			admin_url( 'tools.php' )
+		) );
+		exit;
+	}
+
+	/** Revoke a Safe decision. Explicit act only - nothing revokes it implicitly. */
+	public static function handle_revoke_safe(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Insufficient permissions.' );
+		}
+		check_admin_referer( 'wps_revoke_safe' );
+		$path = isset( $_POST['path'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['path'] ) ) : '';
+		$ok   = class_exists( 'WPS_Remediation_Policy' ) && '' !== $path && WPS_Remediation_Policy::revoke_safe( $path );
+		wp_safe_redirect( add_query_arg(
+			[ 'page' => 'wp-perf-shield', 'tab' => 'diagnostics', 'wps_safe' => $ok ? 'revoked' : 'failed' ],
+			admin_url( 'tools.php' )
+		) );
+		exit;
+	}
+
+	/** Clear the automatic-removal halt after the operator has reviewed it. */
+	public static function handle_reset_breaker(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Insufficient permissions.' );
+		}
+		check_admin_referer( 'wps_reset_breaker' );
+		if ( class_exists( 'WPS_Remediation_Policy' ) ) {
+			WPS_Remediation_Policy::reset_breaker();
+		}
+		wp_safe_redirect( add_query_arg(
+			[ 'page' => 'wp-perf-shield', 'tab' => 'diagnostics', 'wps_safe' => 'resumed' ],
+			admin_url( 'tools.php' )
+		) );
 		exit;
 	}
 

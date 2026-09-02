@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.87
+Stable tag: 1.4.91
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -106,6 +106,18 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.91 =
+Adds the operator control for the remediation veto introduced in 1.4.88, which until now had no interface: the plugin could refuse to remove a target but no one could tell it to. Every finding gains a Mark Safe button with file or folder scope, and Diagnostics gains a panel listing everything protected, with its scope, reason and date, where paths can also be protected directly before they are ever flagged and any decision revoked later. Protection applies to every check including confirmed signature matches, since an operator is a better authority on their own code than any heuristic; findings remain visible and reported, but nothing acts on them automatically. Also adds a control to clear the automatic-removal halt, which previously required database access. This supersedes the 1.4.88 advice to disable automatic deletion.
+
+= 1.4.90 =
+Calibrates automatic removal without reducing detection. Behavioural findings about files inside installed plugins, themes and mu-plugins are now reported for operator review rather than removed automatically, which is the rule that would have prevented the earlier outages. Confirmed signature matches are still removed, and behavioural findings in locations where executable PHP has no legitimate reason to exist - uploads, cache directories, plugin temp and log folders - are still removed, since a false positive there costs a stray file rather than a working site. WordPress core is never removed automatically and an operator Safe decision overrides everything. Also fixes the Overview screen, which hid the manual removal button for exactly those findings the policy had declined to act on, leaving them visible but unactionable; they now show a "Needs your review" status alongside a working control.
+
+= 1.4.89 =
+Fixes WordPress core files being quarantined. A genuine wp-admin/setup-config.php was reported as critical credential exfiltration because it reads the database password field, which is its purpose as the installer; content heuristics now skip core entirely and leave core judgement to the existing checksum verification against the official WordPress API, which answers the question exactly rather than by inference. Also fixes the core protection introduced in 1.4.88, which only applied to detectors named on a fixed heuristic list and so did not cover this or any detector added later; the list is inverted to name confirmed signature detectors instead, so anything unrecognised is treated as inference and fails safe. Core is now never removed automatically regardless of detector confidence, since deleting a core file breaks a site rather than cleaning it, and the definition of core was widened to include index.php, xmlrpc.php and other files that do not begin with wp-.
+
+= 1.4.88 =
+Critical remediation-safety release. Earlier versions could automatically quarantine legitimate software and repeat that action on subsequent scans even after an operator approved the file, because detection authorised removal directly and no operator veto existed. All destructive action now passes through a central remediation policy. Marking a target safe is an absolute veto on automatic removal, stored persistently, keyed by canonical path identity so it cannot be defeated by a different detector, a new finding ID, or an alternative spelling of the path, and checked again immediately before anything is moved. The policy fails closed when trust state cannot be read, refuses to let behavioural findings remove entire plugins or WordPress core files, and records Performance Lab, WP-Optimize, Abstract Box and Auto-justify Content as known-legitimate. If a safe target ever reaches the destructive gate, all automatic removal halts and the administrator is notified. Note: the dashboard control for marking targets safe is not yet included; until it ships, operators who need to protect specific files should disable automatic deletion in Settings.
 
 = 1.4.87 =
 Strengthens the database-resident payload check against trivial evasion. Adversarial testing of a known-caught sample showed that two simple mutations - joining the deliberately split identifiers, and moving the encoded payload out of the source into a sibling file - each survived individually but together evaded every check, because the two detections that appeared to confirm one another in fact depended on exactly one precondition each. The check now keys on the mechanism the loader cannot drop: a decoder applied to get_option, the same option written back, and the result placed where it executes. The payload's physical location is no longer relevant. Verified against three legitimate option-decoding plugins, which remain unflagged, and covered by a new adversarial harness that rebuilds the mutations from a real sample on every run.

@@ -61,7 +61,7 @@ class WPS_Admin_Overview {
 				<div class="wps-finding-list">
 					<?php foreach ( $findings as $f ) :
 						$severity = strtolower( (string) ( $f['severity'] ?? 'unknown' ) );
-						$status_label = ! empty( $f['remediated'] ) ? 'Auto-deleted' : ( ! empty( $f['auto_delete_skipped'] ) ? 'Skipped' : 'Needs action' );
+						$status_label = ! empty( $f['remediated'] ) ? 'Auto-deleted' : ( ! empty( $f['auto_delete_skipped'] ) ? 'Needs your review' : 'Needs action' );
 						$status_class = ! empty( $f['remediated'] ) ? 'is-done' : ( ! empty( $f['auto_delete_skipped'] ) ? 'is-warn' : 'is-alert' );
 						$matches = [];
 						if ( ! empty( $f['match'] ) ) {
@@ -122,7 +122,14 @@ class WPS_Admin_Overview {
 							// `forensic_action_button()` helper, which has been
 							// working correctly since 1.3.x because it esc_attr()s
 							// the entire onclick string after building it.
-							if ( ! empty( $f['delete_path'] ) && empty( $f['remediated'] ) && empty( $f['auto_delete_skipped'] ) ) :
+							// 1.4.90: the manual button must ALSO appear when the policy
+							// declined to remove something automatically. Those findings
+							// are the ones the operator is being asked to judge, and
+							// hiding the control left them detected, un-removed and
+							// unactionable - which is the failure mode on the opposite
+							// side from the outages. The only case still hidden is a
+							// finding already remediated.
+							if ( ! empty( $f['delete_path'] ) && empty( $f['remediated'] ) ) :
 								$confirm_msg = 'Delete this path? This cannot be undone.' . "\n\n" . ( $f['delete_path'] ?? '' );
 								?>
 								<button type="button" class="button wps-finding-delete-btn"
@@ -131,6 +138,36 @@ class WPS_Admin_Overview {
 									data-wps-confirm="<?php echo esc_attr( $confirm_msg ); ?>">
 									Delete this path
 								</button>
+
+								<?php
+								// 1.4.91: mark this target Safe.
+								//
+								// The remediation veto has existed since 1.4.88 with no way
+								// for an operator to use it. Without this control, someone
+								// whose own legitimate code was being flagged had no way to
+								// say so - which is the position this plugin repeatedly put
+								// its operator in. It sits beside the delete button on
+								// purpose: the moment you are told a file is a threat is the
+								// moment you know whether it is yours.
+								$safe_now = class_exists( 'WPS_Remediation_Policy' )
+									? WPS_Remediation_Policy::safe_state( (string) $f['delete_path'] )
+									: [ 'safe' => false ];
+								if ( empty( $safe_now['safe'] ) ) :
+									?>
+									<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="wps-inline-form">
+										<input type="hidden" name="action" value="wps_mark_safe">
+										<?php wp_nonce_field( 'wps_mark_safe' ); ?>
+										<input type="hidden" name="path" value="<?php echo esc_attr( (string) $f['delete_path'] ); ?>">
+										<input type="hidden" name="reason" value="operator marked safe from the findings list">
+										<select name="scope" class="wps-sm">
+											<option value="file">this file only</option>
+											<option value="directory">this folder and everything in it</option>
+										</select>
+										<button type="submit" class="button">Mark Safe</button>
+									</form>
+								<?php else : ?>
+									<span class="wps-sm wps-good-t">&#10003; Marked Safe &mdash; this will not be removed automatically</span>
+								<?php endif; ?>
 							<?php endif; ?>
 
 							<?php

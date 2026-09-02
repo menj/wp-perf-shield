@@ -132,6 +132,27 @@ class WPS_Quarantine {
 			self::log( 'quarantine_refused', $real );
 			return null;
 		}
+
+		// 1.4.88: last gate before anything moves.
+		//
+		// The policy is already consulted in the scan loop. This is here
+		// because "already checked upstream" is exactly the assumption that
+		// let a Safe target be destroyed: any future caller - a bulk action, a
+		// cron job, a REST handler, a detector added next year - reaches this
+		// function, and the check must live where the damage happens rather
+		// than where we currently remember to look. Re-reads the trust state,
+		// so a Safe decision made during a long scan is still honoured.
+		//
+		// Pre-clean backups are exempt: those COPY a file into the store to
+		// preserve evidence before cleaning and remove nothing.
+		$op_type = (string) ( $meta['type'] ?? '' );
+		if ( $move && 'pre_clean_backup' !== $op_type && class_exists( 'WPS_Remediation_Policy' ) ) {
+			if ( ! WPS_Remediation_Policy::assert_may_remove( $real, (string) ( $meta['finding_type'] ?? '' ) ) ) {
+				self::log( 'quarantine_denied_policy', $real );
+				return null;
+			}
+		}
+
 		if ( ! self::ensure_store() ) {
 			return null;
 		}

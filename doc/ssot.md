@@ -111,6 +111,26 @@ Where the generic checklist and this rule disagree for a non-indicator change,
 this rule wins, and the decision is recorded here rather than bumping a version
 that tracks something that did not change.
 
+## Release Package Naming (recorded 1.4.87)
+
+The release archive is named **`wp-perf-shield-<version>.zip`**, with the version
+written exactly as it appears in the four version markers - dot separated.
+
+    wp-perf-shield-1.4.87.zip      correct
+    wp-perf-shield-1_4_87.zip      wrong
+
+Underscores had been used for a long run of releases purely because nothing
+said not to, and nothing checked. The form matters: it is the convention
+WordPress plugin and theme archives follow, so the filename matches the version
+in the plugin header and a directory of releases sorts and reads the way the
+operator expects. The mismatch was invisible in every build because the archive
+was hand-named each time and no assertion compared it to `WPS_VERSION`.
+
+Verification for every release: the archive filename must equal
+`wp-perf-shield-` plus the `WPS_VERSION` define plus `.zip`, character for
+character. Deriving the name from the source rather than typing it is what stops
+this drifting again.
+
 ## Tooling
 
 Pre-release validation is automated in:

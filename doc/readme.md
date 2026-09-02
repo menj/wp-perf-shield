@@ -186,6 +186,21 @@ Use the Settings tab to add:
 
 Custom entries are normalized and validated before saving.
 
+## Remediation policy
+
+Mark any finding Safe from the findings list, or protect a path directly from
+Diagnostics before it is ever flagged. Protected targets are never removed
+automatically by any check, while still being reported.
+
+
+Automatic removal is mediated by `WPS_Remediation_Policy`. Marking a target Safe
+is a permanent veto on automatic remediation, checked immediately before any
+destructive action and keyed by canonical path so it cannot be defeated by a
+different detector or a different spelling of the path. The policy fails closed
+when trust state cannot be read, never lets a behavioural finding remove an
+entire plugin or a WordPress core file, and halts all automatic removal if a
+Safe target ever reaches the destructive gate.
+
 ## Safety notes
 
 - Destructive actions require WordPress admin capability checks and nonces.
@@ -195,7 +210,7 @@ Custom entries are normalized and validated before saving.
 
 ## Version
 
-Current plugin version: `1.4.87`
+Current plugin version: `1.4.91`
 
 Author: [MENJ](https://github.com/menj)
 
