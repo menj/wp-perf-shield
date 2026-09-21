@@ -59,6 +59,70 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.100
+
+**Adds an account-takeover guard, built from a confirmed incident.** If an account's password leaks or gets guessed, the previous "block external posting" setting could not help - it is designed to fail Application Passwords and API tokens, not a login with the correct password. This release adds a different check: a post or page written within 90 seconds of that account's login, from a device (IP + browser) that account has never used before, is now flagged automatically - moved to Trash, the account's other sessions ended, and the requesting address blocked for a week. All three are on by default and all are reversible (nothing is permanently deleted, and ending sessions just means logging in again). A direct, scripted request for a new Application Password mailed to an outside domain is also blocked outright.
+
+**One setting quietly widened.** "Block external post creation, editing and deletion" now also covers pages, not just posts - it always described itself as covering "editing" broadly, but the code only watched `/wp/v2/posts`. If you rely on that setting, no action needed; it now does what its description already said.
+
+**If you publish from an unusual network** (mobile data that rotates IPs, a VPN), your first fast-published post after a fresh login may get flagged once until the device is recognised. It's a Trash action, not a delete - just restore it from Diagnostics if that happens. Turn off "Account-takeover write pattern" in Settings if this is a recurring nuisance for your workflow.
+
+## 1.4.99
+
+**Closes a bypass and catches a third eval-avoiding technique.** A file manager calling itself "CAXIUM" detected WordPress with a feature flag the previous version mistook for a legitimate "don't run standalone" guard, and slipped past unflagged. That guard check is now stricter - it requires the real shape (negated and followed by exit/die/return), not just the words appearing somewhere. Also adds detection for payloads run through a fake stream-wrapper protocol instead of eval() or a temp file.
+
+Nothing to configure. Run a scan after upgrading if you suspect either technique on your site.
+
+## 1.4.98
+
+**Catches a loader technique that avoided eval().** A recovered sample decoded its payload and ran it by writing it into a temp file and including it instead of calling eval() - invisible to the previous decoder-chain check, which only watches for eval/assert/create_function. One copy was also saved as a `.txt` file to dodge PHP-extension filtering. Both gaps are closed; nothing to configure.
+
+## 1.4.97
+
+**FileOrganizer joins the banned-plugins list.** It's legitimate software, not malware - the same risk class as WP File Manager: another elFinder-based full-filesystem file manager, just a different vendor (Softaculous). Refused on upload and activation, removed if already installed, same as WP File Manager and FileBird.
+
+If you're not using it, nothing changes for you. If you are, it will be quarantined on the next scan; remove `fileorganizer` from Settings > Banned plugins first if you want to keep it.
+
+## 1.4.96
+
+**Detects and removes four more confirmed malware samples.** A standalone file copy of the SSO login-bypass loader from 1.4.95, an unauthenticated file manager that prints "WordPress Test Shell", a password-gated file editor that maintains its own whitelist of files to write PHP into, and an XMRig cryptominer loader with a hardcoded wallet address.
+
+A scan now finds and, in most locations, automatically removes all four the same way it already handles other confirmed signature matches. A copy sitting directly at your WordPress root is auto-removed for two of the four; the third (`policies.php`) is reported for you to review and delete yourself there, because that filename alone is too ordinary to safely auto-delete without more context than a root listing gives.
+
+If your site was previously compromised, run a scan after upgrading. Nothing here requires a settings change.
+
+## 1.4.95
+
+**Finds and blocks password-free administrator sign-in endpoints.** Managed hosts install a loader in `mu-plugins` that hands an administrator session to anyone presenting the right token - no password, no second factor. It is what powers their "log in to WordPress" button, and it is also the most powerful thing on your site.
+
+A scan now reports it, naming the endpoint and the option holding the token. It is never removed automatically, because the file belongs to your host and will simply be redeployed.
+
+**To actually stop it, turn on "Block sign-in endpoints that need no password" in Settings.** That removes the endpoint on every request - so a copy your host pushes back is unreachable rather than merely deleted - and clears the stored token, which is the real key and survives every password reset you have done.
+
+**This will stop your host's one-click dashboard login working.** You sign in at `wp-login.php` instead. It is off by default for that reason. If your site has been compromised, consider it seriously: a copied token is a permanent administrator key that no amount of password rotation closes.
+
+## 1.4.94
+
+**Fixes confirmed malware being reported instead of removed.** Files matched against a known malware signature - the strongest evidence this plugin produces - were being treated as an uncertain guess and left in place, because the finding type they use was missing from the policy's list of trusted detectors. Signature matches are removed again.
+
+**The conservative behaviour added in 1.4.90 is unchanged.** WordPress core is still never removed automatically, even on a signature match; behavioural findings inside installed plugins and themes are still reported for you to review; and anything you have marked Safe still overrides everything.
+
+**Nothing to configure.** If a scan previously reported known malware without removing it, re-run it after upgrading.
+
+## 1.4.93
+
+**Bulk actions on scan findings.** After a compromise the findings list can run to dozens of items, and each one previously had only its own buttons. Findings with a file target now have a checkbox, with a select-all control and two bulk buttons: mark the selected items Safe, or quarantine them.
+
+**Selecting everything and pressing quarantine will not remove everything.** Each item still goes through the same protection rules the scanner obeys, so anything you have marked Safe, any WordPress core file, and anything inside an installed plugin or theme is skipped rather than removed - and the result tells you how many were skipped and why. Clearing a long list is not the moment to be reviewing each row, so the protections stay on.
+
+Also included: an audit of every other list in the plugin. Quarantine already had bulk controls, and the remaining lists are short enough by nature not to need them.
+
+## 1.4.92
+
+**One button to report the whole hostile-IP list.** Above the block table there is now a "Report all N unreported addresses to Akismet" control, so a list of forty attackers no longer means forty clicks. It shows the count, skips anything already reported, and handles up to fifty per press.
+
+**The safeguards are unchanged, and one is stricter.** Address ranges are never submitted - Akismet takes single addresses, and reporting a range would flag its innocent neighbours. CDN and proxy addresses are also skipped in bulk, which the single-row button does not do: clicking one address means you looked at it, whereas clicking once for the whole list does not. Skipped addresses are counted and explained in the result rather than dropped quietly.
+
 ## 1.4.91
 
 **You can now tell the plugin to leave something alone.** Every finding has a "Mark Safe" button with a choice of protecting just that file or the whole folder. Diagnostics has a "Protected from automatic removal" panel listing everything you have protected, where you can also protect a path directly - before it is ever flagged - and revoke any decision later.

@@ -38,6 +38,8 @@ class WPS_Admin_Overview {
 					<div class="wps-md wps-strong <?php echo esc_attr( $c['class'] ); ?>"><?php echo esc_html( $c['value'] ); ?></div>
 				</div>
 				<?php endforeach; ?>
+				</div>
+				</form>
 			</div>
 
 			<!-- Scan button -->
@@ -57,6 +59,40 @@ class WPS_Admin_Overview {
 						<div class="wps-findings-subtitle">Confirmed artefacts can be auto-cleared; review any remaining database or file actions.</div>
 					</div>
 					<span class="wps-findings-count">Action required</span>
+				</div>
+				<?php
+				// 1.4.93: bulk actions on findings.
+				//
+				// A real compromise produces dozens of these at once, and every one
+				// carried only its own individual buttons. Clearing an incident
+				// meant dozens of separate clicks, in the list an operator reaches
+				// for precisely when the site is on fire.
+				//
+				// Bulk delete is NOT a shortcut past the remediation policy: every
+				// selected target is put through the same gate the scanner obeys,
+				// and anything Safe or protected is skipped and counted rather than
+				// removed. Selecting all and pressing delete must not achieve what
+				// the scanner itself is forbidden to do.
+				$wps_bulk_msg = isset( $_GET['wps_bulk'] ) ? sanitize_key( (string) wp_unslash( $_GET['wps_bulk'] ) ) : '';
+				if ( '' !== $wps_bulk_msg ) {
+					$b_done   = isset( $_GET['done'] ) ? (int) $_GET['done'] : 0;
+					$b_denied = isset( $_GET['denied'] ) ? (int) $_GET['denied'] : 0;
+					$b_failed = isset( $_GET['failed'] ) ? (int) $_GET['failed'] : 0;
+					$verb  = 'safe' === $wps_bulk_msg ? 'marked Safe' : 'quarantined';
+					$parts = [ $b_done . ' ' . $verb ];
+					if ( $b_denied ) { $parts[] = $b_denied . ' skipped because policy protects them (Safe, core, or inside installed software)'; }
+					if ( $b_failed ) { $parts[] = $b_failed . ' could not be actioned'; }
+					echo '<div class="wps-status wps-' . ( $b_done > 0 ? 'good' : 'muted' ) . ' wps-mb6">' . esc_html( implode( '; ', $parts ) ) . '.</div>';
+				}
+				?>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" id="wps-bulk-findings">
+				<input type="hidden" name="action" value="wps_bulk_findings">
+				<?php wp_nonce_field( 'wps_bulk_findings' ); ?>
+				<div class="wps-row wps-mb6">
+					<label class="wps-sm"><input type="checkbox" id="wps-bulk-all"> Select all with a file target</label>
+					<button type="submit" name="bulk_op" value="safe" class="button">Mark selected Safe</button>
+					<button type="submit" name="bulk_op" value="delete" class="button"
+						onclick="return confirm('Quarantine every selected item? Anything protected by policy will be skipped, not removed.');">Quarantine selected</button>
 				</div>
 				<div class="wps-finding-list">
 					<?php foreach ( $findings as $f ) :
@@ -149,6 +185,9 @@ class WPS_Admin_Overview {
 								// its operator in. It sits beside the delete button on
 								// purpose: the moment you are told a file is a threat is the
 								// moment you know whether it is yours.
+								?>
+								<label class="wps-sm wps-muted"><input type="checkbox" class="wps-bulk-cb" name="paths[]" value="<?php echo esc_attr( (string) $f['delete_path'] ); ?>"> select</label>
+								<?php
 								$safe_now = class_exists( 'WPS_Remediation_Policy' )
 									? WPS_Remediation_Policy::safe_state( (string) $f['delete_path'] )
 									: [ 'safe' => false ];

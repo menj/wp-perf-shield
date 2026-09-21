@@ -1207,9 +1207,57 @@ class WPS_Admin_Diagnostics {
 				echo '<div class="wps-status wps-' . esc_attr( $map[ $rep ][0] ) . ' wps-mb6">' . esc_html( $map[ $rep ][1] ) . '</div>';
 			}
 		}
+		// 1.4.92: bulk report result.
+		if ( isset( $_GET['wps_bulk_report'] ) ) {
+			$b_sent    = isset( $_GET['sent'] ) ? (int) $_GET['sent'] : 0;
+			$b_skipped = isset( $_GET['skipped'] ) ? (int) $_GET['skipped'] : 0;
+			$b_already = isset( $_GET['already'] ) ? (int) $_GET['already'] : 0;
+			$b_failed  = isset( $_GET['failed'] ) ? (int) $_GET['failed'] : 0;
+			if ( -1 === $b_failed ) {
+				echo '<div class="wps-status wps-warn wps-mb6">Akismet is not active or has no key, so nothing was reported.</div>';
+			} else {
+				$parts = [ $b_sent . ' address' . ( 1 === $b_sent ? '' : 'es' ) . ' reported' ];
+				if ( $b_already ) {
+					$parts[] = $b_already . ' already reported';
+				}
+				if ( $b_skipped ) {
+					$parts[] = $b_skipped . ' skipped as ranges or shared infrastructure (Akismet takes single addresses, and reporting a CDN or proxy would flag every site behind it)';
+				}
+				if ( $b_failed > 0 ) {
+					$parts[] = $b_failed . ' not accepted';
+				}
+				echo '<div class="wps-status wps-' . ( $b_sent > 0 ? 'good' : 'muted' ) . ' wps-mb6">' . esc_html( implode( '; ', $parts ) ) . '.</div>';
+			}
+		}
+
 		if ( empty( $blocked_ips ) ) {
 			echo '<p class="wps-muted wps-p0">No IPs are currently auto-blocked.</p>';
 			return;
+		}
+
+		// 1.4.92: report everything at once.
+		//
+		// This list routinely runs past forty rows. A button per row is fine
+		// for one address and unusable for forty, which is how it was shipped.
+		// Nothing about the submission rules changes here - each address still
+		// goes through the same guarded path, ranges are still never submitted,
+		// and anything already reported is skipped.
+		$pending = 0;
+		foreach ( $blocked_ips as $bip => $bdetail ) {
+			if ( false !== strpos( (string) $bip, '/' ) ) {
+				continue;
+			}
+			if ( ! get_transient( 'wps_reported_' . md5( (string) $bip ) ) ) {
+				++$pending;
+			}
+		}
+		if ( $pending > 0 ) {
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="wps-inline-form wps-mb6">';
+			echo '<input type="hidden" name="action" value="wps_report_all_ips">';
+			echo wp_nonce_field( 'wps_report_all_ips', '_wpnonce', true, false );
+			echo '<button type="submit" class="button button-primary">Report all ' . (int) $pending . ' unreported address' . ( 1 === $pending ? '' : 'es' ) . ' to Akismet</button>';
+			echo ' <span class="wps-sm wps-muted">Ranges are never submitted, and anything already reported is skipped. Up to 50 per click.</span>';
+			echo '</form>';
 		}
 
 		echo '<div class="wps-scroll-x">';

@@ -31,6 +31,8 @@ class WPS_Admin {
 		add_action( 'admin_post_wps_report_ip', [ __CLASS__, 'handle_report_ip' ] );
 		add_action( 'admin_post_wps_unblock_permanent', [ __CLASS__, 'handle_unblock_permanent' ] );
 		add_action( 'admin_post_wps_permanent_block', [ __CLASS__, 'handle_permanent_block' ] );
+		add_action( 'admin_post_wps_report_all_ips', [ __CLASS__, 'handle_report_all_ips' ] );
+		add_action( 'admin_post_wps_bulk_findings', [ __CLASS__, 'handle_bulk_findings' ] );
 		add_action( 'admin_post_wps_mark_safe', [ __CLASS__, 'handle_mark_safe' ] );
 		add_action( 'admin_post_wps_revoke_safe', [ __CLASS__, 'handle_revoke_safe' ] );
 		add_action( 'admin_post_wps_reset_breaker', [ __CLASS__, 'handle_reset_breaker' ] );
@@ -108,6 +110,15 @@ class WPS_Admin {
 			'xmlrpc_auth_disabled' => isset( $_POST['xmlrpc_auth_disabled'] ) ? '1' : '0',
 			'xmlrpc_strip_multicall' => isset( $_POST['xmlrpc_strip_multicall'] ) ? '1' : '0',
 			'post_guard_enabled'   => isset( $_POST['post_guard_enabled'] ) ? '1' : '0',
+			// 1.4.100: account-takeover guard (rapid post-login write from a
+			// new device; Application Password self-authorization phishing).
+			// On by default: unlike post_guard_enabled, neither sub-check can
+			// fire on ordinary publishing (see class-account-guard.php).
+			'account_guard_enabled'              => isset( $_POST['account_guard_enabled'] ) ? '1' : '0',
+			'account_guard_auto_trash'           => isset( $_POST['account_guard_auto_trash'] ) ? '1' : '0',
+			'account_guard_lockdown'             => isset( $_POST['account_guard_lockdown'] ) ? '1' : '0',
+			'account_guard_app_password_enabled' => isset( $_POST['account_guard_app_password_enabled'] ) ? '1' : '0',
+			'block_sso_bypass'     => isset( $_POST['block_sso_bypass'] ) ? '1' : '0',
 			'login_network_guard'  => isset( $_POST['login_network_guard'] ) ? '1' : '0',
 			'login_report_spam'    => isset( $_POST['login_report_spam'] ) ? '1' : '0',
 			'akismet_report_all_blocks' => isset( $_POST['akismet_report_all_blocks'] ) ? '1' : '0',
@@ -236,6 +247,164 @@ class WPS_Admin {
 	 * that file; a directory decision protects what is inside it. Nothing is
 	 * broadened silently.
 	 */
+
+	/**
+	 * 1.4.92: report every unreported address in the block list at once.
+	 *
+	 * The list routinely runs to forty or more rows, each with its own button.
+	 * Asking an operator to click through that one at a time is not a feature,
+	 * it is a chore the interface should have absorbed.
+	 *
+	 * Every submission still goes through report_ip_manually(), so nothing is
+	 * relaxed by doing this in bulk: a CIDR range is rejected (Akismet takes
+	 * addresses, and submitting a range would flag its innocent neighbours), an
+	 * address already reported is skipped, and the per-address safeguards are
+	 * unchanged. Bulk here means fewer clicks, not looser rules.
+	 *
+	 * Capped per run so one click cannot become hundreds of API calls, with the
+	 * remainder reported by clicking again - a bounded action the operator can
+	 * see the end of.
+	 */
+
+	/**
+	 * 1.4.93: act on many findings at once.
+	 *
+	 * A compromised site produces dozens of findings in one scan. Every one of
+	 * them carried its own Delete and Mark Safe button and nothing else, so
+	 * clearing a real incident meant dozens of individual clicks - the same
+	 * design failure as the hostile-IP list, in the place it hurts most,
+	 * because this is the list an operator reaches for when the site is
+	 * actually on fire.
+	 *
+	 * Two operations, deliberately asymmetric:
+	 *
+	 *   - MARK SAFE in bulk is offered freely. Its failure mode is that
+	 *     something malicious is left alone and still reported, which is
+	 *     recoverable and visible.
+	 *   - DELETE in bulk goes through the remediation policy for every single
+	 *     target, exactly as the automatic path does. Bulk is a convenience for
+	 *     the operator, never a way around the veto: a Safe target, a core
+	 *     file, or anything else the policy refuses is skipped and counted,
+	 *     not quietly removed because the request happened to arrive in a
+	 *     batch. Selecting everything and pressing delete must not be able to
+	 *     do what the scanner itself is forbidden to do.
+	 */
+	public static function handle_bulk_findings(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Insufficient permissions.' );
+		}
+		check_admin_referer( 'wps_bulk_findings' );
+
+		$op    = isset( $_POST['bulk_op'] ) ? sanitize_key( (string) wp_unslash( $_POST['bulk_op'] ) ) : '';
+		$paths = isset( $_POST['paths'] ) && is_array( $_POST['paths'] )
+			? array_map( 'sanitize_text_field', array_map( 'wp_unslash', $_POST['paths'] ) )
+			: [];
+
+		$done = 0; $denied = 0; $failed = 0;
+
+		foreach ( array_slice( $paths, 0, 200 ) as $path ) {
+			$path = trim( (string) $path );
+			if ( '' === $path ) {
+				continue;
+			}
+			if ( 'safe' === $op ) {
+				if ( class_exists( 'WPS_Remediation_Policy' ) && WPS_Remediation_Policy::mark_safe( $path, 'file', 'marked safe in bulk from the findings list' ) ) {
+					++$done;
+				} else {
+					++$failed;
+				}
+				continue;
+			}
+			if ( 'delete' === $op ) {
+				// Same gate the scanner obeys. No exceptions for bulk.
+				if ( class_exists( 'WPS_Remediation_Policy' )
+					&& ! WPS_Remediation_Policy::decide( [ 'delete_path' => $path, 'type' => 'operator bulk action' ] )['allowed']
+				) {
+					++$denied;
+					continue;
+				}
+				$ok = false;
+				if ( class_exists( 'WPS_Quarantine' ) ) {
+					$ok = null !== WPS_Quarantine::quarantine( $path, [ 'type' => 'operator_bulk_delete', 'reason' => 'removed in bulk by the operator' ] );
+				}
+				$ok ? ++$done : ++$failed;
+			}
+		}
+
+		wp_safe_redirect( add_query_arg(
+			[ 'page' => 'wp-perf-shield', 'wps_bulk' => $op, 'done' => (int) $done, 'denied' => (int) $denied, 'failed' => (int) $failed ],
+			admin_url( 'tools.php' )
+		) );
+		exit;
+	}
+
+	public static function handle_report_all_ips(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Insufficient permissions.' );
+		}
+		check_admin_referer( 'wps_report_all_ips' );
+
+		$sent = 0;
+		$skipped_ranges = 0;
+		$already = 0;
+		$failed = 0;
+		$cap = 50;
+
+		if ( class_exists( 'WPS_Blocker' ) && class_exists( 'WPS_Login_Guard' ) ) {
+			foreach ( WPS_Blocker::get_blocked_ips() as $ip => $detail ) {
+				if ( $sent >= $cap ) {
+					break;
+				}
+				$ip = (string) $ip;
+				// Ranges are never submitted. This is the same rule the
+				// automatic path enforces and it is not negotiable in bulk.
+				if ( false !== strpos( $ip, '/' ) ) {
+					++$skipped_ranges;
+					continue;
+				}
+				// The per-row button exempts the infrastructure guard on the
+				// grounds that a human clicking one address has looked at it.
+				// That reasoning does not survive bulk: nobody reviews forty
+				// rows individually, so the guard is reapplied here. Reporting
+				// a CDN edge would degrade it for every site behind it, and
+				// "the operator clicked something" is not informed consent to
+				// that when the click covered the whole list.
+				if ( method_exists( 'WPS_Login_Guard', 'ip_looks_like_infrastructure' )
+					&& WPS_Login_Guard::ip_looks_like_infrastructure( $ip )
+				) {
+					++$skipped_ranges;
+					continue;
+				}
+				$user = is_array( $detail ) ? (string) ( $detail['last_user'] ?? '' ) : '';
+				$res  = WPS_Login_Guard::report_ip_manually( $ip, $user );
+				if ( 'reported' === $res ) {
+					++$sent;
+				} elseif ( 'already' === $res ) {
+					++$already;
+				} elseif ( 'no-key' === $res ) {
+					$failed = -1; // Akismet unavailable; stop rather than loop
+					break;
+				} else {
+					++$failed;
+				}
+			}
+		}
+
+		wp_safe_redirect( add_query_arg(
+			[
+				'page' => 'wp-perf-shield',
+				'tab'  => 'diagnostics',
+				'wps_bulk_report' => 1,
+				'sent' => (int) $sent,
+				'skipped' => (int) $skipped_ranges,
+				'already' => (int) $already,
+				'failed'  => (int) $failed,
+			],
+			admin_url( 'tools.php' )
+		) );
+		exit;
+	}
+
 	public static function handle_mark_safe(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( 'Insufficient permissions.' );
@@ -598,6 +767,9 @@ class WPS_Admin {
 			'comment_split_keywords_found' => 'Code split by junk comments',
 			'remote_script_injection_found' => 'Remote script injection found',
 			'hidden_admin_backdoor_found' => 'Hidden administrator backdoor found',
+			'unauth_auth_bypass_found'    => 'Unauthenticated sign-in endpoint found',
+			'sso_bypass_blocked'          => 'Sign-in bypass endpoint disarmed',
+			'sso_token_cleared'           => 'Sign-in bypass token cleared',
 			'unattributed_plugin_found'   => 'Plugin appeared with no install recorded',
 			'malware_source_attributed'   => 'Malware source attributed and reported',
 			'db_resident_payload_found'   => 'Payload stored in the database',

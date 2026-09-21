@@ -107,13 +107,63 @@ class WPS_Admin_Settings {
 							</td>
 						</tr>
 						<tr>
+							<th><label for="block_sso_bypass">Unauthenticated sign-in endpoints</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="block_sso_bypass" name="block_sso_bypass" value="1" <?php checked( ( $settings['block_sso_bypass'] ?? '0' ) === '1' ); ?>>
+									<span>
+										<strong>Block sign-in endpoints that need no password</strong><br>
+										<span class="description">Managed hosts install a loader in <code>mu-plugins</code> that hands out an administrator session to anyone presenting the right token &ndash; no password, no second factor. It powers their &ldquo;log in to WordPress&rdquo; button. This removes the endpoint on every request, so a copy redeployed by your host is unreachable rather than merely deleted, and clears the stored token, which is the actual key and survives every password reset you perform. <strong>Turning this on will stop your host&rsquo;s one-click dashboard login working</strong> &ndash; you will sign in at <code>wp-login.php</code> as normal. Off by default for that reason; worth turning on if you do not use that button, and worth strong consideration on a site that has been compromised, since a copied token is a permanent administrator key.</span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						<tr>
 							<th><label for="post_guard_enabled">External post writing</label></th>
 							<td>
 								<label class="wps-toggle-row">
 									<input type="checkbox" id="post_guard_enabled" name="post_guard_enabled" value="1" <?php checked( ( $settings['post_guard_enabled'] ?? '0' ) === '1' ); ?>>
 									<span>
 										<strong>Block external post creation, editing and deletion</strong><br>
-										<span class="description">Refuses writes to the posts REST routes (<code>/wp/v2/posts</code>) and unregisters the post-writing XML-RPC methods, unless the request is a genuine administrator dashboard session &ndash; a test an Application Password, Basic Auth, JWT, OAuth or an unauthenticated bot cannot pass. This is the injection route behind auto-blogging and doorway/SEO-spam posts. Dashboard publishing (Gutenberg, Classic Editor) and scheduled posts are unaffected, and blocked attempts are logged. <strong>Off by default</strong>, because it will break headless WordPress, mobile-app posting, and Zapier/IFTTT-style integrations that publish through the API &ndash; turn it on only if nothing legitimately posts to this site from outside the dashboard.</span>
+										<span class="description">Refuses writes to the posts and pages REST routes (<code>/wp/v2/posts</code>, <code>/wp/v2/pages</code>) and unregisters the post-writing XML-RPC methods, unless the request is a genuine administrator dashboard session &ndash; a test an Application Password, Basic Auth, JWT, OAuth or an unauthenticated bot cannot pass. This is the injection route behind auto-blogging and doorway/SEO-spam posts. Dashboard publishing (Gutenberg, Classic Editor) and scheduled posts are unaffected, and blocked attempts are logged. <strong>Off by default</strong>, because it will break headless WordPress, mobile-app posting, and Zapier/IFTTT-style integrations that publish through the API &ndash; turn it on only if nothing legitimately posts to this site from outside the dashboard.</span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="account_guard_enabled">Account-takeover write pattern</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="account_guard_enabled" name="account_guard_enabled" value="1" <?php checked( ( $settings['account_guard_enabled'] ?? '1' ) !== '0' ); ?>>
+									<span>
+										<strong>Flag posts and pages written seconds after a login from a device that account has never used before</strong><br>
+										<span class="description">Built from a confirmed incident: correct credentials, a genuine login, a genuine session - then a spam post or an edit to an existing page within seconds, from an IP/browser the account had never logged in from before. A real administrator does not do that; <code>post_guard_enabled</code> above cannot catch it either, because the session really is genuine. <strong>On by default</strong>, because nothing legitimate produces this exact shape - a normal first login from a new computer that happens to publish within seconds of signing in is the only false-positive case, and the action taken is reversible.</span>
+									</span>
+								</label>
+								<label class="wps-toggle-row" style="margin-top:8px;">
+									<input type="checkbox" id="account_guard_auto_trash" name="account_guard_auto_trash" value="1" <?php checked( ( $settings['account_guard_auto_trash'] ?? '1' ) !== '0' ); ?>>
+									<span>
+										<strong>Move the flagged post or page to Trash automatically</strong><br>
+										<span class="description">Trash, never permanent deletion - restorable from Diagnostics if this was a false positive.</span>
+									</span>
+								</label>
+								<label class="wps-toggle-row" style="margin-top:8px;">
+									<input type="checkbox" id="account_guard_lockdown" name="account_guard_lockdown" value="1" <?php checked( ( $settings['account_guard_lockdown'] ?? '1' ) !== '0' ); ?>>
+									<span>
+										<strong>Sign that account out everywhere and block the address</strong><br>
+										<span class="description">Ends every other active session for the account (they simply log in again if it was really them) and blocks the requesting address for 7 days, skipping known shared-infrastructure addresses the same way the hostile-IP list always does.</span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="account_guard_app_password_enabled">Application Password self-authorization phishing</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="account_guard_app_password_enabled" name="account_guard_app_password_enabled" value="1" <?php checked( ( $settings['account_guard_app_password_enabled'] ?? '1' ) !== '0' ); ?>>
+									<span>
+										<strong>Block scripted requests for a new Application Password sent to an outside domain</strong><br>
+										<span class="description">The same incident's next step: a direct, scripted hit on <code>authorize-application.php</code> asking WordPress to mail a new Application Password to a callback on another domain, disguised as an app named &ldquo;SEO Super Tool&rdquo;. A real integration only reaches that page because the user clicked something inside it, which carries a referer from the integration's own domain; this blocks the request when that referer is missing. <strong>On by default.</strong></span>
 									</span>
 								</label>
 							</td>
@@ -263,7 +313,7 @@ class WPS_Admin_Settings {
 									<input type="checkbox" name="policy_ban_enabled" value="1" <?php checked( ( $settings['policy_ban_enabled'] ?? '1' ) !== '0' ); ?>>
 									<span>
 										<strong>Refuse banned plugins on upload and activation</strong><br>
-										<span class="description">On by default. Two plugins ship banned out of the box: <code>wp-file-manager</code> (WP File Manager &ndash; full dashboard filesystem access, with a history of critical remote-code-execution holes) and <code>filebird</code> (FileBird). Untick to switch the whole list off without clearing it.</span>
+										<span class="description">On by default. Three plugins ship banned out of the box: <code>wp-file-manager</code> (WP File Manager &ndash; full dashboard filesystem access, with a history of critical remote-code-execution holes), <code>fileorganizer</code> (FileOrganizer &ndash; same risk class, an elFinder-based full-filesystem file manager from a different vendor), and <code>filebird</code> (FileBird). Untick to switch the whole list off without clearing it.</span>
 									</span>
 								</label>
 							</td>

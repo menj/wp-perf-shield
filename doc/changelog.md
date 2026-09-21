@@ -1,5 +1,243 @@
 # WP Perf Shield changelog
 
+## 1.4.100
+
+Adds `WPS_Account_Guard`, built directly from a confirmed live incident: an account's real credentials, used from dozens of unrelated IPs over three weeks to write spam posts and inject content into an existing page through the REST API, entirely through genuine wp-login.php sessions.
+
+### The incident
+
+Full logs (SSL access log, plain access log, PHP error log, FTP log) showed a repeating, scripted sequence from many otherwise-unrelated IPs: `POST /xmlrpc.php` (reachability probe) - `POST /wp-login.php` (real credentials, real 302) - `GET /wp-admin/admin-ajax.php?action=rest-nonce` - `POST /wp-json/wp/v2/posts` (title "link-factory-verification", published, then usually trashed) - a `GET /wp-admin/authorize-application.php?app_name=SEO%20Super%20Tool&success_url=https://seo-super-tool.local/callback` (requesting a new Application Password mailed to an external domain) - and, in two sessions, `POST /wp-content/easypost/easypost.php?action=health` and a matching path under `wp-content/uploads/2026/09/`, a webshell drop attempt (blocked, 403/301, no evidence it landed). One session additionally used the same genuine session to `PUT` new content into an existing, high-traffic page (id 5173) - direct content injection into a page that was never a "new spam post" at all. The account's user ID was also trivially discoverable beforehand via the public `/wp-json/wp/v2/users/<id>` REST endpoint, which Baiduspider had already indexed.
+
+The root cause is credential compromise, not a plugin vulnerability: every write carried a completely genuine logged-in cookie and a freshly-issued REST nonce, because the login was real. `WPS_Post_Guard` (`post_guard_enabled`), even enabled, would not have stopped this - it exists to fail Application Passwords, Basic Auth, JWT and OAuth, not a session that passes because the credentials really were correct. It also, independently, was scoped to `/wp/v2/posts` only, so the page-5173 edit would have gone through regardless.
+
+### What's new
+
+**`check_rest_write()` / `check_xmlrpc_write()`** - hooked to `rest_insert_post`, `rest_insert_page` and the post-writing XML-RPC methods. Records each user's login fingerprint (time, IP, UA) on `wp_login`; a post/page write within 90 seconds of that account's login, from an IP+UA pair never associated with the account before, is flagged. A device earns trust by publishing normally (more than 90s post-login) without being flagged - never by a flagged write itself, so an attacker's own session can never whitelist their device. On by default: unlike `post_guard_enabled`, this cannot fire on ordinary publishing - nothing legitimate logs in from a new device and writes content within seconds.
+
+**`guard_authorize_application()`** - hooked to `admin_init`. Blocks a direct hit on `authorize-application.php` requesting a `success_url` on a different host with no referer from that host - the self-authorization phishing step from the incident. A real third-party integration arrives here via a referer from its own domain, because the user clicked something inside it.
+
+**`WPS_Post_Guard` widened to `/wp/v2/pages`** - it was scoped to posts only, which is exactly the gap the page-5173 edit went through. Same guard logic, same setting.
+
+Auto-remediation, on by default: the flagged post/page is moved to Trash (never permanently deleted - restorable from Diagnostics), the account's other sessions are ended, and the requesting address is blocked for 7 days (skipping known shared-infrastructure addresses, same rule the hostile-IP list always applies). Each piece has its own setting in case an operator wants detection without the harder actions.
+
+### Known limitation
+
+The new-device check is IP+UA based. An owner who normally publishes over a rotating mobile network or VPN will look "new" on every session and may be flagged on a fast publish; the trash action is reversible, but this is worth knowing before enabling on a site with that publishing pattern.
+
+### Meta
+
+Version markers move to 1.4.100. New class `WPS_Account_Guard` (`includes/class-account-guard.php`), new settings `account_guard_enabled`, `account_guard_auto_trash`, `account_guard_lockdown`, `account_guard_app_password_enabled` (all default on). `WPS_Post_Guard`'s route regex and settings copy updated to include pages.
+
+
+## 1.4.99
+
+Two fixes from one sample: a trojanized copy of the genuine bbPress plugin (folder renamed to a bare `22`), carrying four unrelated malware tools dropped beside the real code - a full file manager self-branded "CAXIUM v2.0", a custom stream-wrapper decode-and-include loader, a plain unauthenticated file manager, and a 1MB chr()-obfuscated blob.
+
+### What was already covered
+
+The plain file manager and the chr()-obfuscated blob were both already caught cleanly by `check_unauthenticated_file_manager()` and `check_character_built_identifiers()` (1,315 `chr()` calls - two orders of magnitude past the built>=15 automatic-critical floor). No changes needed for either.
+
+### Fix: `check_unauthenticated_file_manager()` bootstrap-guard bypass
+
+CAXIUM is CMS-agnostic by design and detects WordPress with `$is_wordpress = defined('ABSPATH') || defined('WPINC');` - a feature flag, not a guard. The existing `$rx_bootstrap` regex matched on the mere presence of `defined('ABSPATH')` anywhere in the file, exactly the "mention vs guard" mistake the check's own 1.4.34 history already fixed once for `wp-load.php` - a different route to the same hole. Tightened to require the actual guard SHAPE: `defined(...)` negated and followed by `exit`/`die`/`return`, in either the `if ( ! defined(...) ) { exit; }` or `defined(...) || exit;` form. Verified against this plugin's own files and a stock bbPress copy (both still match, so no legitimate plugin gets a false positive) and against CAXIUM (no longer matches, so the file manager - `file_put_contents`, `move_uploaded_file`, `unlink`, `rename`, `rmdir`, `fwrite` - is now flagged and auto-deleted).
+
+### New: `check_stream_wrapper_include_payload()`
+
+A third eval-avoiding execution route, distinct from both 1.4.98 mechanisms. `mac.php` registers a fake stream protocol; its `stream_open()` doesn't open anything - it base64-decodes the "path" PHP hands it and returns that as the stream's content - then the file is executed with `include 'protocol://' . base64_encode($blob)`. No `eval()`, no `tmpfile()`, no self-read. Matches on the narrow, unambiguous shape: `stream_wrapper_register()` present, a `stream_open()` whose body decodes its own `$path` argument rather than using it to locate something external, and an `include`/`require` actually using a `://` target. A legitimate stream wrapper (cloud storage, remote APIs) looks something up using its path; this one's entire "resource" is the decoded path itself, which has no honest reading.
+
+### Meta
+
+Version markers move to 1.4.99. New check `check_stream_wrapper_include_payload`, registered in the main check list. `check_unauthenticated_file_manager()`'s bootstrap regex changed; its registration, severity model and mutator list are unchanged.
+
+
+## 1.4.98
+
+Adds `check_tempfile_include_payload()`: detects an eval()-avoiding loader recovered inside a trojanized copy of a legitimate WordPress.org plugin ("Admin Notices Manager" by Melapress, folder renamed, two files added).
+
+### What it targets
+
+Both added files (`support.php` and `assets/admintrue.txt`, byte-identical payloads) decode a base64 blob and run it without ever calling `eval()`, `assert()`, or `create_function()`:
+
+```
+$tmp = tmpfile();
+fwrite($tmp, '<?php ' . $decoded . ' ?>');
+include stream_get_meta_data($tmp)['uri'];
+```
+
+`check_encoded_payload_loader()` (1.4.34) requires one of those three sinks and so never matches this shape at all - `include` is deliberately not treated as a sink there, since most legitimate code includes things. The decoded payload, recovered and inspected directly, is a password-gated PHP web shell that self-identifies as "PHP Secure Shell v3.0": file browsing, upload, edit, delete, rename, disk/memory/load-average reporting, IP geolocation, hardcoded login password.
+
+A second, independent gap: `assets/admintrue.txt` is PHP from the first byte but carries a `.txt` extension, so every existing check gated on `is_php_executable()` skips it outright regardless of content.
+
+### Detection
+
+Matches on structural shape, not on any signature string, so it survives arbitrary re-encoding of the blob: `tmpfile()`, an `fwrite()` building a literal `<?php ` wrapper around a variable, `stream_get_meta_data()`, and an `include`/`require` variant, all four present in one file. Chained decoder calls (`base64_decode`, `gzinflate`, etc.) are recorded as a supporting tell but not required, since the shape alone has no honest reading. Also scans a short list of non-PHP extensions (`txt`, `dat`, `bak`, `log`, `tmp`, `cache`, `inc`) for a leading `<?php` tag, closing the disguise-extension gap specifically - not a general non-PHP-extension sweep, which is `check_opaque_data_payload()`'s job and stays out of this check's scope. Auto-deletes: the containing plugin/theme folder when the file sits inside one, otherwise just the file.
+
+### Meta
+
+Version markers move to 1.4.98. New check `check_tempfile_include_payload`, registered in the main check list. No new settings or events - reporting and auto-delete follow the same `auto_delete`/`delete_path` convention every other content-confirmed check already uses.
+
+
+## 1.4.97
+
+Adds FileOrganizer (Softaculous) to the site-policy banned-plugins list, alongside WP File Manager and FileBird.
+
+### What it is
+
+FileOrganizer (`fileorganizer`, plus its `fileorganizer-pro` add-on) is a legitimate, actively maintained WordPress.org plugin - not malware. It is the same risk class as WP File Manager: an elFinder-based full-filesystem file manager (the two even share large parts of the same bundled elFinder library), just from a different vendor (Softaculous rather than mndpsingh287). Full dashboard filesystem access is a standing post-compromise foothold regardless of which vendor built the interface around it.
+
+### What changed
+
+- `WPS_Blocker::get_policy_banned_slugs()` gains `fileorganizer` as a third default. Upload/activation refusal is substring-matched, so this also catches `fileorganizer-pro`. The on-disk removal check (`check_policy_banned_plugins_installed()`) is exact-folder-name-matched by design, so `fileorganizer` itself is auto-removed if found installed; `fileorganizer-pro` is not auto-removed by name alone, mirroring how `wp-file-manager-pro` has always been handled - advisory only, via `HIGH_RISK_PLUGINS`, not auto-deleted.
+- `HIGH_RISK_PLUGINS` in the scanner gains `fileorganizer` and `fileorganizer-pro` entries, so an install is flagged even where the banned-plugins feature is switched off.
+- The banned-plugin removal finding's explanation text gains a FileOrganizer-specific reason, matching the existing WP File Manager clause.
+- Settings screen and top-level readme/doc copy updated from "two plugins" to "three plugins" banned by default.
+
+### Meta
+
+Version markers move to 1.4.97. No new settings, checks, or classes - this extends existing site-policy infrastructure (1.4.62/1.4.75) to a second full-filesystem file manager rather than building anything new.
+
+
+## 1.4.96
+
+Adds detection and automatic removal for four confirmed second-stage samples recovered together as a kit: a standalone copy of the SSO login-bypass loader, a Basic-Auth unauthenticated file manager, a password-gated arbitrary file-write editor, and an XMRig cryptominer launcher.
+
+### What it targets
+
+**`sso-loader.php` - the SSO login-bypass loader as a standalone file.** `WPS_SSO_Guard` (1.4.95) already disarms this family at runtime - unhooking `wp_ajax_nopriv_sso-check` and clearing the `sso_token` option - but the guard is off by default and never touches the file on disk. This sample is the loader dropped as an ordinary plugin/mu-plugin file rather than delivered by hosting tooling, and three function names (`sso_check_blocked`, `sso_add_failed_attempt`, `sso_get_attempt_id`) appear together only in it. The scanner now finds and removes the file itself, independent of whether the runtime guard is enabled.
+
+**`wp-loader.php` - "WordPress Test Shell".** Gates directory browsing, arbitrary file upload, arbitrary file edit (`file_put_contents` on a request-supplied path) and a raw `shell_exec()` command box behind hardcoded HTTP Basic Auth credentials (`admin` / `AsterISK`). The printed heading `WordPress Test Shell` is an exact, exotic string with no legitimate use.
+
+**`policies.php` - "Admin Configuration Editor (Aman)".** A plaintext-password-gated editor restricted to a fixed whitelist of plausible-sounding filenames (`wp-config-extra.php`, `wp-runtime.php`, `custom-functions.php`, and others) - each created with a bare `<?php` stub the moment it is first opened, so the attacker always has somewhere to write PHP back regardless of what currently exists on disk. A JS auto-click loop resubmits the save form every second. The title string ("Aman" is Indonesian for "safe") is the anchor.
+
+**`wp-helper.php` - wp-worker XMRig cryptominer loader.** Not an access/persistence kit but a payload launcher: assembles a Monero miner binary from eleven downloaded `.part` files, writes it to `wp-worker.exe` beside itself, and launches it detached (`setsid nohup ... &`) so it survives the request that started it. The wallet address is hardcoded and unique enough alone to be an unambiguous signature; `isXmrigRunning`, `startXmrig`, and `downloadWpWorker` are equally unique to this sample. The miner binary itself is not content-scanned (it is not PHP), but removing the loader removes the thing that (re)launches and re-downloads it.
+
+### Detection and removal
+
+All four are added to `SIGNATURES_BACKDOOR` and so are picked up everywhere that list is already scanned: plugins, mu-plugins, the active/parent theme, every other theme, uploads, language directories, the cache/fonts/upgrade writable directories, and ABSPATH-root PHP files. Outside the site root, a signature match is enough on its own for auto-delete - the existing behaviour for this list, unchanged here. `sso-loader.php` and `wp-loader.php`, together with the existing `wp-helper.php` naming, are also added to `secondary_backdoor_filenames()`, so a copy planted directly at the WordPress root is auto-deleted rather than only flagged for review, the same treatment `wp-default.php` and `wp-security-helper.php` already get there. `policies.php` is deliberately left off that list - it is too plausible a filename for a real file at site root for name-plus-signature to be a safe auto-delete trigger there - so a root-level copy is reported for manual review while every other location still removes it automatically on the content match alone.
+
+`sig_family()` gains a mapping for each new signature set so findings report a specific, readable family name instead of falling through to the generic "PHP backdoor/RAT" label.
+
+### Meta
+
+Version markers move to 1.4.96. `INDICATOR_VERSION` moves to `1.4.96-1`. No new settings, events, or classes; this is signature and filename-list data only, consumed entirely by existing scanner code paths.
+
+
+## 1.4.95
+
+Detects and bans unauthenticated administrator sign-in endpoints.
+
+### What it targets
+The managed-hosting SSO loader. It registers `wp_ajax_nopriv_sso-check` and, on a matching token, calls `wp_set_auth_cookie()` for an administrator - no password, no second factor. If no user is named it selects the first administrator on the site. Hosts ship it to power their "log in to WordPress" button.
+
+It is legitimate software. It is also an unauthenticated administrator login sitting in `mu-plugins`, loading on every request, invisible on the Plugins screen and undeactivatable from it. On a site with the compromise history this one has, that combination deserves a decision rather than an assumption.
+
+Two details make it worse than it looks. Its rate limit allows five attempts per five minutes keyed on `REMOTE_ADDR` - useless against the subnet rotation this operator is already under, where each fresh address gets a fresh budget. And the token comparison is `==` rather than `hash_equals()`.
+
+### Detection
+`check_unauth_auth_bypass` looks for the shape, not the vendor: a `nopriv` AJAX action or an always-true REST permission callback in the same file as a call that establishes a session. Nothing in a normal install combines those. That catches a copy an attacker plants under another name as readily as the genuine article, which is the point - a stolen SSO token and a hand-written equivalent are the same problem.
+
+It reports and never removes automatically. The file belongs to the host and will be redeployed.
+
+### The ban is a runtime guard, not a deletion
+Deleting the file bans nothing, for two reasons that between them decide the design:
+
+* **The host redeploys it.** A ban that silently reverts on the next platform update is worse than none, because the operator believes it is handled.
+* **The file is not the bypass; the token is.** `sso_token` in `wp_options` is a standing administrator credential. It survives every password reset, user deletion and reinstall of the file. On a site that has hosted webshells, hidden admin accounts and database-resident payloads, that value has to be assumed copied.
+
+So `WPS_SSO_Guard` removes the endpoint registration on every request - a redeployed copy re-registers into a slot emptied again on the next request, so it is never reachable - and clears the token, so a redeployed copy has nothing to validate against. Either measure alone leaves a way back.
+
+**Off by default.** Enabling it stops the host's one-click dashboard login; sign-in moves to `wp-login.php` as normal. That is a real cost to someone who uses that button, and this plugin has already learned what happens when it decides on its own that working software should stop working.
+
+### Verified
+`php -l` clean across all 38 includes. New harness `sso-bypass.php` (16/16) against the real loader: it is detected with the action and token option named, a `nopriv` endpoint that does not grant a session is not flagged, it is not queued for removal, and the finding states that the file is not the bypass and that the token survives password resets. For the ban: both endpoint variants are removed, an unrelated AJAX action is untouched, a redeployed endpoint is disarmed again on the next request, the token is cleared and logged as evidence, and the guard is off unless explicitly enabled. All thirty-four harnesses pass (367 assertions).
+
+### Meta
+Version markers move to 1.4.95. New module `WPS_SSO_Guard`, new check `check_unauth_auth_bypass`, new setting `block_sso_bypass` (default off), new events `unauth_auth_bypass_found`, `sso_bypass_blocked`, `sso_token_cleared`. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.94
+
+Confirmed malware was being reported instead of removed.
+
+### What the sample showed
+A re-upload of the VeyronHacklink connector - the Turkish backlink-injection kit - this time carrying a `config.json` the earlier copy did not have, with the install token consumed and emptied while the site ID and key remain. That is the post-promotion state: this copy had already written itself into `mu-plugins` on the live site.
+
+The code is byte-identical to the copy analysed in 1.4.77 and is still detected by signature. But the policy declined to remove it, and that was the finding worth having.
+
+### The gap
+`check_php_signatures()` emits the type **"Malware signature in PHP file"**. The policy's list of confirmed detectors named three narrower siblings - the theme, mu-plugin and cache-directory variants - and omitted the plain one. Everything not on that list is treated as inference by design, so the strongest evidence this scanner produces was being classed as a guess and left in place.
+
+The calibration in 1.4.90 was correct in principle and wrong in this instance for a mundane reason: the list was incomplete. That is the failure mode of an allowlist, and it is invisible to inspection - every entry present looks right, and the missing one only shows up when something needs it. It took running a real sample through the policy to see it.
+
+### The fix, and a gate so it cannot recur
+The missing types were added: the plain PHP-file signature, the root-file signature, known malware hashes, malware-created admin users, the drop-in persistence loader and re-dropper, and malicious cron hooks.
+
+More usefully, `confirmed-types-complete.php` now derives the list mechanically: it reads every `type` the scanner can emit, keeps the ones naming a signature, a hash, or something explicitly malicious, and fails if any of them is unclassified in the policy. Writing that gate immediately found two further omissions I had not spotted by hand, including a root-file signature type. A list that must stay in step with another file should be checked by a machine, not by remembering.
+
+### Verified
+`php -l` clean across all 37 includes. The sample now resolves to REMOVE rather than report-only. Calibration is unchanged in the other direction: core is still refused removal even on a confirmed signature type, behavioural findings inside installed software are still reported rather than removed, and an operator Safe decision still overrides everything. All thirty-three harnesses pass (351 assertions).
+
+### Meta
+Version markers move to 1.4.94. No new checks or events; the policy's confirmed-detector list corrected and put under a completeness gate. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.93
+
+An audit of every list and control in the plugin for the problem the hostile-IP list had, and the fixes for what it turned up.
+
+### The audit
+Every setting and every list with a per-row action was checked against two questions: can this list get large, and is there a way to act on it in bulk when it does.
+
+| List | Per-row action | Bulk before | Can it grow |
+|---|---|---|---|
+| Hostile IP blocks | Report spam | yes (1.4.92) | yes - forty-plus observed |
+| **Scan findings** | Delete / Mark Safe | **no** | **yes - a compromise produces dozens** |
+| Quarantine | Restore / Delete | yes (`quarantine_empty`, purge) | yes |
+| Permanent sign-in bans | Remove | no | yes, capped at 1000 |
+| Protected (Safe) list | Revoke | no | small by nature |
+| Settings (slugs, hashes, allowlists) | textareas | n/a | n/a |
+
+Quarantine already had bulk operations. The Safe list is short by construction. The permanent sign-in denylist can technically reach a thousand entries but its entries are individually meaningful and rarely removed in groups, so it stays as it is and is recorded here rather than changed speculatively.
+
+**The real gap was the findings list** - the one an operator reaches for precisely when the site is on fire. A real compromise produces dozens of findings at once, each carrying only its own Delete and Mark Safe buttons.
+
+### What was added
+Checkboxes on findings that have a file target, a select-all control, and two bulk operations: **Mark selected Safe** and **Quarantine selected**.
+
+The two are deliberately asymmetric. Bulk Mark Safe is offered freely: its failure mode is that something malicious is left in place and still reported, which is visible and reversible. **Bulk delete is not a shortcut past the remediation policy** - every selected target goes through the same gate the scanner obeys, and anything Safe, any core file, and anything inside installed software is skipped and counted rather than removed. Selecting everything and pressing delete must not be able to do what the scanner itself is forbidden to do, because an operator clearing a long list is not reviewing each row, and that is exactly the state in which the earlier outages happened.
+
+Skipped items are reported in the result with the reason, so a partial action never looks like a complete one.
+
+### Verified
+`php -l` clean across all 37 includes; `admin.js` clean. New harness `bulk-findings.php` (9/9): with a Safe file, a core file, a file inside a plugin and a genuinely removable file all selected together, only the removable one is actioned and the other three are skipped; bulk Mark Safe works and the newly-safe target is then denied removal even against a confirmed signature type. All thirty-two harnesses pass (349 assertions).
+
+### Meta
+Version markers move to 1.4.93. One new admin action (`wps_bulk_findings`), capability-checked and nonce-protected. No new checks or events. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.92
+
+Bulk reporting for the hostile-IP list.
+
+### The complaint was correct
+The block list routinely runs past forty rows, each carrying its own "Report spam" button. That is fine for one address and unusable for forty. Reporting attackers is something this plugin actively encourages, and then made tedious enough that nobody would finish - a design failure, not an inconvenience.
+
+There is now a single control above the table: **Report all N unreported addresses to Akismet**. It states the count, so the action has a visible end, and is capped at fifty per click so one press cannot become hundreds of API calls.
+
+### Bulk means fewer clicks, not looser rules
+Every address still goes through the same guarded submission path. Ranges are skipped, because Akismet takes single addresses and submitting a `/24` would flag its innocent neighbours. Anything already reported is skipped. Nothing about what gets submitted changes.
+
+**One rule had to be tightened rather than carried over.** The per-row button deliberately exempts the shared-infrastructure guard, on the stated grounds that a human clicking one address has looked at it. That reasoning does not survive bulk: nobody reviews forty rows individually, and "the operator clicked something" is not informed consent to reporting a CDN edge when the click covered the whole list. The guard is therefore reapplied for bulk submissions, and skipped addresses are counted and explained in the result rather than silently dropped.
+
+This was found by testing, not by inspection - the harness asserted a private address would not be submitted, and it was, because the manual path was doing exactly what it had been written to do.
+
+### Verified
+`php -l` clean across all 37 includes. New harness `bulk-report.php` (9/9) using the block list as it actually appears on the operator's site, mixed addresses and ranges: both CIDR ranges are skipped and no range string reaches a submission, shared-infrastructure addresses are skipped in bulk, an already-reported address is not sent twice, real attacking addresses are reported once each with their username attached, and the whole list is covered in a single pass. All thirty-one harnesses pass (340 assertions).
+
+### Meta
+Version markers move to 1.4.92. One new admin action (`wps_report_all_ips`), capability-checked and nonce-protected. No new checks or events. `INDICATOR_VERSION` unchanged.
+
+
 ## 1.4.91
 
 The Safe control that should have shipped with 1.4.88.

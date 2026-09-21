@@ -1,10 +1,10 @@
 <?php
 /**
- * Post guard (1.4.70).
+ * Post guard (1.4.70; extended to pages in 1.4.100).
  *
  * Merged from the standalone Block External Posting plugin. Blocks external
- * creation, modification and deletion of posts through the REST API and
- * XML-RPC, while leaving genuine dashboard publishing (Gutenberg, Classic
+ * creation, modification and deletion of posts AND pages through the REST
+ * API and XML-RPC, while leaving genuine dashboard publishing (Gutenberg, Classic
  * Editor) and internally scheduled posts alone. This is the injection vector
  * behind auto-blogging and doorway/SEO-spam posts: an attacker with an
  * Application Password, Basic Auth, JWT, OAuth, a Zapier-style integration, or
@@ -76,8 +76,13 @@ final class WPS_Post_Guard {
 
 		$route = (string) $request->get_route();
 
-		// /wp/v2/posts, /wp/v2/posts/{id}, and child routes beneath it.
-		if ( ! preg_match( '#^/wp/v2/posts(?:/|$)#', $route ) ) {
+		// /wp/v2/posts and /wp/v2/pages, both with their {id} and child
+		// routes. 1.4.100: pages were never actually in scope despite the
+		// setting's description promising "editing" broadly - a confirmed
+		// incident used exactly that gap to overwrite an existing published
+		// page's content while this guard, watching only /wp/v2/posts,
+		// had nothing to say about it.
+		if ( ! preg_match( '#^/wp/v2/(?:posts|pages)(?:/|$)#', $route ) ) {
 			return $result;
 		}
 

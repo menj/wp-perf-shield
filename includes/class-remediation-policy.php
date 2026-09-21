@@ -91,9 +91,29 @@ final class WPS_Remediation_Policy {
 	private const CONFIRMED_TYPES = [
 		'Malicious plugin folder on disk',
 		'Known malware upload',
+		// 1.4.94: the plain signature type was missing from this list while
+		// three of its narrower siblings were present. A confirmed hash or
+		// signature match on a plugin file - the strongest evidence this
+		// scanner produces - was therefore classed as inference and reported
+		// rather than removed, which is the opposite of the intended
+		// calibration and would have left known malware in place.
+		//
+		// Found by running a real sample through the policy rather than by
+		// reading the list, which is the only way a gap of this shape shows
+		// up: every entry present looks correct, and the missing one is
+		// invisible until something needs it.
+		'Malware signature in PHP file',
 		'Malware signature in theme file',
 		'Malware signature in mu-plugin file',
 		'Malware signature in cache directory PHP file',
+		'Malware signature in plugin file',
+		'Known malware hash',
+		'Known malware-created admin user',
+		'Malicious wp-content drop-in persistence loader',
+		'Malicious wp-content drop-in re-dropper',
+		'Malicious cron hook scheduled by malware',
+		'Malicious wp-content drop-in re-dropper (writes obfuscated payload to mu-plugins)',
+		'malware signature in WordPress root PHP file',
 	];
 
 	/** True unless the finding comes from a confirmed-content match. */

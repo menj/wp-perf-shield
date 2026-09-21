@@ -75,8 +75,9 @@ class WPS_Blocker {
      * File Manager hands full filesystem access to anyone who reaches the
      * dashboard and carries a history of critical remote-code-execution holes
      * (the CVE-2020-25213 lineage), which makes it a standing post-compromise
-     * foothold; FileBird is refused here as an operator preference, nothing
-     * more.
+     * foothold; FileOrganizer is the same risk class (another elFinder-based
+     * full-filesystem manager, just a different vendor); FileBird is refused
+     * here as an operator preference, nothing more.
      *
      * The separation from the malware list above is the point. Routing these
      * through `is_blocked()` would log them as "matches a known malicious
@@ -94,6 +95,7 @@ class WPS_Blocker {
         $defaults = [
             'wp-file-manager', // full-filesystem file manager; CVE-2020-25213 lineage
             'filebird',        // media-library folder organiser; operator preference
+            'fileorganizer',   // elFinder-based full-filesystem file manager (Softaculous); same risk class as wp-file-manager. Substring match also catches the fileorganizer-pro add-on.
         ];
 
         $saved = get_option( WPS_OPTION, [] );

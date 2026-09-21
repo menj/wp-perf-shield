@@ -609,3 +609,14 @@
 	});
 
 })(jQuery);
+
+/* 1.4.93: select-all for the findings bulk bar. Only toggles checkboxes that
+   exist, so findings without a file target are simply not selectable. */
+(function () {
+	var all = document.getElementById('wps-bulk-all');
+	if (!all) { return; }
+	all.addEventListener('change', function () {
+		var boxes = document.querySelectorAll('.wps-bulk-cb');
+		for (var i = 0; i < boxes.length; i++) { boxes[i].checked = all.checked; }
+	});
+})();

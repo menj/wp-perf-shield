@@ -328,6 +328,51 @@ class WPS_Scanner {
 		// rebuild that keeps the same constant names and session cookie.
 		'UM_AUTO_ROOT_MODE',              // unique constant name in the file manager webshell
 		'UMSESSID',                       // unique session cookie name
+
+		//  wp-worker XMRig cryptominer loader (added 1.4.96) 
+		// Recovered as wp-helper.php: not a persistence/access kit itself but a
+		// second-stage payload launcher. Downloads a Monero miner binary
+		// (assembled from eleven .part files fetched from an attacker-controlled
+		// mirror) to wp-worker.exe alongside itself, then launches it detached
+		// via `setsid nohup ... &` so it survives the PHP request ending. The
+		// wallet address is hardcoded and is unique enough alone to be
+		// unambiguous; the function names are equally unique to this sample.
+		'43mfU2BozuxbowW715FsM98Sh3jWMcEiXYFLVpHiMYvWP3B3rmEVpT8GkTzeYF7E44eurXuRSnRwkLGVbU7NvCsJEzXv2eJ', // hardcoded Monero wallet
+		'isXmrigRunning',                 // process-check function unique to this loader
+		'startXmrig',                     // launcher function unique to this loader
+		'downloadWpWorker',               // multi-part payload downloader unique to this loader
+		'pool.supportxmr.com',            // default mining pool baked into the loader
+
+		//  "SSO" managed-hosting login-bypass loader, standalone copy (added 1.4.96) 
+		// Same family WPS_SSO_Guard disarms at runtime (KNOWN_ACTIONS/KNOWN_TOKEN_OPTIONS
+		// in class-sso-guard.php): registers wp_ajax_nopriv_sso-check and grants an
+		// administrator session on a matching token/salt pair, no password. The
+		// guard neutralises the endpoint on every request but is off by default and
+		// never touches the file on disk. These three function names appear together
+		// only in this exact sample and let the scanner find and remove the file
+		// itself, independent of whether the runtime guard is enabled.
+		'sso_check_blocked',              // rate-limit check unique to this loader
+		'sso_add_failed_attempt',         // rate-limit recorder unique to this loader
+		'sso_get_attempt_id',             // rate-limit key builder unique to this loader
+
+		//  "WordPress Test Shell" Basic-Auth file manager (added 1.4.96) 
+		// Recovered as wp-loader.php: hardcoded HTTP Basic Auth credentials
+		// (admin/AsterISK) gate directory browsing, arbitrary file upload,
+		// arbitrary file edit via file_put_contents, and a raw shell_exec()
+		// command box. The printed heading is an exact, exotic phrase that
+		// would never appear in legitimate WordPress code.
+		'WordPress Test Shell',           // literal heading the shell prints
+
+		//  "Admin Configuration Editor (Aman)" file-write backdoor (added 1.4.96) 
+		// Recovered as policies.php: a password-gated (plaintext password
+		// constant) editor that reads/writes a fixed whitelist of plausible-
+		// sounding filenames (wp-config-extra.php, wp-runtime.php, etc.),
+		// creating each with a bare "<?php" stub the first time it is opened
+		// so the attacker always has somewhere to write PHP back. Includes a
+		// JS auto-click loop that resubmits the save form every second. The
+		// title string is Indonesian ("Aman" = "safe") and exotic enough to
+		// be a safe single-string anchor on its own.
+		'Admin Configuration Editor (Aman)',
 	];
 
 	/**
@@ -417,6 +462,8 @@ class WPS_Scanner {
 	private const HIGH_RISK_PLUGINS = [
 		'wp-file-manager'        => 'Known unauthenticated RCE (CVE-2020-25213). Likely upload vector for this attack.',
 		'wp-file-manager-pro'    => 'Pro variant of wp-file-manager. Same RCE class  update or remove if not actively maintained.',
+		'fileorganizer'          => 'elFinder-based full-filesystem file manager (Softaculous). Same risk class as wp-file-manager: full dashboard filesystem access is a standing post-compromise foothold. Banned by site policy by default  see check_policy_banned_plugins_installed().', // added 1.4.97
+		'fileorganizer-pro'      => 'Pro add-on for fileorganizer. Same risk class.', // added 1.4.97
 		'file-manager'           => 'File manager plugins are a common attack vector  update or remove.',
 		'duplicator'             => 'Has had path traversal and code execution vulnerabilities.',
 		'wp-performance-booster' => 'Known WP-antymalwary-bot malware disguise name  delete immediately.',
@@ -533,6 +580,8 @@ class WPS_Scanner {
 			'check_hidden_identifiers' => [ __CLASS__, 'check_hidden_identifiers' ], // 1.4.35: names split across concatenation to defeat search
 			'check_hardening_bypass_config' => [ __CLASS__, 'check_hardening_bypass_config' ], // 1.4.34: php.ini dropped to re-enable exec and remove open_basedir
 			'check_encoded_payload_loader' => [ __CLASS__, 'check_encoded_payload_loader' ], // 1.4.34: eval() behind a chain of split-name decoders
+			'check_tempfile_include_payload' => [ __CLASS__, 'check_tempfile_include_payload' ], // 1.4.98: decode-to-tempfile-and-include loader that never calls eval/assert, incl. non-.php disguise extensions
+			'check_stream_wrapper_include_payload' => [ __CLASS__, 'check_stream_wrapper_include_payload' ], // 1.4.99: custom stream wrapper whose stream_open() decodes its own path and is then include()'d - a third eval-avoiding execution route
 			'check_unauthenticated_file_manager' => [ __CLASS__, 'check_unauthenticated_file_manager' ], // 1.4.33: plain-text web shell, no obfuscation to find
 			'check_disguised_plugin_index' => [ __CLASS__, 'check_disguised_plugin_index' ], // 1.4.74: oversized index.php hiding inside an otherwise-genuine plugin/theme folder
 			'check_policy_banned_plugins_installed' => [ __CLASS__, 'check_policy_banned_plugins_installed' ], // 1.4.75: a site-policy banned plugin present on disk, removed (not flagged as malware)
@@ -543,6 +592,7 @@ class WPS_Scanner {
 			'check_comment_split_keywords' => [ __CLASS__, 'check_comment_split_keywords' ], // 1.4.80: junk comments inserted between tokens to break grep and tokenizers
 			'check_remote_script_injection' => [ __CLASS__, 'check_remote_script_injection' ], // 1.4.80: plugin whose only behaviour is injecting a remote <script> into every page
 			'check_hidden_admin_backdoor' => [ __CLASS__, 'check_hidden_admin_backdoor' ], // 1.4.81: code that creates an administrator AND hides it from the user list
+			'check_unauth_auth_bypass' => [ __CLASS__, 'check_unauth_auth_bypass' ], // 1.4.95: unauthenticated endpoint that hands out an admin session
 			'check_unattributed_plugins' => [ __CLASS__, 'check_unattributed_plugins' ], // 1.4.83: a plugin folder that appeared with no install ever recorded - the tool an intruder brought
 			'check_db_resident_payload' => [ __CLASS__, 'check_db_resident_payload' ], // 1.4.86: plugin that stores its payload in wp_options and re-seeds it, so deleting the folder leaves it behind
 			'check_doorway_cloaking' => [ __CLASS__, 'check_doorway_cloaking' ], // 1.4.25: serves crawlers different content than the owner
@@ -4660,6 +4710,280 @@ class WPS_Scanner {
 	}
 
 	/**
+	 * 1.4.98: eval()-avoiding loader - decode to a temp file, include it.
+	 *
+	 * Recovered sample (support.php / assets/admintrue.txt, byte-identical,
+	 * dropped inside an otherwise-genuine copy of a legitimate plugin):
+	 * a base64 blob run through a chain of decode calls, then executed
+	 * WITHOUT ever calling eval(), assert(), or create_function(). Instead:
+	 *
+	 *   $tmp = tmpfile();
+	 *   fwrite($tmp, '<?php ' . $decoded . ' ?>');
+	 *   include stream_get_meta_data($tmp)['uri'];
+	 *
+	 * check_encoded_payload_loader() requires an eval/assert/create_function
+	 * sink and so never matches this file at all - the sink here is
+	 * `include`, which that check does not treat as one, deliberately: most
+	 * legitimate code includes things. What makes this combination
+	 * unambiguous is not the include on its own but the whole shape: an
+	 * anonymous temp file built expressly to hold PHP source, opened only
+	 * to be included, with a decoded blob written into it as an inline
+	 * `<?php ... ?>` wrapper. Nothing legitimate needs an unnamed scratch
+	 * file that exists purely to turn a string into an include target - a
+	 * plugin that wants to run generated code says so with eval(), and one
+	 * that wants a real file just writes and includes a real file, not a
+	 * handle from tmpfile() built and torn down in the same breath.
+	 *
+	 * The second gap this closes: the recovered sample also shipped as a
+	 * `.txt` file starting with a literal `<?php` tag. Every function above
+	 * that filters by is_php_executable() would skip it outright, so this
+	 * check additionally reads the first few bytes of a short list of
+	 * non-executable extensions and treats a leading `<?php` there as PHP
+	 * regardless of what the filename claims.
+	 *
+	 * @return array<int, array<string, string>>
+	 */
+	private static function check_tempfile_include_payload(): array {
+		$found    = [];
+		$self_dir = realpath( WPS_DIR ) ?: '';
+
+		$rx_tmp     = '/\btmpfile\s*\(\s*\)/i';
+		$rx_wrap    = '/fwrite\s*\(\s*\$[A-Za-z_][A-Za-z0-9_]*\s*,\s*[\'"]<\?php/i';
+		$rx_stream  = '/stream_get_meta_data\s*\(/i';
+		$rx_include = '/\b(?:include|include_once|require|require_once)\b/i';
+		// Supporting tell only - not required. A single-pass base64_decode
+		// on its own is ordinary; a chain of them feeding each other is not.
+		$decoders   = [ 'base64_decode', 'gzinflate', 'gzuncompress', 'gzdecode', 'str_rot13' ];
+		// Extensions with no legitimate reason to open with a raw PHP tag.
+		// Deliberately short: this is for the disguise, not a general
+		// non-PHP-extension sweep, which belongs to check_opaque_data_payload.
+		$disguise_exts = [ 'txt', 'dat', 'bak', 'log', 'tmp', 'cache', 'inc' ];
+
+		$roots = [ rtrim( ABSPATH, '/\\' ) ];
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
+			$roots[] = rtrim( WP_CONTENT_DIR, '/\\' );
+		}
+
+		$count = 0;
+		$seen  = [];
+		foreach ( $roots as $root ) {
+			if ( ! is_dir( $root ) ) {
+				continue;
+			}
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( self::PAYLOAD_MAX_DEPTH );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						break 2;
+					}
+					if ( ++$count > 8000 || self::scan_budget_exceeded() ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
+						continue;
+					}
+					$is_php = self::is_php_executable( $f );
+					$ext    = strtolower( $f->getExtension() );
+					$size   = $f->getSize();
+					if ( false === $size || $size < 200 || $size > 4194304 ) {
+						continue;
+					}
+					if ( ! $is_php ) {
+						if ( ! in_array( $ext, $disguise_exts, true ) ) {
+							continue;
+						}
+						$head = @file_get_contents( $f->getPathname(), false, null, 0, 16 );
+						if ( false === $head || 0 !== stripos( ltrim( $head ), '<?php' ) ) {
+							continue; // not PHP under the hood; leave it to other checks
+						}
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+						continue;
+					}
+					$raw = @file_get_contents( $path );
+					if ( false === $raw || '' === $raw ) {
+						continue;
+					}
+					if ( self::is_whitelisted( $raw ) ) {
+						continue;
+					}
+
+					if ( ! preg_match( $rx_tmp, $raw ) || ! preg_match( $rx_wrap, $raw )
+						|| ! preg_match( $rx_stream, $raw ) || ! preg_match( $rx_include, $raw ) ) {
+						continue;
+					}
+
+					$hits = [];
+					foreach ( $decoders as $fn ) {
+						if ( preg_match( '/\b' . preg_quote( $fn, '/' ) . '\s*\(/i', $raw ) ) {
+							$hits[] = $fn;
+						}
+					}
+
+					$container = self::containing_extension_dir( $path );
+
+					$found[] = [
+						'severity'    => 'critical',
+						'type'        => 'Encoded payload executed via temp-file include (eval-avoiding loader)',
+						'subject'     => ( $container !== '' ? basename( $container ) . '/' : '' ) . basename( $path )
+							. ( ! $is_php ? ' [disguised as .' . $ext . ']' : '' ),
+						'path'        => $path,
+						'action'      => 'This file decodes an embedded blob' . ( $hits ? ' (via ' . implode( ', ', $hits ) . ')' : '' )
+							. ', writes it into an anonymous temp file wrapped as <?php ... ?>, and includes that '
+							. 'temp file to run it - never calling eval(), assert(), or create_function(), which is '
+							. 'exactly what lets it slip past scanners that only look for those. There is no '
+							. 'legitimate reason to build a throwaway file purely so a string can be included as code.'
+							. ( ! $is_php ? ' It is also saved with a ' . strtoupper( $ext ) . ' extension so file-type filters skip it, even though it is PHP from the first byte.' : '' )
+							. ' The decoded content is opaque until run and cannot be judged by reading this file. Treat the site as compromised.',
+						'auto_delete' => true,
+						'delete_path' => $container !== '' ? $container : $path,
+					];
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+
+		return $found;
+	}
+
+	/**
+	 * 1.4.99: custom stream-wrapper decode-and-include - eval avoided a
+	 * second way.
+	 *
+	 * Recovered sample (mac.php, dropped beside a genuine bbPress copy
+	 * whose folder was renamed to a bare number): a class implementing the
+	 * PHP streams interface is registered as a fake protocol handler, and
+	 * its `stream_open()` does not open anything - it takes the "path" PHP
+	 * hands it (everything after `protocol://`), base64-decodes THAT, and
+	 * serves the decoded bytes back as the stream's content. The payload
+	 * is then run with `include 'protocol://' . base64_encode($blob)` -
+	 * PHP treats the include target as a real stream, opens it through the
+	 * registered handler, and receives decoded PHP in return. No eval(),
+	 * no tmpfile(), no self-read: a third distinct way to execute decoded
+	 * code while avoiding every sink the other two checks in this file
+	 * watch for.
+	 *
+	 * The tell is narrow and deliberate: a legitimate custom stream
+	 * wrapper (cloud-storage integrations register plenty of them) opens
+	 * some OTHER resource using the path as a lookup key. This one decodes
+	 * the path ITSELF and hands the result back as the entire file - there
+	 * is no external resource anywhere, no legitimate reason a stream
+	 * wrapper's job is done entirely by decoding its own input. Matching
+	 * requires that specific shape: a `stream_open()` whose body decodes
+	 * its own `$path` argument, not merely the presence of
+	 * `stream_wrapper_register()`, which alone is unremarkable.
+	 *
+	 * @return array<int, array<string, string>>
+	 */
+	private static function check_stream_wrapper_include_payload(): array {
+		$found    = [];
+		$self_dir = realpath( WPS_DIR ) ?: '';
+
+		$rx_register = '/\bstream_wrapper_register\s*\(/i';
+		// The whole point: stream_open() decoding its OWN $path argument
+		// (optionally through substr() to strip a fixed prefix) rather than
+		// using it to locate something external.
+		$rx_self_decode = '/function\s+stream_open\s*\([^)]*\$path\b[^)]*\)\s*\{[^}]{0,600}(?:base64_decode|gzinflate|gzuncompress|hex2bin|str_rot13)\s*\(\s*(?:substr\s*\(\s*)?\$path\b/is';
+		// The registered protocol actually used as an include/require target.
+		$rx_include_proto = '/\b(?:include|include_once|require|require_once)\b[^;]{0,120}:\/\//i';
+
+		$roots = [ rtrim( ABSPATH, '/\\' ) ];
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
+			$roots[] = rtrim( WP_CONTENT_DIR, '/\\' );
+		}
+
+		$count = 0;
+		$seen  = [];
+		foreach ( $roots as $root ) {
+			if ( ! is_dir( $root ) ) {
+				continue;
+			}
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( self::PAYLOAD_MAX_DEPTH );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						break 2;
+					}
+					if ( ++$count > 8000 || self::scan_budget_exceeded() ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( false === $size || $size < 200 || $size > 4194304 ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+						continue;
+					}
+					$raw = @file_get_contents( $path );
+					if ( false === $raw || '' === $raw ) {
+						continue;
+					}
+					if ( self::is_whitelisted( $raw ) ) {
+						continue;
+					}
+
+					if ( ! preg_match( $rx_register, $raw ) || ! preg_match( $rx_self_decode, $raw )
+						|| ! preg_match( $rx_include_proto, $raw ) ) {
+						continue;
+					}
+
+					$container = self::containing_extension_dir( $path );
+
+					$found[] = [
+						'severity'    => 'critical',
+						'type'        => 'Custom stream wrapper used to decode and include a payload',
+						'subject'     => ( $container !== '' ? basename( $container ) . '/' : '' ) . basename( $path ),
+						'path'        => $path,
+						'action'      => 'This file registers a fake stream protocol whose handler does not open anything - it decodes '
+							. 'the "path" it is given and hands the decoded bytes back as the stream\'s content, then includes a '
+							. 'value built from that protocol. PHP treats the include as a real file open, runs it through the '
+							. 'handler, and executes what comes back - decoded PHP that never appeared as a string next to eval(), '
+							. 'never touched a temp file, and never read the file\'s own source. A genuine custom stream wrapper '
+							. '(cloud storage, remote APIs) uses its path to look up something elsewhere; this one\'s entire '
+							. '"resource" is the decoded path itself. There is no legitimate reason for that. Treat the site as compromised.',
+						'auto_delete' => true,
+						'delete_path' => $container !== '' ? $container : $path,
+					];
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+
+		return $found;
+	}
+
+	/**
 	 * 1.4.74: catch the disguise technique itself, not just this build's
 	 * content - a webshell dropped as the ROOT index.php of an otherwise
 	 * genuine plugin or theme folder, sized like a real file manager while
@@ -5190,6 +5514,125 @@ class WPS_Scanner {
 			}
 		}
 
+		return $found;
+	}
+
+
+	/**
+	 * 1.4.95: an unauthenticated endpoint that grants a logged-in session.
+	 *
+	 * Written for the managed-hosting SSO loader, which is legitimate software
+	 * and is exactly why this check reports rather than assumes: it registers
+	 * `wp_ajax_nopriv_sso-check`, and on a matching token calls
+	 * `wp_set_auth_cookie()` for an administrator - no password, no second
+	 * factor. That is how a host's "log in to WordPress" button works, and it
+	 * is also an admin-login bypass sitting in mu-plugins, loading on every
+	 * request, invisible on the Plugins screen.
+	 *
+	 * The shape is what matters, not the vendor: a `nopriv` AJAX action (or a
+	 * REST route with a permission callback that always passes) in the same
+	 * file as a call that establishes a session. Nothing else in a normal
+	 * install combines those two. This catches a copy an attacker plants under
+	 * a different name just as readily as the genuine article, which is the
+	 * point - a stolen SSO token and a hand-written equivalent are the same
+	 * problem.
+	 *
+	 * Reported, never auto-removed. The file usually belongs to the host and
+	 * will be re-deployed; more importantly the FILE is not the bypass. The
+	 * token in the database is. Removing one without the other achieves
+	 * nothing, so the finding says so and the runtime guard does the actual
+	 * blocking.
+	 */
+	private static function check_unauth_auth_bypass(): array {
+		$found = [];
+		$roots = [];
+		if ( defined( 'WPMU_PLUGIN_DIR' ) && is_dir( WPMU_PLUGIN_DIR ) ) {
+			$roots[] = rtrim( WPMU_PLUGIN_DIR, '/\\' );
+		}
+		if ( defined( 'WP_PLUGIN_DIR' ) && is_dir( WP_PLUGIN_DIR ) ) {
+			$roots[] = rtrim( WP_PLUGIN_DIR, '/\\' );
+		}
+		if ( ! $roots ) {
+			return $found;
+		}
+		$self_dir = realpath( WPS_DIR ) ?: '';
+		$examined = 0;
+
+		foreach ( $roots as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 4 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() || self::scan_budget_exceeded() ) {
+						break 2;
+					}
+					if ( ++$examined > 6000 ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( false === $size || $size > 262144 ) {
+						continue;
+					}
+					$raw = @file_get_contents( $path );
+					if ( false === $raw || '' === $raw ) {
+						continue;
+					}
+
+					// Establishes a session.
+					if ( ! preg_match( '/\bwp_set_auth_cookie\s*\(/i', $raw ) ) {
+						continue;
+					}
+					// Reachable without being logged in.
+					$unauth = [];
+					if ( preg_match( '/wp_ajax_nopriv_([a-z0-9_-]+)/i', $raw, $am ) ) {
+						$unauth[] = 'unauthenticated AJAX action "' . $am[1] . '"';
+					}
+					if ( preg_match( '/[\'"]permission_callback[\'"]\s*=>\s*[\'"]__return_true[\'"]/i', $raw ) ) {
+						$unauth[] = 'a REST route open to everyone';
+					}
+					if ( ! $unauth ) {
+						continue;
+					}
+
+					$token_opt = '';
+					if ( preg_match( '/get_option\s*\(\s*[\'"]([a-z0-9_]*token[a-z0-9_]*)[\'"]/i', $raw, $tm ) ) {
+						$token_opt = $tm[1];
+					}
+
+					$found[] = [
+						'severity' => 'high',
+						'type'     => 'Unauthenticated administrator sign-in endpoint',
+						'subject'  => self::display_path( $path ) . ' [' . implode( '; ', $unauth ) . '; calls wp_set_auth_cookie]'
+							. ( '' !== $token_opt ? ' [token option: ' . $token_opt . ']' : '' ),
+						'path'     => $path,
+						'action'   => 'This file lets a caller who is not logged in obtain an administrator session by presenting a token - no password and no second factor. '
+							. 'Managed hosts install exactly this to power their "log in to WordPress" button, so it is usually legitimate software rather than malware, and it is not removed automatically for that reason. '
+							. 'It is still the most powerful thing on the site. '
+							. ( '' !== $token_opt
+								? 'THE FILE IS NOT THE BYPASS - the "' . $token_opt . '" value in wp_options is. Deleting the file while that value remains achieves nothing, because the host will redeploy the file and the key still works. '
+								: '' )
+							. 'If you do not use your host\'s one-click dashboard login, turn on "Block unauthenticated sign-in endpoints" in Settings, which refuses the endpoint at runtime and clears the token. '
+							. 'If you do use it, treat that token as equal in weight to your administrator password and rotate it as part of any compromise cleanup, because it survives every password reset.',
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'unauth_auth_bypass_found', self::display_path( $path ) . ' [' . implode( '; ', $unauth ) . ']' );
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
 		return $found;
 	}
 
@@ -6205,6 +6648,7 @@ class WPS_Scanner {
 				'path'        => $dir,
 				'action'      => 'This plugin is on this site\'s banned list, so it is being removed. It is NOT malware - it is ordinary software this site has chosen not to run'
 					. ( 'wp-file-manager' === $slug ? ', in this case because it grants full dashboard filesystem access and carries a history of critical remote-code-execution vulnerabilities' : '' )
+					. ( 'fileorganizer' === $slug ? ', in this case because it is an elFinder-based full-filesystem file manager - the same risk class as wp-file-manager, just a different vendor' : '' )
 					. '. The copy is quarantined first and can be restored from Diagnostics if this was not what you wanted; to keep it permanently, remove the slug under Settings then Banned plugins before it is scanned again.'
 					. $note,
 				'auto_delete' => true,
@@ -6376,7 +6820,22 @@ class WPS_Scanner {
 		// legitimate pattern is the opposite: a file REFUSING to run unless
 		// WordPress already loaded it. A recovered sample walked straight
 		// through the old test by requiring wp-load.
-		$rx_bootstrap = '/defined\s*\(\s*[\'"](?:ABSPATH|WPINC|WP_UNINSTALL_PLUGIN)[\'"]\s*\)/i';
+		//
+		// 1.4.99: still not a guard-shape test, and a recovered sample (a
+		// full file manager self-branded "CAXIUM", CMS-agnostic by design)
+		// walked straight through it the same way: `$is_wordpress =
+		// defined('ABSPATH') || defined('WPINC');` mentions ABSPATH, so the
+		// old regex matched and skipped the file, even though that line is
+		// feature-detection for which CMS it is running under, not a guard -
+		// the shell runs standalone either way. Now the regex requires the
+		// actual guard SHAPE: `defined(...)` negated and followed by exit,
+		// die or return, in either the `if ( ! defined(...) ) { exit; }` or
+		// the `defined(...) || exit;` form WordPress core and plugins
+		// actually use. Verified against every file in this plugin plus a
+		// stock bbPress copy - both guard styles still match - and against
+		// the CAXIUM sample, which no longer does.
+		$rx_bootstrap = '/if\s*\(\s*!\s*defined\s*\(\s*[\'"](?:ABSPATH|WPINC|WP_UNINSTALL_PLUGIN)[\'"]\s*\)\s*\)\s*\{?\s*(?:exit|die|return)\b'
+			. '|defined\s*\(\s*[\'"](?:ABSPATH|WPINC|WP_UNINSTALL_PLUGIN)[\'"]\s*\)\s*(?:\|\|\s*(?:exit|die|return)\b|or\s+(?:exit|die|return)\b)/i';
 		// Any authorisation of any kind, WordPress or otherwise.
 		// 1.4.34: real authorisation only. The first version accepted a bare
 		// $_SESSION or crypt(), which prove nothing - a shell uses a session to
@@ -11968,6 +12427,21 @@ class WPS_Scanner {
 		}
 		if ( in_array( $sig, [ 'File Manager Tanpa Password', 'PHP File manager ver' ], true ) ) {
 			return 'dropped PHP file manager (web shell)';
+		}
+		if ( in_array( $sig, [
+			'43mfU2BozuxbowW715FsM98Sh3jWMcEiXYFLVpHiMYvWP3B3rmEVpT8GkTzeYF7E44eurXuRSnRwkLGVbU7NvCsJEzXv2eJ',
+			'isXmrigRunning', 'startXmrig', 'downloadWpWorker', 'pool.supportxmr.com',
+		], true ) ) {
+			return 'wp-worker XMRig cryptominer loader';
+		}
+		if ( in_array( $sig, [ 'sso_check_blocked', 'sso_add_failed_attempt', 'sso_get_attempt_id' ], true ) ) {
+			return 'SSO login-bypass loader (standalone file copy)';
+		}
+		if ( in_array( $sig, [ 'WordPress Test Shell' ], true ) ) {
+			return 'Basic-Auth unauthenticated file manager / web shell';
+		}
+		if ( in_array( $sig, [ 'Admin Configuration Editor (Aman)' ], true ) ) {
+			return 'password-gated arbitrary file-write editor';
 		}
 		if ( in_array( $sig, self::SIGNATURES_BACKDOOR, true ) ) {
 			return 'PHP backdoor/RAT (class-wp-compat family)';

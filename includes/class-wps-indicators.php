@@ -36,7 +36,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class WPS_Indicators {
 
-	const INDICATOR_VERSION = '1.4.61-1';
+	const INDICATOR_VERSION = '1.4.96-1';
 
 	/**
 	 * All confirmed malware-set option keys across the wp-perf-analytics /
@@ -183,6 +183,9 @@ class WPS_Indicators {
 			'cert-check.php',        // RAT v1.7 in .well-known/pki-validation/  added 1.3.44
 			'tji-site-js.php',       // TDS drive-by injector disguised as "Theme JS Injector" mu-plugin  added 1.3.49
 			'wp-security-helper.php',// User-hiding filter installer ("WP Security Helper" plugin)  added 1.3.53
+			'wp-helper.php',         // wp-worker XMRig cryptominer loader (isXmrigRunning/startXmrig)  added 1.4.96
+			'sso-loader.php',        // standalone file copy of the SSO login-bypass loader  added 1.4.96
+			'wp-loader.php',         // Basic-Auth "WordPress Test Shell" file manager / web shell  added 1.4.96
 		];
 	}
 

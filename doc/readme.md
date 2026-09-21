@@ -7,7 +7,7 @@ It is built for incident response and post-compromise hardening rather than broa
 ## Features
 
 - Real-time activation blocking for known malicious slugs, renamed patterns, and file hashes.
-- Site-policy plugin denylist, separate from malware blocking: ordinary plugins the operator refuses to run (WP File Manager and FileBird by default) cannot be uploaded or activated, and are deactivated if already present. Recorded as policy decisions, never as malware, and the uploader's address is never added to the hostile-IP list. A banned plugin found installed on disk is quarantined and removed on the next scan (reversible, and gated on both the banned-plugins and auto-delete switches).
+- Site-policy plugin denylist, separate from malware blocking: ordinary plugins the operator refuses to run (WP File Manager, FileOrganizer, and FileBird by default) cannot be uploaded or activated, and are deactivated if already present. Recorded as policy decisions, never as malware, and the uploader's address is never added to the hostile-IP list. A banned plugin found installed on disk is quarantined and removed on the next scan (reversible, and gated on both the banned-plugins and auto-delete switches).
 - Built-in MD5 indicators plus custom MD5/SHA-256 hash support.
 - Normal and multisite network-active plugin scrubbing.
 - Detection for wp-content drop-in persistence loaders that restore `mu-plugins/session-manager.php` from `wp_session_tokens_config`.
@@ -210,7 +210,7 @@ Safe target ever reaches the destructive gate.
 
 ## Version
 
-Current plugin version: `1.4.91`
+Current plugin version: `1.4.100`
 
 Author: [MENJ](https://github.com/menj)
 
