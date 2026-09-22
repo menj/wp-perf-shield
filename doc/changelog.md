@@ -1,5 +1,30 @@
 # WP Perf Shield changelog
 
+## 1.4.101
+
+Merges the useful parts of a standalone emergency mu-plugin ("REST Lockdown") a site operator had already hand-deployed after an earlier incident, into first-class, on-by-default plugin features. Its own log, reviewed directly, showed it actively working against a live attack in the same window WPS_Account_Guard (1.4.100) was built from - independent confirmation from a second data source, not just theory.
+
+### Ported and merged into `WPS_Account_Guard`
+
+**Hard blocks for REST user creation and role changes, plus unauthenticated `/batch/v1`.** The source mu-plugin's own changelog documents exactly why these can't be rate-limited: on 25-Aug-2026, a new WordPress user (ID 174) was created via `POST /wp/v2/users` using a compromised account's genuine session - privilege escalation, not spam - and a counter that starts at zero cannot block a first request. `guard_critical_rest_writes()` blocks these outright instead, no threshold: `POST /wp/v2/users` (new-user creation), any `/wp/v2/users` write carrying a `roles`/`role` field (promoting an *existing* account), and unauthenticated `POST /batch/v1` (a distinct, currently-targeted route - the reviewed log recorded 67 blocked hits in one week, the first one user-agent literally `wp2shell`). Each triggers the same session-kill/IP-block response the rapid-write check already uses. New setting `account_guard_critical_writes`, on by default - none of these three has an ordinary legitimate use from outside wp-admin.
+
+**Optional full Application Password kill switch.** The source plugin disabled Application Passwords entirely (`wp_is_application_passwords_available` => false). WPS_Post_Guard's dashboard-session test and this file's own self-authorization-phishing block already cover the two main abuse routes, so this is offered as the blunter, explicit option rather than the default: new setting `account_guard_disable_app_passwords`, off by default.
+
+### New: `WPS_Spam_Content_Guard`
+
+A narrower, content-based second layer for one spam vertical (gambling/casino), ported near-verbatim from the source plugin's scanner - a `rest_pre_insert_post`/`rest_pre_insert_page` check that rejects a matching write outright, and an always-on `wp_insert_post_data` fallback that strips matching markup instead of rejecting, for saves that reach the database by any other path. A `sweep_existing()` method (wired to a daily cron when the feature is on) retroactively quarantines anything already published. Deliberately off by default and kept separate from the behavioural checks above: unlike those, a keyword/link scanner can misfire on a site that legitimately writes about gambling, and can be evaded by an attacker who avoids the specific vocabulary. New setting `spam_content_guard_enabled`.
+
+Verified the ported regexes against the actual spam samples recovered from the incident's own access logs before merging (matching post IDs, matching timestamps, matching rule names) - not just copied in blind.
+
+### What stays out
+
+The source plugin's own forensic REST request/response tracer (with credential redaction and a separate flat-file log) was not ported - `WPS_EDR::record()` already provides equivalent structured event logging across the whole plugin, and a second, parallel tracer would just be duplicate infrastructure with its own retention/rotation to maintain.
+
+### Meta
+
+Version markers move to 1.4.101. New class `WPS_Spam_Content_Guard` (`includes/class-spam-content-guard.php`), new methods on `WPS_Account_Guard` (`guard_critical_rest_writes`, `critical_block`), new settings `account_guard_critical_writes`, `account_guard_disable_app_passwords`, `spam_content_guard_enabled`.
+
+
 ## 1.4.100
 
 Adds `WPS_Account_Guard`, built directly from a confirmed live incident: an account's real credentials, used from dozens of unrelated IPs over three weeks to write spam posts and inject content into an existing page through the REST API, entirely through genuine wp-login.php sessions.

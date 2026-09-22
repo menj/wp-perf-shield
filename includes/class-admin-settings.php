@@ -169,6 +169,42 @@ class WPS_Admin_Settings {
 							</td>
 						</tr>
 						<tr>
+							<th><label for="account_guard_critical_writes">User creation &amp; role changes via REST</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="account_guard_critical_writes" name="account_guard_critical_writes" value="1" <?php checked( ( $settings['account_guard_critical_writes'] ?? '1' ) !== '0' ); ?>>
+									<span>
+										<strong>Block creating users, changing roles, and unauthenticated batch requests via the REST API</strong><br>
+										<span class="description">Ported from a real incident on a real site (25-Aug-2026): a new WordPress user was created via <code>POST /wp/v2/users</code> using a compromised account's own genuine session &ndash; privilege escalation, not just a spam post. Also blocks any write to <code>/wp/v2/users</code> carrying a <code>roles</code> or <code>role</code> field (promoting an existing account), and unauthenticated <code>POST /batch/v1</code> requests (a currently-targeted route unrelated to account takeover &ndash; 67 blocked hits recorded on one site in a single week). None of these three has an ordinary legitimate use from outside wp-admin, so each is blocked outright rather than waiting for a pattern. <strong>On by default.</strong></span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="account_guard_disable_app_passwords">Disable Application Passwords entirely</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="account_guard_disable_app_passwords" name="account_guard_disable_app_passwords" value="1" <?php checked( ( $settings['account_guard_disable_app_passwords'] ?? '0' ) === '1' ); ?>>
+									<span>
+										<strong>Turn off Application Passwords site-wide (creating new ones AND authenticating with existing ones)</strong><br>
+										<span class="description">The blunter option. The app-password checks above already cover the two main abuse routes (post_guard's dashboard-session test, and this file's self-authorization-phishing block), so this is only worth turning on if the site has no legitimate use for Application Passwords at all &ndash; no mobile app posting, no Zapier/IFTTT-style integration. <strong>Off by default</strong> for that reason.</span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="spam_content_guard_enabled">Gambling/casino spam-content scanner</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="spam_content_guard_enabled" name="spam_content_guard_enabled" value="1" <?php checked( ( $settings['spam_content_guard_enabled'] ?? '0' ) === '1' ); ?>>
+									<span>
+										<strong>Scan post/page content for gambling-spam links and keyword clusters at write time, and sweep daily for anything already published</strong><br>
+										<span class="description">Content-based, not behavioural &ndash; a narrower, spam-vertical-specific second layer, ported from a mu-plugin whose own log shows it working (11 spam posts blocked at write time, several more cleaned at the save boundary, a handful quarantined by the daily sweep, all independently cross-checked against the same spam recovered from that site's access logs). Unlike the checks above, this CAN misfire on a site that legitimately writes about gambling &ndash; addiction-recovery content, gambling-law journalism, a games-industry blog &ndash; and can be evaded by an attacker who avoids this specific vocabulary. <strong>Off by default</strong> for that reason; turn it on if this particular spam category is what the site is actually fighting.</span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						<tr>
 							<th><label for="xmlrpc_auth_disabled">XML-RPC sign-in</label></th>
 							<td>
 								<label class="wps-toggle-row">

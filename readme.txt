@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.100
+Stable tag: 1.4.101
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -106,6 +106,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.101 =
+Merges the useful parts of a standalone emergency mu-plugin a site operator had already deployed after an earlier incident, whose own log independently confirmed it working against a live attack. Adds outright blocks (no rate-limit threshold to wait for) for REST user creation, REST role changes on existing accounts, and unauthenticated batch-endpoint requests - the fix for a documented privilege-escalation incident where a rate limiter's first-request blind spot let a new admin-capable account get created before any counter engaged. Adds an optional full Application Password kill switch for sites that don't need the feature at all. Adds an optional, off-by-default gambling/casino spam-content scanner as a narrower second layer alongside the behavioural checks from the previous release, with a daily sweep for anything already published.
 
 = 1.4.100 =
 Adds an account-takeover guard built from a confirmed incident: an account's real credentials were used from many unrelated IPs, through genuine wp-login.php sessions, to write spam posts and inject content into an existing page via the REST API, and to attempt an Application-Password self-authorization request pointed at an external domain. Because every request carried a completely genuine session, the existing external-post-writing guard could not have stopped it - that guard exists to fail Application Passwords, Basic Auth, JWT and OAuth, not credentials that are simply correct. This release adds a different signal: a post or page written within 90 seconds of that account's login from a device (IP+browser) never associated with the account before is flagged, the write is moved to Trash, the account's other sessions are ended, and the requesting address is blocked for a week - all reversible, all on by default, and none of it able to fire on ordinary publishing. A direct, referer-less hit on the Application Password authorization page requesting an off-site callback is blocked outright. The existing external-post-writing guard is also widened from posts only to posts and pages, closing the gap that let the existing page in this incident be edited.

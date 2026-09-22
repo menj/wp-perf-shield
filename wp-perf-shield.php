@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP Perf Shield
  * Description: Blocks wp-perf-analytics traffic-hijacking malware and all renamed variants. Includes real-time activation blocking, scheduled scanning, and one-click remediation.
- * Version: 1.4.100
+ * Version: 1.4.101
  * Author: MENJ
  * Author URI: https://github.com/menj
  * License: GPL-2.0+
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WPS_VERSION', '1.4.100' );
+define( 'WPS_VERSION', '1.4.101' );
 define( 'WPS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPS_URL', plugin_dir_url( __FILE__ ) );
 define( 'WPS_LOG_DIR', WPS_DIR . 'logs' );
@@ -176,6 +176,7 @@ spl_autoload_register(
 			'WPS_Login_Guard'            => 'includes/class-login-guard.php',
 			'WPS_Post_Guard'             => 'includes/class-post-guard.php',
 			'WPS_Account_Guard'          => 'includes/class-account-guard.php',
+			'WPS_Spam_Content_Guard'     => 'includes/class-spam-content-guard.php',
 			'WPS_Remediation_Policy'     => 'includes/class-remediation-policy.php',
 			'WPS_SSO_Guard'              => 'includes/class-sso-guard.php',
 			'WPS_Spam_Signatures'        => 'includes/class-spam-signatures.php',
@@ -376,6 +377,7 @@ wps_boot( 'login-guard', static function (): void { WPS_Login_Guard::register_ho
 // publishing - so the module registers nothing unless enabled.
 wps_boot( 'post-guard', static function (): void { WPS_Post_Guard::register_hooks(); } );
 wps_boot( 'account-guard', static function (): void { WPS_Account_Guard::register_hooks(); } );
+wps_boot( 'spam-content-guard', static function (): void { WPS_Spam_Content_Guard::register_hooks(); } );
 // 1.4.95: ban unauthenticated administrator sign-in endpoints (host SSO
 // bypass). Opt-in: enabling it stops the host's one-click dashboard login.
 wps_boot( 'sso-guard', static function (): void { WPS_SSO_Guard::register_hooks(); } );

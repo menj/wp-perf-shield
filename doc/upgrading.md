@@ -59,6 +59,12 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.101
+
+**Three more blocks, merged from a real emergency mu-plugin.** If you were running a hand-written "REST Lockdown" style script alongside this plugin, its core protections now have first-class equivalents here - you can retire the standalone script. New: outright blocks for creating users and changing user roles via the REST API, and for unauthenticated requests to the batch endpoint (all on by default, all things with no legitimate use outside wp-admin). Also new: an optional switch to disable Application Passwords entirely, and an optional gambling/casino spam-content scanner as a narrower second layer - both off by default, since they're either more aggressive than most sites need or content-based and therefore capable of a false positive in a way the behavioral checks aren't.
+
+If you do retire a standalone REST-lockdown script, check its options first - this plugin's settings don't automatically inherit its configuration.
+
 ## 1.4.100
 
 **Adds an account-takeover guard, built from a confirmed incident.** If an account's password leaks or gets guessed, the previous "block external posting" setting could not help - it is designed to fail Application Passwords and API tokens, not a login with the correct password. This release adds a different check: a post or page written within 90 seconds of that account's login, from a device (IP + browser) that account has never used before, is now flagged automatically - moved to Trash, the account's other sessions ended, and the requesting address blocked for a week. All three are on by default and all are reversible (nothing is permanently deleted, and ending sessions just means logging in again). A direct, scripted request for a new Application Password mailed to an outside domain is also blocked outright.

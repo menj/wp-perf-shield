@@ -49,6 +49,35 @@
  * login from a new computer happening to publish within the window - see
  * KNOWN_DEVICE_WINDOW and the new-device check below for how that is kept
  * rare rather than impossible.
+ *
+ * 1.4.101: three more hard blocks, folded in from a standalone emergency
+ * mu-plugin the site operator had already deployed by hand ("REST
+ * Lockdown"), written after an EARLIER, worse incident on the same site
+ * (25-Aug-2026): a new WordPress user (ID 174) was created via
+ * `POST /wp/v2/users` using the compromised account's own genuine session -
+ * privilege escalation, not just spam. That mu-plugin's own changelog
+ * records why a rate limiter alone was never enough: the user-creation call
+ * was the attacker's FIRST write in the burst, and a counter that starts at
+ * zero cannot block a first request. The fix has to be an outright block,
+ * with no threshold to wait for - the same shape this file already uses for
+ * the rapid-write and app-password checks above. Ported in as:
+ *
+ *   - guard_critical_rest_writes(): unconditionally blocks POST /wp/v2/users
+ *     (new-user creation) and any write to /wp/v2/users carrying a 'roles'
+ *     or 'role' field (privilege escalation on an EXISTING account - a
+ *     normal profile edit never touches that field), each triggering the
+ *     same session-kill/IP-block response as a rapid post-login write.
+ *   - Unauthenticated POST /batch/v1 is also blocked here: the same site's
+ *     REST_TRACE log for 13-20 Sep 2026 shows 67 blocked hits on that exact
+ *     route from dozens of IPs, user-agent literally "wp2shell" on the
+ *     first one - a live, currently-targeted vulnerability class distinct
+ *     from the account-takeover pattern, blocked because there is no
+ *     legitimate reason for an unauthenticated caller to reach it at all.
+ *
+ * All three default ON for the same reason the two checks above do: no
+ * legitimate site logic needs to create a user, change a role, or hit the
+ * batch endpoint unauthenticated through the REST API from outside
+ * wp-admin, so there is no ordinary workflow for these to misfire against.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -77,6 +106,12 @@ final class WPS_Account_Guard {
 		if ( self::app_password_guard_enabled() ) {
 			add_action( 'admin_init', [ __CLASS__, 'guard_authorize_application' ], 1 );
 		}
+		if ( self::critical_writes_guard_enabled() ) {
+			add_filter( 'rest_pre_dispatch', [ __CLASS__, 'guard_critical_rest_writes' ], 15, 3 );
+		}
+		if ( self::disable_app_passwords_enabled() ) {
+			add_filter( 'wp_is_application_passwords_available', '__return_false' );
+		}
 	}
 
 	public static function enabled(): bool {
@@ -87,6 +122,17 @@ final class WPS_Account_Guard {
 	public static function app_password_guard_enabled(): bool {
 		$s = get_option( WPS_OPTION, [] );
 		return ! is_array( $s ) || ( $s['account_guard_app_password_enabled'] ?? '1' ) !== '0';
+	}
+
+	public static function critical_writes_guard_enabled(): bool {
+		$s = get_option( WPS_OPTION, [] );
+		return ! is_array( $s ) || ( $s['account_guard_critical_writes'] ?? '1' ) !== '0';
+	}
+
+	/** Off by default: post_guard's dashboard-session test and this file's own rapid-write/app-password checks already cover the two main abuse routes; a full kill switch is the blunter option for a site that wants Application Passwords disabled outright. */
+	public static function disable_app_passwords_enabled(): bool {
+		$s = get_option( WPS_OPTION, [] );
+		return is_array( $s ) && ( $s['account_guard_disable_app_passwords'] ?? '0' ) === '1';
 	}
 
 	/**
@@ -297,6 +343,93 @@ final class WPS_Account_Guard {
 			esc_html__( 'Request blocked', 'wp-perf-shield' ),
 			[ 'response' => 403 ]
 		);
+	}
+
+	/**
+	 * Three unconditional blocks, independent of post_guard_enabled and of
+	 * the rapid-write timing check above - each has essentially no
+	 * legitimate use from outside wp-admin, so none of them wait for a
+	 * pattern to build up:
+	 *
+	 *   - POST /wp/v2/users (new-user creation): the actual fix for the
+	 *     25-Aug-2026 incident (user ID 174, created via the compromised
+	 *     account's own genuine session - a worse outcome than a spam post).
+	 *   - Any write to /wp/v2/users carrying 'roles' or 'role': closes the
+	 *     follow-up move of promoting an EXISTING low-privilege account
+	 *     instead of creating a new one.
+	 *   - Unauthenticated POST /batch/v1: 67 blocked hits recorded on this
+	 *     exact site in one week, one of them user-agent "wp2shell" - a
+	 *     live, currently-targeted route distinct from account takeover.
+	 */
+	public static function guard_critical_rest_writes( $result, $server, $request ) {
+		unset( $server );
+		if ( null !== $result || ! is_object( $request ) || ! method_exists( $request, 'get_route' ) ) {
+			return $result;
+		}
+
+		$route  = (string) $request->get_route();
+		$method = strtoupper( (string) $request->get_method() );
+		$ip     = self::client_ip();
+
+		if ( 'POST' === $method && preg_match( '#^/batch/v1(?:/|$)#', $route ) && ! is_user_logged_in() ) {
+			if ( class_exists( 'WPS_EDR' ) && method_exists( 'WPS_EDR', 'record' ) ) {
+				WPS_EDR::record( 'account_takeover_batch_endpoint_blocked', [
+					'object_type' => 'request',
+					'object_name' => 'POST /batch/v1',
+					'severity'    => 'warning',
+					'notes'       => 'Blocked an unauthenticated request to the batch REST endpoint from ' . ( '' !== $ip ? $ip : 'an unknown address' )
+						. '. No legitimate caller reaches this route without authenticating first.',
+				] );
+			}
+			return new WP_Error( 'wps_batch_endpoint_blocked', __( 'This endpoint is not available.', 'wp-perf-shield' ), [ 'status' => 403 ] );
+		}
+
+		if ( ! preg_match( '#^/wp/v2/users(?:/|$)#', $route ) ) {
+			return $result;
+		}
+
+		if ( 'POST' === $method && ! preg_match( '#/application-passwords#', $route ) && preg_match( '#^/wp/v2/users/?$#', $route ) ) {
+			self::critical_block( $ip, $route, 'attempted to create a new user via the REST API' );
+			return new WP_Error( 'wps_user_creation_disabled', __( 'Creating users via the REST API is disabled on this site. Use wp-admin instead.', 'wp-perf-shield' ), [ 'status' => 403 ] );
+		}
+
+		if ( in_array( $method, [ 'POST', 'PUT', 'PATCH' ], true ) ) {
+			$params = $request->get_json_params();
+			if ( ! is_array( $params ) || empty( $params ) ) {
+				$params = $request->get_body_params();
+			}
+			if ( is_array( $params ) && ( isset( $params['roles'] ) || isset( $params['role'] ) ) ) {
+				self::critical_block( $ip, $route, 'attempted to set or change a user role via the REST API' );
+				return new WP_Error( 'wps_role_change_disabled', __( 'Changing user roles via the REST API is disabled on this site. Use wp-admin instead.', 'wp-perf-shield' ), [ 'status' => 403 ] );
+			}
+		}
+
+		return $result;
+	}
+
+	/** Shared response for guard_critical_rest_writes(): log, kill the acting session if any, block the address - no threshold, one hit is enough. */
+	private static function critical_block( string $ip, string $route, string $reason ): void {
+		$user_id = get_current_user_id();
+		$who     = 'an unauthenticated caller';
+		if ( $user_id ) {
+			$user = get_userdata( $user_id );
+			$who  = $user ? $user->user_login : ( 'user #' . $user_id );
+		}
+
+		if ( class_exists( 'WPS_EDR' ) && method_exists( 'WPS_EDR', 'record' ) ) {
+			WPS_EDR::record( 'account_takeover_critical_write_blocked', [
+				'object_type' => 'request',
+				'object_name' => $route,
+				'severity'    => 'critical',
+				'notes'       => ucfirst( $who ) . ' ' . $reason . ' from ' . ( '' !== $ip ? $ip : 'an unknown address' )
+					. '. Blocked outright - this route has no legitimate use outside wp-admin, so no pattern needs to build up first.',
+			] );
+		}
+
+		if ( $user_id ) {
+			self::destroy_other_sessions( $user_id );
+		}
+		self::block_ip( $ip, 'blocked critical REST write: ' . $reason );
 	}
 
 	//  Known-device bookkeeping 

@@ -118,6 +118,11 @@ class WPS_Admin {
 			'account_guard_auto_trash'           => isset( $_POST['account_guard_auto_trash'] ) ? '1' : '0',
 			'account_guard_lockdown'             => isset( $_POST['account_guard_lockdown'] ) ? '1' : '0',
 			'account_guard_app_password_enabled' => isset( $_POST['account_guard_app_password_enabled'] ) ? '1' : '0',
+			// 1.4.101: hard blocks ported from a real emergency mu-plugin
+			// the site operator had already deployed ("REST Lockdown").
+			'account_guard_critical_writes'        => isset( $_POST['account_guard_critical_writes'] ) ? '1' : '0',
+			'account_guard_disable_app_passwords'  => isset( $_POST['account_guard_disable_app_passwords'] ) ? '1' : '0',
+			'spam_content_guard_enabled'           => isset( $_POST['spam_content_guard_enabled'] ) ? '1' : '0',
 			'block_sso_bypass'     => isset( $_POST['block_sso_bypass'] ) ? '1' : '0',
 			'login_network_guard'  => isset( $_POST['login_network_guard'] ) ? '1' : '0',
 			'login_report_spam'    => isset( $_POST['login_report_spam'] ) ? '1' : '0',
