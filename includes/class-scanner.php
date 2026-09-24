@@ -593,6 +593,7 @@ class WPS_Scanner {
 			'check_remote_script_injection' => [ __CLASS__, 'check_remote_script_injection' ], // 1.4.80: plugin whose only behaviour is injecting a remote <script> into every page
 			'check_hidden_admin_backdoor' => [ __CLASS__, 'check_hidden_admin_backdoor' ], // 1.4.81: code that creates an administrator AND hides it from the user list
 			'check_unauth_auth_bypass' => [ __CLASS__, 'check_unauth_auth_bypass' ], // 1.4.95: unauthenticated endpoint that hands out an admin session
+			'check_foreign_plugin_files' => [ __CLASS__, 'check_foreign_plugin_files' ], // 1.4.103: PHP inside a directory plugin that its own official manifest does not list
 			'check_unattributed_plugins' => [ __CLASS__, 'check_unattributed_plugins' ], // 1.4.83: a plugin folder that appeared with no install ever recorded - the tool an intruder brought
 			'check_db_resident_payload' => [ __CLASS__, 'check_db_resident_payload' ], // 1.4.86: plugin that stores its payload in wp_options and re-seeds it, so deleting the folder leaves it behind
 			'check_doorway_cloaking' => [ __CLASS__, 'check_doorway_cloaking' ], // 1.4.25: serves crawlers different content than the owner
@@ -5543,6 +5544,99 @@ class WPS_Scanner {
 	 * nothing, so the finding says so and the runtime guard does the actual
 	 * blocking.
 	 */
+	/**
+	 * 1.4.103: PHP files the plugin's author never shipped.
+	 *
+	 * Every planted-file case in this project has the same shape: a genuine,
+	 * unmodified plugin from the wordpress.org directory, with one or two extra
+	 * PHP files added inside it. The backdoored Automattic block plugin carried
+	 * two seventy-kilobyte files in its assets folder; a Filester install
+	 * carried a loader seven directories deep in its own upload area; a
+	 * WP File Manager copy was byte-identical to the release apart from
+	 * injected .htaccess files. Each was eventually caught by a separate
+	 * bespoke heuristic written after the fact.
+	 *
+	 * The author's published manifest answers all of them with one question:
+	 * is this file in the release, or is it not. A file that is not listed did
+	 * not come from the author. That is a statement of provenance rather than
+	 * an inference about content, so it holds against obfuscation, against
+	 * renaming, and against techniques nobody has invented yet.
+	 *
+	 * Reported, never removed automatically. A file can be absent from the
+	 * manifest for innocent reasons: a hotfix applied by hand, a developer
+	 * working in place, a file written by the plugin itself at runtime. The
+	 * finding is high-signal and the judgement is still the operator's, and
+	 * the Safe control exists precisely for the legitimate cases.
+	 */
+	private static function check_foreign_plugin_files(): array {
+		$found = [];
+		if ( ! class_exists( 'WPS_Integrity' ) || ! defined( 'WP_PLUGIN_DIR' ) || ! is_dir( WP_PLUGIN_DIR ) ) {
+			return $found;
+		}
+		$root     = rtrim( WP_PLUGIN_DIR, '/\\' );
+		$self_dir = realpath( WPS_DIR ) ?: '';
+		$by_slug  = [];
+		$examined = 0;
+
+		try {
+			$iter = new RecursiveIteratorIterator(
+				new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+				RecursiveIteratorIterator::LEAVES_ONLY
+			);
+			$iter->setMaxDepth( self::PAYLOAD_MAX_DEPTH );
+			foreach ( $iter as $f ) {
+				if ( self::out_of_time() || self::scan_budget_exceeded() ) {
+					break;
+				}
+				if ( ++$examined > 8000 ) {
+					break;
+				}
+				if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
+					continue;
+				}
+				$path = $f->getPathname();
+				$real = realpath( $path ) ?: $path;
+				if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					continue;
+				}
+				if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+					continue;
+				}
+				if ( WPS_Integrity::FOREIGN !== WPS_Integrity::verify( $path ) ) {
+					continue;
+				}
+				$slug = '';
+				if ( preg_match( '#/plugins/([^/]+)/#', str_replace( '\\', '/', $real ), $sm ) ) {
+					$slug = $sm[1];
+				}
+				$by_slug[ $slug ][] = self::display_path( $path );
+			}
+		} catch ( \Throwable $t ) {
+			return $found;
+		}
+
+		foreach ( $by_slug as $slug => $files ) {
+			$found[] = [
+				'severity' => count( $files ) >= 3 ? 'critical' : 'high',
+				'type'     => 'File not present in the plugin\'s official release',
+				'subject'  => $slug . ': ' . count( $files ) . ' PHP file(s) absent from the published manifest - '
+					. implode( ', ', array_slice( $files, 0, 4 ) )
+					. ( count( $files ) > 4 ? ' (+' . ( count( $files ) - 4 ) . ' more)' : '' ),
+				'path'     => $root . '/' . $slug,
+				'action'   => 'The rest of this plugin matches its official wordpress.org release, and these PHP files are not part of it. '
+					. 'Whoever added them was not the plugin author. This is the pattern used to hide code inside genuine software, because the surrounding plugin is real and passes every check made against it. '
+					. 'Open each file and judge it: a hand-applied hotfix or a developer\'s working copy is innocent, and a loader dropped into a plugin\'s upload folder is not. '
+					. 'Nothing is removed automatically here, since absence from a manifest is a question of provenance and the answer is yours. '
+					. 'If they are legitimate, mark them Safe so that later scans stop asking.',
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'foreign_plugin_file_found', $slug . ': ' . count( $files ) . ' file(s) absent from the official manifest' );
+			}
+		}
+
+		return $found;
+	}
+
 	private static function check_unauth_auth_bypass(): array {
 		$found = [];
 		$roots = [];

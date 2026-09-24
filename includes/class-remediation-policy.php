@@ -365,6 +365,38 @@ final class WPS_Remediation_Policy {
 
 		$heuristic = self::is_heuristic( $type );
 
+		/*
+		 * 1.4.103: proof outranks inference.
+		 *
+		 * A file whose hash matches the release its author published is that
+		 * software. No behavioural rule may remove it, because every such
+		 * removal is a false positive by definition: the question the
+		 * heuristic is guessing at has already been answered
+		 * cryptographically.
+		 *
+		 * This is what the hardcoded known-good list below was standing in
+		 * for. That list only ever grew after an incident, and its WP-Optimize
+		 * entry was added after this plugin quarantined those cache classes
+		 * and stopped a production site from booting. They match wordpress.org
+		 * byte for byte, so under this rule that outage could not have
+		 * occurred, and the protection extends to every plugin in the
+		 * directory rather than the four that happened to break first. The
+		 * list remains below as the fallback for when no manifest can be
+		 * fetched.
+		 *
+		 * Confirmed signature matches are deliberately still permitted
+		 * through. A published release can itself be compromised at source, so
+		 * a hash match establishes provenance rather than innocence.
+		 */
+		if ( $heuristic && class_exists( 'WPS_Integrity' ) && WPS_Integrity::is_official( $target ) ) {
+			return $deny(
+				'verified_official_release',
+				'this file matches the official published release of its plugin, so a behavioural finding about it is a false positive by definition; it is reported and never removed automatically',
+				'verified'
+			);
+		}
+
+
 		// WordPress core is never removed automatically. Not on a heuristic,
 		// not on a signature match, not ever.
 		//
@@ -381,6 +413,37 @@ final class WPS_Remediation_Policy {
 				'this is a WordPress core file, which is never removed automatically - if it is genuinely infected, replace it from an official WordPress release instead',
 				'core'
 			);
+		}
+
+		/*
+		 * 1.4.104: an operator ban is a decision, not a guess.
+		 *
+		 * The site-policy denylist exists because the operator named a plugin
+		 * and said it must not run here. That is the most explicit instruction
+		 * this plugin ever receives, and from 1.4.90 until now it was being
+		 * overruled: the finding type was absent from the confirmed list, so it
+		 * counted as inference, and because the target is a plugin folder the
+		 * package-scope rule then refused the removal. WP File Manager was
+		 * therefore reported on every scan and removed on none, while the
+		 * operator reasonably believed it had been banned.
+		 *
+		 * The calibration that produced this was right about heuristics and
+		 * wrong to treat an operator instruction as one. A behavioural guess
+		 * about a plugin is not grounds to delete it; the operator's own
+		 * decision about that same plugin plainly is, since nobody is better
+		 * placed to say what may run on their site.
+		 *
+		 * Everything above this point still applies: a Safe decision, core
+		 * protection and the circuit breaker all outrank it, so this authorises
+		 * the removal the operator asked for and nothing else.
+		 */
+		if ( false !== stripos( $type, 'banned by site policy' ) ) {
+			return [
+				'allowed' => true,
+				'reason'  => 'the operator placed this plugin on the site-policy denylist',
+				'rule'    => 'operator_policy_ban',
+				'trust'   => 'banned',
+			];
 		}
 
 		// Known-good packages: heuristics report, they do not remove.

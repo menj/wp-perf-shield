@@ -454,6 +454,7 @@ class WPS_Utils {
 			'remote_script_injection_found' => 'critical',
 			'hidden_admin_backdoor_found'   => 'critical',
 			'unauth_auth_bypass_found'      => 'high',
+			'foreign_plugin_file_found'     => 'high',
 			'sso_bypass_blocked'            => 'warning',
 			'sso_token_cleared'             => 'high',
 			'unattributed_plugin_found'     => 'critical',

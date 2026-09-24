@@ -381,7 +381,30 @@ final class WPS_Account_Guard {
 						. '. No legitimate caller reaches this route without authenticating first.',
 				] );
 			}
-			return new WP_Error( 'wps_batch_endpoint_blocked', __( 'This endpoint is not available.', 'wp-perf-shield' ), [ 'status' => 403 ] );
+			// 1.4.102: do NOT `return new WP_Error(...)` here. Confirmed on a
+			// live site: WP_REST_Server's batch handler (serve_batch_request_v1)
+			// re-runs a pre-empted value through 'rest_post_dispatch', and at
+			// least one core filter on that hook (_wp_connectors_rest_settings_dispatch)
+			// has a strict WP_REST_Response type hint with no WP_Error handling -
+			// a WP_Error surviving to that point is an uncaught TypeError,
+			// fatal, 500, the whole site down for every hit on this route
+			// (and this route gets hit constantly; see the incident notes
+			// above). WP_Error is normally exactly the right thing to return
+			// from 'rest_pre_dispatch' - every other block in this file and in
+			// WPS_Post_Guard does precisely that, safely - but the batch
+			// endpoint's own dispatch path does not tolerate it. Terminating
+			// the request directly, here, before WP_REST_Server ever calls
+			// serve_batch_request_v1(), sidesteps that code path entirely.
+			status_header( 403 );
+			if ( ! headers_sent() ) {
+				header( 'Content-Type: application/json; charset=' . get_bloginfo( 'charset' ) );
+			}
+			echo wp_json_encode( [
+				'code'    => 'wps_batch_endpoint_blocked',
+				'message' => __( 'This endpoint is not available.', 'wp-perf-shield' ),
+				'data'    => [ 'status' => 403 ],
+			] );
+			exit;
 		}
 
 		if ( ! preg_match( '#^/wp/v2/users(?:/|$)#', $route ) ) {

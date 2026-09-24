@@ -59,6 +59,28 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.104
+
+**Fixes banned plugins not being removed.** Since 1.4.90, a plugin on your banned list has been reported on every scan and removed on none. A safety rule added in that release, which stops behavioural guesses from deleting whole plugins, was also catching your own explicit ban and refusing it. That is why WP File Manager kept coming back.
+
+A ban you set is now treated as the instruction it is, and removes the plugin folder. It remains subject to everything above it: WordPress core is still never removed, anything you have marked Safe still overrides the ban, and the automatic-removal halt still stops it.
+
+**After upgrading, run a scan.** Any banned plugin currently installed will be quarantined on that scan rather than merely listed.
+
+**If it reappears after that**, the plugin is being reinstalled by something with access to your site, and the answer is the entry point rather than the ban. The plugin roster check reports any plugin appearing without a recorded installation, which is the finding to look for.
+
+## 1.4.103
+
+**Merges two releases that were both numbered 1.4.102.** One fixed a fatal error that took a live site down: unauthenticated requests to `/batch/v1` could trigger an uncaught `TypeError` inside WordPress core's batch handler. The other restored cryptographic verification of plugin files. Both are now in one release.
+
+**Install this in preference to either 1.4.102.** If you are running the verification build, you are missing the site-down fix. If you are running the fix, you are missing verification.
+
+**Nothing else changed.** No new settings, and no behaviour beyond what the two releases already did.
+
+## 1.4.102
+
+**Fixes a bug in 1.4.101 that could crash the site.** If you're running 1.4.101, upgrade to this immediately - the unauthenticated `/batch/v1` block could fatal the whole site on every hit to that route, and that route gets probed constantly on a live site. Also extends the optional gambling-spam scanner with Polish/Italian/Dutch vocabulary and a new rule for "not registered with the national gambling regulator" phrasing (AAMS/CRUKS/Oasis), after English-only keywords missed two real spam posts.
+
 ## 1.4.101
 
 **Three more blocks, merged from a real emergency mu-plugin.** If you were running a hand-written "REST Lockdown" style script alongside this plugin, its core protections now have first-class equivalents here - you can retire the standalone script. New: outright blocks for creating users and changing user roles via the REST API, and for unauthenticated requests to the batch endpoint (all on by default, all things with no legitimate use outside wp-admin). Also new: an optional switch to disable Application Passwords entirely, and an optional gambling/casino spam-content scanner as a narrower second layer - both off by default, since they're either more aggressive than most sites need or content-based and therefore capable of a false positive in a way the behavioral checks aren't.

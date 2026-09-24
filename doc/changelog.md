@@ -1,5 +1,71 @@
 # WP Perf Shield changelog
 
+## 1.4.104
+
+The site-policy ban has not removed anything since 1.4.90. This release repairs it.
+
+### What went wrong
+1.4.90 calibrated automatic removal so that a behavioural finding about a file inside installed software is reported rather than acted on, and a behavioural finding may never remove an entire plugin folder. That calibration was correct, and it caught something it should not have.
+
+The site-policy denylist raises a finding of its own when a banned plugin is found installed. Its type was absent from the policy's confirmed list, so it counted as inference; the target is a plugin folder, so the package-scope rule then refused the removal. The result was a banned plugin reported on every scan and removed on none, while the operator had every reason to believe it was banned. WP File Manager kept reappearing because nothing was taking it away.
+
+The reasoning behind the calibration was sound about heuristics and wrong to treat an operator instruction as one. A guess about a plugin is not grounds to delete it. The operator's own decision about that same plugin is, since nobody is better placed to say what may run on their site.
+
+### The repair
+A finding raised by the site-policy denylist now authorises removal at package scope, under its own rule rather than by adding it to the list of confirmed malware detectors, because an operator instruction and a signature match are different kinds of evidence and conflating them would obscure both.
+
+The ban does not become a skeleton key. It sits below core protection, so a ban-typed finding still cannot touch WordPress core. A Safe decision still overrides it, so an operator who changes their mind is obeyed. The circuit breaker still halts it.
+
+### Verified
+`php -l` clean across all 42 includes. New harness `policy-ban-removal.php` (7/7): a banned plugin is removed package and all under the operator-ban rule; a behavioural finding about the same package is still refused; core remains protected against a ban-typed finding; a Safe decision overrides the ban and revoking Safe restores it; and the circuit breaker still halts the removal. Twenty-one harnesses pass, 199 assertions.
+
+### Meta
+Version markers move to 1.4.104. No new checks, settings or events. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.103
+
+A third line also numbered 1.4.102 surfaced, carrying a fix for a live fatal error. This release merges it with the verification work and gives the result a number nothing else is using.
+
+### Three lines, two of them called 1.4.102
+One 1.4.102 fixed a site-down bug: `guard_critical_rest_writes()` returned a `WP_Error` from `rest_pre_dispatch` for unauthenticated `POST /batch/v1`, and WordPress core's batch handler re-runs a pre-empted value through `rest_post_dispatch`, where a strict `WP_REST_Response` type hint turns that `WP_Error` into an uncaught `TypeError`. The other 1.4.102 restored cryptographic verification. Both were real, neither contained the other.
+
+The site-down fix is the one that must never be lost, so this release is built on that tree rather than on the verification tree. Comparison confirmed the two touch different code: the fatal fix lives in `class-account-guard.php` and `class-spam-content-guard.php`, the verification layer in `class-integrity.php` and four wiring points, with no overlapping edits.
+
+### What is in this release
+Everything from the batch/v1 fatal fix, unchanged, plus `WPS_Integrity` and `check_foreign_plugin_files`. A file whose hash matches the official published release of its plugin cannot be removed by a behavioural rule, and a PHP file inside a directory plugin that its author's manifest does not list is reported for review.
+
+### A note on the merge itself
+The patch routine reported the policy gate as already present and it was not. The guard compared against the wrong line of the block it was inserting, so a genuine absence read as a duplicate. Checking the file rather than trusting the message caught it before packaging. A merge script that can report success without having done anything is worth less than no script, and the verification step is what makes it usable.
+
+### Verified
+`php -l` clean across all 42 includes; `admin.js` clean. Twenty harnesses pass, 192 assertions, including the completeness gate confirming every evidence-based finding type from every line is still classified by the policy. The batch/v1 termination path was confirmed present in the merged tree after the port.
+
+### Meta
+Version markers move to 1.4.103. No new work beyond the merge. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.102
+
+Two fixes, both from a live site running 1.4.101.
+
+### Fixed: unauthenticated /batch/v1 block crashing the site
+
+`guard_critical_rest_writes()` blocked unauthenticated `POST /batch/v1` by returning a `WP_Error` from `rest_pre_dispatch` - correct for every other route this file and `WPS_Post_Guard` guard, and documented as safe there. It is not safe for the batch endpoint specifically: WordPress core's own batch handler (`serve_batch_request_v1`) re-runs a pre-empted value back through `rest_post_dispatch`, and at least one core filter on that hook has a strict `WP_REST_Response` type hint with no `WP_Error` handling - so a `WP_Error` surviving to that point is an uncaught `TypeError`, fatal, the whole site down. Confirmed on a live site: the fatal first appeared hours after 1.4.101 went live, on exactly this route, which gets hit constantly (dozens of probes a week on real sites). Fixed by terminating the request directly - `status_header(403)` + `exit` - before `WP_REST_Server` ever reaches `serve_batch_request_v1()`, so there is no pre-empted value for core to mishandle. The other two hard blocks in the same function (user creation, role changes) are unaffected - they return `WP_Error` through the ordinary, safe path.
+
+### Extended: multilingual gambling-spam vocabulary
+
+Two confirmed spam posts on the same site used no English gambling vocabulary at all - "Come scegliere i migliori siti non AAMS..." and "...Zonder CRUKS Registratie Voor Nederlandse Spelers" - so `WPS_Spam_Content_Guard`'s English-only keyword list was always going to miss them. Added the multilingual stems actually seen (Polish `kasyno`/`kasyna`, Italian `casinò`/`AAMS`, Dutch `CRUKS`) to the existing `gambling-link`/`gambling-anchor`/`gambling-cluster` rules, still gated by the same "2+ hits or an actual link" requirement `gambling-cluster` has always used.
+
+More importantly, added a new rule, `gambling-regulatory-evasion`, that matches the actual PITCH of this entire campaign rather than gambling vocabulary generically: "site NOT registered with the national gambling regulator" - `non AAMS`/`senza AAMS` (Italy), `zonder CRUKS`/`CRUKS registratie` (Netherlands), `ohne Oasis` (Germany). These compound, regulation-specific phrases have essentially no legitimate use on a site that isn't itself about gambling regulation, so unlike `gambling-cluster` this rule triggers on a single hit - verified directly against both recovered titles, each matches on this rule alone.
+
+Reminder: `spam_content_guard_enabled` remains off by default across the plugin; a site that wants this protection still needs to switch it on in Settings.
+
+### Meta
+
+Version markers move to 1.4.102. No new settings, checks, or classes - a bug fix to `WPS_Account_Guard::guard_critical_rest_writes()` and an expanded rule set in `WPS_Spam_Content_Guard::RULES`.
+
+
 ## 1.4.101
 
 Merges the useful parts of a standalone emergency mu-plugin ("REST Lockdown") a site operator had already hand-deployed after an earlier incident, into first-class, on-by-default plugin features. Its own log, reviewed directly, showed it actively working against a live attack in the same window WPS_Account_Guard (1.4.100) was built from - independent confirmation from a second data source, not just theory.

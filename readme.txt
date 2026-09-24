@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.101
+Stable tag: 1.4.104
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -106,6 +106,15 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.104 =
+Repairs the site-policy ban, which has reported banned plugins without removing them since 1.4.90. The calibration introduced in that release stops behavioural findings from deleting entire plugin folders, which is correct, but the denylist's own finding type was absent from the confirmed list and so counted as inference; the package-scope rule then refused every ban removal. A ban set by the operator is now treated as an explicit instruction and authorises removal at package scope under its own rule, while remaining subject to everything above it: WordPress core is still never removed automatically, an operator Safe decision still overrides the ban, and the circuit breaker still halts it. Run a scan after upgrading to remove any banned plugin currently installed.
+
+= 1.4.103 =
+Merges two separate releases that were both numbered 1.4.102. One fixed a fatal error on live sites, where returning a WP_Error from rest_pre_dispatch for unauthenticated POST /batch/v1 requests caused an uncaught TypeError inside WordPress core's batch handler; that fix terminates the request directly instead. The other restored cryptographic verification, under which a file matching its official wordpress.org release cannot be removed by a behavioural rule, and a PHP file inside a directory plugin that its author's manifest does not list is reported for review. The two touch different files and were merged without conflict, with the site-down fix taken as the base. Install this in preference to either 1.4.102.
+
+= 1.4.102 =
+Fixes a site-crashing bug in the previous release: the unauthenticated /batch/v1 block returned a WP_Error through a REST filter chain that WordPress core's own batch handler does not tolerate, producing an uncaught TypeError on every hit to that route. Now terminates the request directly instead, before core's batch handler ever runs. Also extends the optional gambling-spam content scanner with multilingual vocabulary (Polish, Italian, Dutch) and a new rule matching the campaign's actual pitch - "not registered with the national gambling regulator" (AAMS/CRUKS/Oasis) - found after two spam posts using no English gambling vocabulary got through the English-only keyword list.
 
 = 1.4.101 =
 Merges the useful parts of a standalone emergency mu-plugin a site operator had already deployed after an earlier incident, whose own log independently confirmed it working against a live attack. Adds outright blocks (no rate-limit threshold to wait for) for REST user creation, REST role changes on existing accounts, and unauthenticated batch-endpoint requests - the fix for a documented privilege-escalation incident where a rate limiter's first-request blind spot let a new admin-capable account get created before any counter engaged. Adds an optional full Application Password kill switch for sites that don't need the feature at all. Adds an optional, off-by-default gambling/casino spam-content scanner as a narrower second layer alongside the behavioural checks from the previous release, with a daily sweep for anything already published.

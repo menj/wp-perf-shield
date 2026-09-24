@@ -38,10 +38,29 @@ defined( 'ABSPATH' ) || exit;
 final class WPS_Spam_Content_Guard {
 
 	private const RULES = [
-		'gambling-link'    => '/<a\b[^>]*href\s*=\s*["\'][^"\']*(?:casino|bet|bets|betting|gambl|slot|poker|jackpot|roulette|blackjack)[^"\']*["\'][^>]*>/i',
-		'gambling-anchor'  => '/<a\b[^>]*>[^<]*(?:casino|betting|gambling|jackpot|roulette|blackjack|poker|slots?)\b[^<]*<\/a>/is',
+		'gambling-link'    => '/<a\b[^>]*href\s*=\s*["\'][^"\']*(?:casino|bet|bets|betting|gambl|slot|poker|jackpot|roulette|blackjack|kasyno|casin[oò]|aams|cruks)[^"\']*["\'][^>]*>/i',
+		'gambling-anchor'  => '/<a\b[^>]*>[^<]*(?:casino|betting|gambling|jackpot|roulette|blackjack|poker|slots?|kasyno|kasyna|casin[oò]|AAMS|CRUKS)\b[^<]*<\/a>/is',
 		'hidden-gambling'  => '/(?:left\s*:\s*-\s*\d+px|top\s*:\s*-\s*\d+px|display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0(?:px)?|opacity\s*:\s*0)[^>]*>.*?(?:casino|betting|gambling|jackpot|roulette|blackjack|poker|slots?)/is',
-		'gambling-cluster' => '/\b(?:casino|casinos|betting|sportsbook|jackpot|roulette|blackjack|poker|slots?|wager|odds|bookmaker|bookie|gambling|bet\s+online|online\s+casino)\b/i',
+		// 1.4.102: two live, confirmed spam posts on the same site this
+		// scanner was built for used no English gambling vocabulary at all
+		// ("Come scegliere i migliori siti non AAMS...", "...Zonder CRUKS
+		// Registratie Voor Nederlandse Spelers") - a pure English keyword
+		// list was always going to miss non-English variants of the same
+		// campaign. Added the multilingual stems actually seen (Polish
+		// kasyno/kasyna, Italian casinò/AAMS, Dutch CRUKS) to the cluster
+		// and anchor/link rules above, still gated by the same "2+ hits or
+		// an actual link" requirement below - single mentions still don't
+		// trigger this rule on their own.
+		'gambling-cluster' => '/\b(?:casino|casinos|casin[oò]|kasyno|kasyna|betting|sportsbook|jackpot|roulette|blackjack|poker|slots?|wager|odds|bookmaker|bookie|buchmacher|wettangebote|gambling|bet\s+online|online\s+casino|AAMS|CRUKS)\b/i',
+		// New: the regulatory-evasion ANGLE itself, not just gambling
+		// vocabulary - "site NOT registered with the national gambling
+		// regulator" is the actual pitch of every post in this campaign
+		// (AAMS = Italy, CRUKS = Netherlands, Oasis = Germany's
+		// self-exclusion register). These are compound, gambling-specific
+		// regulatory terms with essentially no legitimate use on a site
+		// that isn't about gambling regulation itself, so - unlike
+		// gambling-cluster above - a single hit is enough; no 2+/link gate.
+		'gambling-regulatory-evasion' => '/\b(?:non[\s-]+AAMS|senza[\s-]+AAMS|AAMS[\s-]*(?:free|escl)|ohne[\s-]+Oasis|zonder[\s-]+CRUKS|CRUKS[\s-]*(?:vrij|registratie))\b/i',
 	];
 
 	public static function register_hooks(): void {

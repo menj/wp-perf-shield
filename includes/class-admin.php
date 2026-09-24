@@ -773,6 +773,7 @@ class WPS_Admin {
 			'remote_script_injection_found' => 'Remote script injection found',
 			'hidden_admin_backdoor_found' => 'Hidden administrator backdoor found',
 			'unauth_auth_bypass_found'    => 'Unauthenticated sign-in endpoint found',
+			'foreign_plugin_file_found'   => 'File absent from the plugin\'s official release',
 			'sso_bypass_blocked'          => 'Sign-in bypass endpoint disarmed',
 			'sso_token_cleared'           => 'Sign-in bypass token cleared',
 			'unattributed_plugin_found'   => 'Plugin appeared with no install recorded',
