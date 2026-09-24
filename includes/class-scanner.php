@@ -594,6 +594,8 @@ class WPS_Scanner {
 			'check_hidden_admin_backdoor' => [ __CLASS__, 'check_hidden_admin_backdoor' ], // 1.4.81: code that creates an administrator AND hides it from the user list
 			'check_unauth_auth_bypass' => [ __CLASS__, 'check_unauth_auth_bypass' ], // 1.4.95: unauthenticated endpoint that hands out an admin session
 			'check_foreign_plugin_files' => [ __CLASS__, 'check_foreign_plugin_files' ], // 1.4.103: PHP inside a directory plugin that its own official manifest does not list
+			'check_headless_plugin_folder' => [ __CLASS__, 'check_headless_plugin_folder' ], // 1.4.105: plugin-shaped folder with no entry point, holding a staged or orphaned payload
+			'check_constant_assembled_calls' => [ __CLASS__, 'check_constant_assembled_calls' ], // 1.4.111: function names built from define() constants to defeat searching
 			'check_unattributed_plugins' => [ __CLASS__, 'check_unattributed_plugins' ], // 1.4.83: a plugin folder that appeared with no install ever recorded - the tool an intruder brought
 			'check_db_resident_payload' => [ __CLASS__, 'check_db_resident_payload' ], // 1.4.86: plugin that stores its payload in wp_options and re-seeds it, so deleting the folder leaves it behind
 			'check_doorway_cloaking' => [ __CLASS__, 'check_doorway_cloaking' ], // 1.4.25: serves crawlers different content than the owner
@@ -5166,6 +5168,57 @@ class WPS_Scanner {
 	 * @param string $malware_path Absolute path of the confirmed malicious file.
 	 * @param string $what         Short description for the submission note.
 	 */
+
+	/**
+	 * 1.4.108: recover and block the hosts a sample calls home to.
+	 *
+	 * The doorway script that prompted this kept its four hosts as rot13 over
+	 * URL-encoding inside an array, so nothing resembling a domain appears in
+	 * the file and a search for one finds nothing. Decoding them takes two
+	 * transformations that cost nothing to apply, and the result is worth more
+	 * than the file: a replacement dropper calls the same hosts, because the
+	 * infrastructure is the expensive part of the campaign and the file is not.
+	 *
+	 * Deliberately limited to reversible encodings that carry no risk: the raw
+	 * text, URL decoding, rot13, and rot13 over URL decoding. Nothing is
+	 * executed and nothing is fetched. Hosts are then filtered to those that
+	 * look like real domains, and the blocker refuses the site's own host and
+	 * the WordPress ecosystem regardless.
+	 */
+	private static function harvest_c2_hosts( string $raw, string $source ): int {
+		if ( ! class_exists( 'WPS_Blocker' ) || ! method_exists( 'WPS_Blocker', 'record_c2_host' ) ) {
+			return 0;
+		}
+		$views = [ $raw ];
+		$url   = @urldecode( $raw );
+		if ( is_string( $url ) && $url !== $raw ) {
+			$views[] = $url;
+		}
+		$views[] = str_rot13( $raw );
+		if ( isset( $url ) && is_string( $url ) ) {
+			$views[] = str_rot13( $url );
+		}
+
+		$found = 0;
+		$seen  = [];
+		foreach ( $views as $view ) {
+			if ( ! preg_match_all( '/\b((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.){1,4}(?:com|net|org|xyz|top|info|site|online|shop|ru|cn|io|cc|club|live|icu|pro))\b/i', $view, $m ) ) {
+				continue;
+			}
+			foreach ( $m[1] as $host ) {
+				$host = strtolower( $host );
+				if ( isset( $seen[ $host ] ) || strlen( $host ) < 6 ) {
+					continue;
+				}
+				$seen[ $host ] = true;
+				if ( WPS_Blocker::record_c2_host( $host, $source ) ) {
+					++$found;
+				}
+			}
+		}
+		return $found;
+	}
+
 	private static function report_malware_source( string $malware_path, string $what ): void {
 		if ( ! class_exists( 'WPS_Login_Guard' ) || ! method_exists( 'WPS_Login_Guard', 'report_attacker_ip' ) ) {
 			return;
@@ -5200,6 +5253,32 @@ class WPS_Scanner {
 				$ip,
 				'was blocked on this site while ' . $what . ' was written to disk (' . gmdate( 'Y-m-d H:i', (int) $mtime ) . ' UTC)'
 			);
+
+			/*
+			 * 1.4.108: block the address as well as reporting it.
+			 *
+			 * Reporting to Akismet protects other sites. It does nothing for
+			 * this one, and the address attributed here is the address that
+			 * was active while malware was written to disk, which is a
+			 * stronger basis for blocking than the failed sign-ins that
+			 * ordinarily earn a block. Whatever hold it already had may well
+			 * have expired by the time a scan found the file.
+			 *
+			 * Thirty days, because someone who placed a backdoor is not a
+			 * passing scanner, and the evidence here is specific rather than
+			 * statistical.
+			 */
+			if ( class_exists( 'WPS_Blocker' ) && method_exists( 'WPS_Blocker', 'record_ip_block' ) ) {
+				WPS_Blocker::record_ip_block(
+					$ip,
+					'active while ' . $what . ' was written to disk',
+					30 * DAY_IN_SECONDS,
+					[ 'source' => 'malware_attribution' ]
+				);
+				if ( class_exists( 'WPS_Logger' ) ) {
+					WPS_Logger::log_event( 'malware_source_blocked', $ip . ' blocked for 30 days: active when ' . self::display_path( $malware_path ) . ' was written', $ip );
+				}
+			}
 			if ( class_exists( 'WPS_Logger' ) ) {
 				WPS_Logger::log_event(
 					'malware_source_attributed',
@@ -5228,11 +5307,40 @@ class WPS_Scanner {
 		if ( ! is_array( $roster ) ) {
 			$roster = [];
 		}
+		/*
+		 * 1.4.109: record who installed it, not merely that somebody did.
+		 *
+		 * The roster answered "did this arrive through the dashboard", which
+		 * distinguishes a planted folder from an ordinary install and stops
+		 * there. When the same plugin is installed repeatedly, that answer is
+		 * no help: the operator knows it keeps coming back and still cannot
+		 * say who is putting it there. An install through the dashboard is
+		 * performed by an account from an address, and both are available at
+		 * the moment it happens.
+		 */
+		$who = function_exists( 'wp_get_current_user' ) ? (string) ( wp_get_current_user()->user_login ?? '' ) : '';
+		$ip  = class_exists( 'WPS_Utils' ) && method_exists( 'WPS_Utils', 'client_ip' ) ? (string) WPS_Utils::client_ip() : '';
+
 		$roster[ $slug ] = [
 			'first_seen'  => (int) ( $roster[ $slug ]['first_seen'] ?? time() ),
 			'attributed'  => 1,
 			'attributed_at' => time(),
+			'by_user'     => substr( $who, 0, 60 ),
+			'by_ip'       => substr( $ip, 0, 45 ),
+			'installs'    => (int) ( $roster[ $slug ]['installs'] ?? 0 ) + 1,
 		];
+
+		// A plugin installed repeatedly is a pattern the operator should see,
+		// whoever is doing it and whether or not it is banned.
+		if ( $roster[ $slug ]['installs'] >= 3 && class_exists( 'WPS_Logger' ) ) {
+			WPS_Logger::log_event(
+				'plugin_reinstalled_repeatedly',
+				$slug . ' has now been installed ' . $roster[ $slug ]['installs'] . ' times'
+					. ( '' !== $who ? '; most recently by ' . $who : '' )
+					. ( '' !== $ip ? ' from ' . $ip : '' ),
+				$ip
+			);
+		}
 		update_option( self::ROSTER_OPTION, $roster, false );
 	}
 
@@ -5568,6 +5676,359 @@ class WPS_Scanner {
 	 * finding is high-signal and the judgement is still the operator's, and
 	 * the Safe control exists precisely for the legitimate cases.
 	 */
+
+	/**
+	 * 1.4.105: a plugin folder with no plugin in it.
+	 *
+	 * Recovered as `starter-speed-scanner-ff83`: a readme, a LICENSE, a .pot
+	 * file, an empty `app/` directory, an `uninstall.php` naming two options,
+	 * and two high-entropy binary files under `data/`. No file anywhere in it
+	 * carries a `Plugin Name:` header, so WordPress cannot load it and it is
+	 * not a plugin at all.
+	 *
+	 * That state arises two ways, and both matter. Either the loader has
+	 * already been removed - by this plugin, by the host, or by hand - leaving
+	 * the payload and the option names behind for the next loader to find, or
+	 * the payload has been staged ahead of a loader that has not arrived yet.
+	 * The first is the lesson of 1.4.86 repeated at folder level: removing the
+	 * code while leaving the data achieves nothing, because the data is the
+	 * part that carries the behaviour.
+	 *
+	 * Every content check in this scanner reads PHP, so a folder containing no
+	 * meaningful PHP is invisible to all of them. This one reads the shape
+	 * instead. A genuine plugin always declares itself; the header is what
+	 * makes it loadable. A folder that imitates the packaging of a plugin
+	 * without being one, and carries encrypted data while doing so, has no
+	 * innocent reading.
+	 *
+	 * Deliberately narrow. A library directory dropped among the plugins also
+	 * lacks a header, so the check additionally requires either an opaque data
+	 * file or an uninstall script declaring options of its own, which is the
+	 * part no library has. The finding names the options, because removing the
+	 * folder without removing them repeats the same mistake again.
+	 */
+
+	/**
+	 * 1.4.111: function names assembled from constants.
+	 *
+	 * Recovered as a 24KB `index.php` in mu-plugins, where every other file of
+	 * that name is a one-line silence stub. Nothing in it resembles a dangerous
+	 * call, because the dangerous calls are built at runtime from `define()`
+	 * constants:
+	 *
+	 *     define('CONTENTS','file'); define('FILE','contents'); define('PUT','put');
+	 *     define('FPC', CONTENTS.'_'.PUT.'_'.FILE);        -> file_put_contents
+	 *     define('LOGIN', RGS.'_'.STD.'_'.FCT);            -> register_shutdown_function
+	 *     $kin = 'un'.'link';                               -> unlink
+	 *
+	 * It then decodes an embedded payload, writes it to a temporary file,
+	 * includes it, and registers a shutdown function to unlink it, so nothing
+	 * remains on disk between requests.
+	 *
+	 * The split-string check added in 1.4.79 looks for adjacent string literals
+	 * joined mid-word. This assembles through named constants instead, so that
+	 * check sees nothing, and neither does any signature. The technique is the
+	 * signal: resolving the constants and finding a dangerous call that the raw
+	 * text does not contain means the file was written to hide what it calls.
+	 *
+	 * Requires the resolved name to be genuinely absent from the source, so a
+	 * file that merely uses constants alongside an honest call is not caught.
+	 */
+	private static function check_constant_assembled_calls(): array {
+		$found = [];
+		$roots = [];
+		if ( defined( 'WPMU_PLUGIN_DIR' ) && is_dir( WPMU_PLUGIN_DIR ) ) {
+			$roots[] = rtrim( WPMU_PLUGIN_DIR, '/\\' );
+		}
+		if ( defined( 'WP_PLUGIN_DIR' ) && is_dir( WP_PLUGIN_DIR ) ) {
+			$roots[] = rtrim( WP_PLUGIN_DIR, '/\\' );
+		}
+		if ( function_exists( 'get_theme_root' ) ) {
+			$tr = get_theme_root();
+			if ( is_string( $tr ) && is_dir( $tr ) ) {
+				$roots[] = rtrim( $tr, '/\\' );
+			}
+		}
+		if ( ! $roots ) {
+			return $found;
+		}
+		$self_dir = realpath( WPS_DIR ) ?: '';
+		$examined = 0;
+
+		$dangerous = [
+			'file_put_contents', 'register_shutdown_function', 'call_user_func',
+			'create_function', 'file_get_contents', 'base64_decode', 'gzinflate',
+			'shell_exec', 'proc_open', 'passthru', 'system', 'popen', 'unlink',
+		];
+
+		foreach ( $roots as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( self::PAYLOAD_MAX_DEPTH );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() || self::scan_budget_exceeded() ) {
+						break 2;
+					}
+					if ( ++$examined > 8000 ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( false === $size || $size < 300 || $size > 2097152 ) {
+						continue;
+					}
+					$raw = @file_get_contents( $path );
+					if ( false === $raw || '' === $raw ) {
+						continue;
+					}
+
+					// Collect define() constants whose value is a literal or a
+					// concatenation of literals and other constants.
+					if ( ! preg_match_all( "/define\s*\(\s*'([A-Za-z_][A-Za-z0-9_]*)'\s*,\s*([^;]{1,200}?)\s*\)\s*;/", $raw, $dm, PREG_SET_ORDER ) ) {
+						continue;
+					}
+					if ( count( $dm ) < 3 ) {
+						continue; // constants are ordinary; a nest of them is not
+					}
+					$consts = [];
+					foreach ( $dm as $d ) {
+						$consts[ $d[1] ] = $d[2];
+					}
+
+					// Resolve each constant, following references between them.
+					$resolve = static function ( $value, $depth ) use ( &$resolve, $consts ) {
+						if ( $depth > 8 ) {
+							return '';
+						}
+						$out = '';
+						foreach ( preg_split( '/\s*\.\s*/', (string) $value ) as $part ) {
+							$part = trim( $part );
+							if ( preg_match( "/^'([^']*)'$/", $part, $pm ) ) {
+								$out .= $pm[1];
+							} elseif ( isset( $consts[ $part ] ) ) {
+								$out .= $resolve( $consts[ $part ], $depth + 1 );
+							} else {
+								return '';
+							}
+						}
+						return $out;
+					};
+
+					$revealed = [];
+					foreach ( $consts as $name => $value ) {
+						$r = strtolower( $resolve( $value, 0 ) );
+						if ( '' === $r || ! in_array( $r, $dangerous, true ) ) {
+							continue;
+						}
+						// Only if the raw file does not contain it plainly.
+						if ( false === stripos( $raw, $r ) ) {
+							$revealed[ $r ] = $name;
+						}
+					}
+					if ( ! $revealed ) {
+						continue;
+					}
+
+					$pairs = [];
+					foreach ( $revealed as $call => $const ) {
+						$pairs[] = $const . ' = ' . $call;
+					}
+					$found[] = [
+						'severity'    => 'critical',
+						'type'        => 'Function names assembled from constants to defeat searching',
+						'subject'     => self::display_path( $path ) . ' [' . implode( '; ', array_slice( $pairs, 0, 4 ) ) . ']',
+						'path'        => $path,
+						'action'      => 'This file builds the names of dangerous functions at runtime out of named constants, so that searching it for '
+							. implode( ' or ', array_slice( array_keys( $revealed ), 0, 3 ) ) . ' finds nothing while PHP still calls them. '
+							. 'The code runs exactly as it would if the names were written plainly, so the only effect of writing it this way is to defeat inspection. '
+							. 'No development practice produces this.',
+						'auto_delete' => true,
+						'delete_path' => $path,
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'constant_assembled_calls_found', self::display_path( $path ) . ' [' . implode( '; ', $pairs ) . ']' );
+					}
+					self::report_malware_source( $path, 'a file hiding its function calls behind constants' );
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		return $found;
+	}
+
+	private static function check_headless_plugin_folder(): array {
+		$found = [];
+		if ( ! defined( 'WP_PLUGIN_DIR' ) || ! is_dir( WP_PLUGIN_DIR ) ) {
+			return $found;
+		}
+		$root     = rtrim( WP_PLUGIN_DIR, '/\\' );
+		$self_dir = realpath( WPS_DIR ) ?: '';
+		$dirs     = @scandir( $root );
+		if ( ! is_array( $dirs ) ) {
+			return $found;
+		}
+
+		foreach ( $dirs as $slug ) {
+			if ( '.' === $slug || '..' === $slug || self::out_of_time() || self::scan_budget_exceeded() ) {
+				continue;
+			}
+			$pdir = $root . '/' . $slug;
+			if ( ! is_dir( $pdir ) ) {
+				continue;
+			}
+			$real = realpath( $pdir ) ?: $pdir;
+			if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+				continue;
+			}
+
+			$has_header = false;
+			$opaque     = [];
+			$options    = [];
+			$examined   = 0;
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $pdir, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 4 );
+				foreach ( $iter as $f ) {
+					if ( ++$examined > 2000 ) {
+						break;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
+						continue;
+					}
+					$fp  = $f->getPathname();
+					$ext = strtolower( $f->getExtension() );
+
+					if ( 'php' === $ext ) {
+						$raw = @file_get_contents( $fp, false, null, 0, 8192 );
+						if ( is_string( $raw ) && preg_match( '/^[ \t\/*#@]*Plugin Name\s*:/mi', $raw ) ) {
+							$has_header = true;
+							break;
+						}
+						if ( 'uninstall.php' === strtolower( $f->getFilename() ) ) {
+							$whole = @file_get_contents( $fp );
+							if ( is_string( $whole ) && preg_match_all( '/delete_option\s*\(\s*[\'"]([A-Za-z0-9_\-]+)[\'"]/', $whole, $om ) ) {
+								foreach ( $om[1] as $o ) {
+									$options[ $o ] = true;
+								}
+							}
+						}
+						continue;
+					}
+
+					// Candidate payload container.
+					if ( in_array( $ext, [ 'txt', 'md', 'pot', 'po', 'mo', 'json', 'css', 'js', 'html', 'htm', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'woff', 'woff2', 'ttf', 'xml', 'yml', 'yaml' ], true ) ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( false === $size || $size < 512 ) {
+						continue;
+					}
+					$head = @file_get_contents( $fp, false, null, 0, 2048 );
+					if ( false === $head || '' === $head ) {
+						continue;
+					}
+					$np  = 0;
+					$len = strlen( $head );
+					for ( $i = 0; $i < $len; $i++ ) {
+						$o = ord( $head[ $i ] );
+						if ( $o < 9 || ( $o > 13 && $o < 32 ) || $o > 126 ) {
+							++$np;
+						}
+					}
+					if ( $len > 0 && ( $np / $len ) > 0.25 ) {
+						$opaque[] = $f->getFilename();
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+
+			if ( $has_header ) {
+				continue; // a real plugin, whatever else it contains
+			}
+			if ( ! $opaque && ! $options ) {
+				continue; // a library or an asset folder: unusual, not hostile
+			}
+
+			$opt_list = array_keys( $options );
+
+			/*
+			 * 1.4.106: remove the options as well as the folder.
+			 *
+			 * The first version of this check named the options and left them,
+			 * telling the operator to delete them by hand. That is the same
+			 * error the finding itself warns about: the folder is the visible
+			 * part and the option is the part that survives, so a check that
+			 * removes one and reports the other has done half the job and
+			 * described the other half as the operator's problem. The plugin
+			 * has quarantined options since 1.3.x and three other checks
+			 * already do this.
+			 *
+			 * Quarantined rather than deleted, so the value is recoverable and
+			 * preserved as evidence, and only when auto-delete is enabled, so
+			 * an operator who has turned removal off still gets the finding and
+			 * no action.
+			 */
+			$cleaned = [];
+			if ( $opt_list && self::auto_delete_enabled() && class_exists( 'WPS_Quarantine' ) && method_exists( 'WPS_Quarantine', 'quarantine_option' ) ) {
+				foreach ( $opt_list as $opt ) {
+					if ( null === get_option( $opt, null ) ) {
+						continue;
+					}
+					WPS_Quarantine::quarantine_option( $opt, [
+						'type'   => 'db_option (headless plugin folder)',
+						'reason' => 'declared by ' . $slug . ', a folder with no plugin in it',
+					] );
+					$cleaned[] = $opt;
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'headless_folder_option_cleared', $opt . ' quarantined; declared by ' . $slug );
+					}
+				}
+			}
+
+			$found[] = [
+				'severity'    => 'critical',
+				'type'        => 'Plugin folder with no plugin in it',
+				'subject'     => $slug . ' has no Plugin Name header anywhere'
+					. ( $opaque ? '; carries encrypted data (' . implode( ', ', array_slice( $opaque, 0, 3 ) ) . ')' : '' )
+					. ( $opt_list ? '; declares options (' . implode( ', ', array_slice( $opt_list, 0, 3 ) ) . ')' : '' ),
+				'path'        => $pdir,
+				'action'      => 'This folder is packaged to look like a plugin and is not one: nothing in it declares a Plugin Name, so WordPress cannot load it. '
+					. 'That happens when a loader has already been removed and its payload was left behind, or when a payload has been staged ahead of the loader that will read it. '
+					. ( $cleaned
+						? 'It also declared ' . implode( ' and ', array_slice( $cleaned, 0, 3 ) ) . ' in wp_options, which would have survived deletion of the folder and given a replacement loader its configuration back. Those entries have been quarantined with the folder and can be restored from Diagnostics if this was a mistake. '
+						: ( $opt_list
+							? 'REMOVING THE FOLDER IS NOT ENOUGH. It declares ' . implode( ' and ', array_slice( $opt_list, 0, 3 ) ) . ' in wp_options, and those entries survive deletion of the folder; a replacement loader finds its configuration already in place. Automatic removal is switched off, so remove them yourself, or enable it and scan again. '
+							: '' ) )
+					. 'Then look for how the folder arrived, because something placed it there: the plugin roster reports any plugin appearing with no installation recorded.',
+				'auto_delete' => true,
+				'delete_path' => $pdir,
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'headless_plugin_folder_found', $slug . ' (no Plugin Name header; options: ' . implode( ',', $opt_list ) . ')' );
+			}
+		}
+
+		return $found;
+	}
+
 	private static function check_foreign_plugin_files(): array {
 		$found = [];
 		if ( ! class_exists( 'WPS_Integrity' ) || ! defined( 'WP_PLUGIN_DIR' ) || ! is_dir( WP_PLUGIN_DIR ) ) {
@@ -9457,6 +9918,38 @@ class WPS_Scanner {
 						$tells[] = 'dynamic execution (eval/assert/create_function)';
 					}
 
+					// (7) 1.4.107: search-engine cloaking, which is this family's
+					// payload rather than a decoder.
+					//
+					// A recovered root-file backdoor (`wp-slgnup.php`, one
+					// letter from `wp-signup.php`) scored only two tells: it is
+					// goto-flattened and packed onto two lines, but it contains
+					// no eval and no encoded blob, so the requirement for an
+					// execution or payload tell was never met and the file
+					// passed. Its actual behaviour is to identify search-engine
+					// crawlers and referrers, fetch content from elsewhere, and
+					// serve that content with forged headers - cloaked HTML,
+					// XML, robots.txt, or a 302 - while showing the real site to
+					// everyone else. That combination is the payload, and it is
+					// evidence of intent in exactly the way an eval would be.
+					$cloak = 0;
+					if ( preg_match( '/googlebot|bingbot|slurp|yandex|baiduspider/i', $resolved ) ) {
+						++$cloak;
+					}
+					if ( preg_match( '/HTTP_USER_AGENT|HTTP_REFERER/i', $resolved ) ) {
+						++$cloak;
+					}
+					if ( preg_match( '/\bcurl_exec\s*\(|file_get_contents\s*\(\s*\$/i', $resolved ) ) {
+						++$cloak;
+					}
+					if ( preg_match( '/@?header\s*\(\s*[\'"](?:HTTP\/1\.[01]|Location:)/i', $resolved ) ) {
+						++$cloak;
+					}
+					$cloaking = ( $cloak >= 4 );
+					if ( $cloaking ) {
+						$tells[] = 'serves different content to search engines than to visitors';
+					}
+
 					// (6) 1.4.84: command and control revealed by resolving the
 					// escapes. A packed file that also carries a hardcoded
 					// messaging-bot or webhook endpoint is not ambiguous: that
@@ -9475,7 +9968,7 @@ class WPS_Scanner {
 					// Three independent tells, and one of them must be an
 					// actual execution, payload or command-and-control tell
 					// rather than layout alone.
-					if ( count( $tells ) < 3 || ( ! $has_exec && $blob < 500 && '' === $c2 ) ) continue;
+					if ( count( $tells ) < 3 || ( ! $has_exec && $blob < 500 && '' === $c2 && ! $cloaking ) ) continue;
 
 					// Stub position: a file whose canonical content is a
 					// placeholder. Nothing legitimate is ever packed there.
@@ -9516,6 +10009,34 @@ class WPS_Scanner {
 					} else {
 						$finding['action']      = 'This file is written to be unreadable: ' . implode( ', ', $tells )
 							. '. That is the shape of a packed backdoor, and no signature will match it because every name is rebuilt at runtime. Reported for review rather than deleted, because a small number of commercial plugins ship through obfuscators - confirm what this file belongs to before removing it. If you cannot account for it, treat it as a backdoor and rotate every credential the site uses.';
+
+						/*
+						 * 1.4.107: cloaking removes the doubt.
+						 *
+						 * Holding obfuscated files for review is right in general,
+						 * because commercial plugins do ship through obfuscators and
+						 * deleting one breaks paid software. No obfuscator, however,
+						 * produces code that identifies search-engine crawlers and
+						 * serves them different content from the one it serves
+						 * visitors. That is a purpose rather than a packaging
+						 * artefact, so the reason for hesitating does not apply and
+						 * the file is removed.
+						 */
+						if ( $cloaking ) {
+							$finding['action']      = 'This file is packed to be unreadable AND identifies search-engine crawlers in order to serve them different content from your visitors: ' . implode( ', ', $tells )
+								. '. That is a doorway page, run from your site to rank somebody else\'s content, and it is invisible to you because you are not the audience: browse the site normally and nothing appears wrong while search engines are fed whatever the operator chooses. '
+								. 'Obfuscation alone would be held for review, since some commercial plugins ship that way; no obfuscator produces cloaking, so this has been removed. '
+								. 'Check Search Console for pages you did not publish, and look for how the file arrived, because something placed it there.';
+							$finding['auto_delete'] = true;
+							$finding['delete_path'] = $path;
+
+							// Block where it calls home, and blame whoever put it here.
+							$hosts = self::harvest_c2_hosts( $contents, self::display_path( $path ) );
+							if ( $hosts > 0 ) {
+								$finding['action'] .= ' ' . $hosts . ' host(s) it contacts have been blocked for outbound requests, so a replacement dropped later cannot reach the same infrastructure.';
+							}
+							self::report_malware_source( $path, 'a search-engine cloaking doorway script' );
+						}
 					}
 
 					$found[] = $finding;

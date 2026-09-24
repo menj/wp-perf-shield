@@ -125,6 +125,89 @@ class WPS_Blocker {
      * is malware, and pretending otherwise would be the mistake this method
      * exists to avoid.
      */
+
+    /**
+     * Refuse to unpack a banned plugin, whatever route it arrived by.
+     *
+     * Runs before the package is written, so a refusal leaves nothing on disk
+     * rather than relying on a later scan to clean up. The slug is taken from
+     * the package filename and from the API payload, since an install from the
+     * directory carries the slug in the options while an uploaded ZIP does not.
+     */
+    public static function block_banned_install( $options ) {
+        if ( ! self::policy_ban_enabled() || ! is_array( $options ) ) {
+            return $options;
+        }
+        $candidates = [];
+        if ( ! empty( $options['package'] ) && is_string( $options['package'] ) ) {
+            $candidates[] = basename( (string) $options['package'] );
+        }
+        $info = $options['hook_extra']['plugin'] ?? ( $options['hook_extra']['slug'] ?? '' );
+        if ( is_string( $info ) && '' !== $info ) {
+            $candidates[] = $info;
+        }
+
+        foreach ( $candidates as $candidate ) {
+            if ( ! self::is_policy_banned( (string) $candidate ) ) {
+                continue;
+            }
+            $who = function_exists( 'wp_get_current_user' ) ? (string) ( wp_get_current_user()->user_login ?? '' ) : '';
+            $ip  = class_exists( 'WPS_Utils' ) && method_exists( 'WPS_Utils', 'client_ip' ) ? WPS_Utils::client_ip() : '';
+
+            WPS_Logger::log_event(
+                'policy_install_blocked',
+                $candidate . ' install refused by site policy'
+                    . ( '' !== $who ? ' (attempted by ' . $who . ')' : '' )
+                    . ( '' !== $ip ? ' from ' . $ip : '' ),
+                $ip
+            );
+            WPS_Logger::notify_admin(
+                'Banned plugin installation blocked',
+                "An attempt to install {$candidate} was refused because it is on this site's banned-plugin list.\n\n"
+                . ( '' !== $who ? "Account: {$who}\n" : '' )
+                . ( '' !== $ip ? "Address: {$ip}\n" : '' )
+                . "\nIf this was not you, that account can install plugins and should be treated as compromised."
+            );
+
+            // Replacing the package with an error stops the unpack cleanly.
+            $options['package'] = new WP_Error(
+                'wps_policy_banned',
+                sprintf(
+                    'WP Perf Shield refused to install %s: it is on this site\'s banned-plugin list. Remove it from WP Perf Shield, Settings, Banned plugins if this is a mistake.',
+                    esc_html( (string) $candidate )
+                )
+            );
+            return $options;
+        }
+        return $options;
+    }
+
+    /**
+     * Label banned plugins in the directory search results.
+     *
+     * Refusing an install at the last moment is correct and tells the person
+     * nothing until they have already tried. Marking the entry where they are
+     * choosing costs one line and prevents the attempt.
+     */
+    public static function mark_banned_in_search( $res, $action, $args ) {
+        if ( ! self::policy_ban_enabled() || empty( $res->plugins ) || ! is_array( $res->plugins ) ) {
+            return $res;
+        }
+        foreach ( $res->plugins as $k => $plugin ) {
+            $slug = is_array( $plugin ) ? ( $plugin['slug'] ?? '' ) : ( $plugin->slug ?? '' );
+            if ( '' === $slug || ! self::is_policy_banned( (string) $slug ) ) {
+                continue;
+            }
+            $note = ' [BANNED ON THIS SITE by WP Perf Shield: installation will be refused.]';
+            if ( is_array( $plugin ) ) {
+                $res->plugins[ $k ]['name'] = ( $plugin['name'] ?? $slug ) . $note;
+            } elseif ( is_object( $plugin ) ) {
+                $res->plugins[ $k ]->name = ( $plugin->name ?? $slug ) . $note;
+            }
+        }
+        return $res;
+    }
+
     public static function is_policy_banned( string $plugin_file ): bool {
         if ( ! self::policy_ban_enabled() ) {
             return false;
@@ -459,6 +542,23 @@ class WPS_Blocker {
 
     /** Called from main plugin file, not from class-blocker.php directly. */
     public static function register_hooks(): void {
+
+        /*
+         * 1.4.109: refuse a banned plugin at INSTALL time.
+         *
+         * The ban already covered uploads, activation, and the active-plugin
+         * list, and it removed a banned plugin at the next scan. It did not
+         * cover installing one from the WordPress.org directory, which is the
+         * ordinary way a plugin arrives: search, click Install, and it is on
+         * disk. Nothing objected until a scan ran, and between scans it sat
+         * there installed. An operator watching a banned plugin come back
+         * repeatedly was watching this gap rather than a failure of the ban.
+         *
+         * `upgrader_package_options` runs before the package is unpacked, so
+         * refusing here means the files never land.
+         */
+        add_filter( 'upgrader_package_options', [ __CLASS__, 'block_banned_install' ], 1 );
+        add_filter( 'plugins_api_result', [ __CLASS__, 'mark_banned_in_search' ], 10, 3 );
         add_filter( 'plugin_action_links',              [ self::class, 'remove_activate_link'  ], 10, 2 );
         add_action( 'activate_plugin',                  [ self::class, 'block_on_activate'     ], 1,  1 );
         add_filter( 'pre_update_option_active_plugins', [ self::class, 'filter_active_plugins' ] );
@@ -1071,6 +1171,81 @@ class WPS_Blocker {
      * @param string $url
      * @return mixed
      */
+    /** Option holding hosts recovered from malware found on this site. */
+    const C2_HOSTS_OPTION = 'wps_blocked_c2_hosts';
+
+    /**
+     * 1.4.108: record a command-and-control host recovered from a sample.
+     *
+     * Deleting a doorway script removes the file and leaves the campaign
+     * untouched. The same operator drops a replacement, and the replacement
+     * calls the same hosts, because the hosts are the expensive part of the
+     * infrastructure and the file is not. Blocking the destination outlasts
+     * blocking any particular file.
+     *
+     * Recorded rather than hardcoded, since these are recovered from whatever
+     * the site was actually infected with. A host is kept for ninety days,
+     * which is long enough to cover a re-infection and short enough that a
+     * domain later put to innocent use does not stay blocked forever.
+     */
+    public static function record_c2_host( string $host, string $source = '' ): bool {
+        $host = strtolower( trim( $host ) );
+        $host = preg_replace( '/^www\./', '', $host );
+        if ( '' === $host || ! preg_match( '/^[a-z0-9]([a-z0-9.-]{2,252})\.[a-z]{2,24}$/', $host ) ) {
+            return false;
+        }
+        // Never block the site's own host or the ecosystem's.
+        $own = strtolower( (string) wp_parse_url( (string) get_option( 'siteurl' ), PHP_URL_HOST ) );
+        $own = preg_replace( '/^www\./', '', (string) $own );
+        if ( '' !== $own && $host === $own ) {
+            return false;
+        }
+        foreach ( [ 'wordpress.org', 'akismet.com', 'gravatar.com', 'w.org', 'googleapis.com' ] as $ok ) {
+            if ( $host === $ok || substr( $host, -strlen( '.' . $ok ) ) === '.' . $ok ) {
+                return false;
+            }
+        }
+        $hosts = get_option( self::C2_HOSTS_OPTION, [] );
+        if ( ! is_array( $hosts ) ) {
+            $hosts = [];
+        }
+        $existing = isset( $hosts[ $host ] );
+        $hosts[ $host ] = [
+            'first_seen' => (int) ( $hosts[ $host ]['first_seen'] ?? time() ),
+            'last_seen'  => time(),
+            'expires'    => time() + ( 90 * DAY_IN_SECONDS ),
+            'source'     => substr( $source, 0, 190 ),
+        ];
+        if ( count( $hosts ) > 200 ) {
+            $hosts = array_slice( $hosts, -200, null, true );
+        }
+        update_option( self::C2_HOSTS_OPTION, $hosts, false );
+        if ( ! $existing && class_exists( 'WPS_Logger' ) ) {
+            WPS_Logger::log_event( 'c2_host_blocked', $host . ' blocked for outbound requests' . ( '' !== $source ? ' (recovered from ' . $source . ')' : '' ) );
+        }
+        return true;
+    }
+
+    /** Is this host on the recovered command-and-control list? */
+    public static function is_blocked_c2_host( string $host ): bool {
+        $host  = preg_replace( '/^www\./', '', strtolower( $host ) );
+        $hosts = get_option( self::C2_HOSTS_OPTION, [] );
+        if ( ! is_array( $hosts ) || '' === $host ) {
+            return false;
+        }
+        $now = time();
+        foreach ( $hosts as $blocked => $meta ) {
+            $exp = (int) ( $meta['expires'] ?? 0 );
+            if ( $exp && $exp < $now ) {
+                continue;
+            }
+            if ( $host === $blocked || substr( $host, -strlen( '.' . $blocked ) ) === '.' . $blocked ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static function guard_outbound_request( $pre, $args, $url ) {
         if ( false !== $pre ) {
             return $pre; // something else already answered
@@ -1095,6 +1270,18 @@ class WPS_Blocker {
             if ( $host === $ok || substr( $host, -strlen( '.' . $ok ) ) === '.' . $ok ) {
                 return $pre;
             }
+        }
+
+        // 1.4.108: refuse any request to a host recovered from malware found
+        // on this site, whatever the request contains. The content checks
+        // below look for data leaving; this stops the site talking to the
+        // campaign at all, which is what a replacement dropper needs in order
+        // to be useful.
+        if ( self::is_blocked_c2_host( $host ) ) {
+            if ( class_exists( 'WPS_Logger' ) ) {
+                WPS_Logger::log_event( 'c2_request_blocked', 'outbound request to ' . $host . ' refused' );
+            }
+            return new WP_Error( 'wps_blocked_c2', 'WP Perf Shield blocked a request to a host recovered from malware on this site.' );
         }
 
         // Flatten whatever is being sent so a body given as an array is read.

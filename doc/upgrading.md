@@ -59,6 +59,68 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.111
+
+**Detects webshells that build their function names out of constants.** A 24KB file was sitting in your mu-plugins folder, where every legitimate file of that name is a single line. It contained no recognisable dangerous call, because the names were assembled at runtime from defined constants, then used to write a payload to a temporary file, run it, and delete it so nothing remained between requests. It is now detected and removed.
+
+**Fixes the host sign-in loader being queued for deletion.** `sso-loader.php` was marked for automatic removal, and the copy on your site is identical to the one managed hosts install for their dashboard login button. Deleting it would break that button, and your host would put the file back.
+
+It is now reported rather than removed, unless you have switched on "Block unauthenticated sign-in endpoints" in Settings. That setting already disarms the endpoint and clears its token, so if you have enabled it, the file is removed as well. Every other known-bad mu-plugin filename is unaffected.
+
+## 1.4.110
+
+**A backdoor plugin was being reported instead of removed.** A recovered sample created a hidden administrator account, concealed that account from the Users screen, concealed itself from the Plugins screen, and recreated the account after deletion. The plugin detected all of it and then declined to remove the plugin, because a rule added after an earlier incident prevents behavioural findings from deleting whole plugins.
+
+That rule stays, and it now distinguishes between one suspicious behaviour and several malicious ones occurring together. A plugin that merely looks like it conceals itself is still reported for your review. A plugin that creates an administrator and hides it is removed.
+
+**Everything above that rule is unchanged.** WordPress core is still never removed automatically, anything you have marked Safe still overrides removal, and the automatic-removal halt still stops it.
+
+## 1.4.109
+
+**Banned plugins are now refused when you install them, not removed afterwards.** The ban covered uploads, activation, and removal at the next scan, and it did not cover installing from the WordPress.org directory. Anyone could search, click Install, and the plugin stayed on the site until a scan ran. That is why a banned plugin appeared to keep coming back.
+
+Installation is refused before anything is unpacked, so the files never arrive. Banned plugins are also labelled in the plugin directory search, so the attempt is discouraged before it is made.
+
+**You will now be told who installed it.** The plugin records the account and address behind every install, counts repeat installations, and raises a finding on the third. A refused install names the account in the log and in the email you receive. If that account is not yours, it can install plugins and should be treated as compromised.
+
+## 1.4.108
+
+**Malware is now blocked as well as deleted.** Removing a file leaves the campaign behind it intact, and the replacement dropped next week calls the same servers. When a doorway script or backdoor is confirmed, the plugin now recovers the hosts it contacts, including hosts hidden by encoding, and refuses every outbound request to them from then on.
+
+The recovered sample hid four hosts as rot13 over URL-encoding, so a search of the file for a domain found nothing. They are recovered automatically.
+
+**The address responsible is now blocked here, not only reported.** Attribution has reported such addresses to Akismet since 1.4.85, which helps other sites; the address is now blocked on your own site for thirty days as well.
+
+**Blocked hosts expire after ninety days**, and your own site's host and the WordPress ecosystem can never be blocked.
+
+## 1.4.107
+
+**Fixes a rule that was protecting malware.** Since 1.4.89, every PHP file in your WordPress root has been treated as a core file and shielded from automatic removal. That was meant to stop WordPress itself being deleted. It also meant anything an attacker dropped in the root was protected, and naming a payload after a core file is an old and common technique.
+
+Only the files WordPress actually ships are now treated as core. `wp-config.php` is included, since deleting it destroys a site. Anything else in the root is judged on its merits.
+
+**Detects doorway scripts that cloak to search engines.** A recovered sample identified search-engine crawlers and served them content fetched from elsewhere, with forged headers, while showing you the real site. Nothing looks wrong when you browse, because you are not the audience. Such files are now removed rather than held for review, since obfuscation alone can be legitimate and cloaking cannot.
+
+**If this has been running on your site, check Google Search Console** for pages you never published, and for a sudden change in indexed content.
+
+## 1.4.106
+
+**Payload options are now removed for you.** In 1.4.105, a plugin-shaped folder with no plugin in it was quarantined, and the entries it had written to your options table were named in the finding with an instruction to delete them yourself. Those entries are the part that survives deletion of the folder, so the plugin now quarantines them as well.
+
+They are quarantined rather than deleted, so they can be restored from Diagnostics if a removal was wrong.
+
+**If you have automatic removal switched off**, nothing is touched. The finding still names the options and tells you that enabling removal would handle them.
+
+## 1.4.105
+
+**Detects payload folders with no plugin in them.** A new sample arrived packaged as a plugin, with a readme, a licence and a translation file, but with no file declaring a Plugin Name. WordPress cannot load it, so it is not a plugin; it is packaging wrapped around two encrypted data files. Because every other check in this plugin reads PHP, and this folder contains almost none, nothing detected it.
+
+Such a folder means one of two things. Either a loader was removed and its payload was left behind for the next one to find, or a payload has been staged before its loader arrives. Both are worth removing.
+
+**Removing the folder is not the whole job.** These folders declare their own entries in your options table, and those survive deletion of the files. The finding names them so you can remove them as well.
+
+**Genuine plugins are unaffected**, including those shipping binary assets, and anything you have marked Safe still overrides the removal.
+
 ## 1.4.104
 
 **Fixes banned plugins not being removed.** Since 1.4.90, a plugin on your banned list has been reported on every scan and removed on none. A safety rule added in that release, which stops behavioural guesses from deleting whole plugins, was also catching your own explicit ban and refusing it. That is why WP File Manager kept coming back.

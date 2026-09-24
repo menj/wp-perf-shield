@@ -117,6 +117,65 @@ final class WPS_Remediation_Policy {
 	];
 
 	/** True unless the finding comes from a confirmed-content match. */
+	/**
+	 * 1.4.110: behavioural findings that are nonetheless conclusive.
+	 *
+	 * The package-scope rule stops a behavioural finding removing an entire
+	 * plugin, and it exists because this plugin quarantined WP-Optimize on a
+	 * single behavioural signal and stopped a site from booting. That reason
+	 * holds, and it has now been applied three times to findings where it made
+	 * no sense: an operator's own ban, a folder containing no plugin, and a
+	 * plugin whose purpose is a hidden administrator account. Each was patched
+	 * individually. A third instance is a pattern rather than a coincidence.
+	 *
+	 * The distinction the rule was missing is not between behavioural and
+	 * confirmed evidence. It is between one suspicious behaviour and several
+	 * malicious behaviours co-occurring. WP-Optimize was flagged by a single
+	 * signal, self-concealment, which legitimate software can exhibit for
+	 * legitimate reasons. The findings listed here each require independent
+	 * behaviours that no legitimate software combines: creating an
+	 * administrator AND hiding it from the user list; identifying search
+	 * crawlers AND serving them different content; declaring no plugin header
+	 * AND carrying an encrypted payload.
+	 *
+	 * Each detector below establishes its own conjunction before reporting, so
+	 * the conclusion rests on the detector's own evidence rather than on
+	 * confidence in this list. Anything not named here keeps the protection
+	 * exactly as it was.
+	 */
+	private const CONCLUSIVE_TYPES = [
+		'Hidden administrator account backdoor',
+		'Plugin folder with no plugin in it',
+		// 1.4.111: a nest of constants resolving to a dangerous call whose
+		// plain name is absent from the file. Three conditions that only
+		// coincide when someone is hiding what the code calls.
+		'Function names assembled from constants to defeat searching',
+	];
+
+	/*
+	 * Deliberately absent: 'Unauthenticated administrator sign-in endpoint'.
+	 *
+	 * It meets the test on its face, since granting an administrator session
+	 * without a password to an unauthenticated caller is several behaviours at
+	 * once. It is also what managed hosts install to power their dashboard
+	 * login button, so the conjunction is present in legitimate software and
+	 * the reasoning that justifies this tier does not hold for it. Its detector
+	 * reports and never sets a removal target, so the policy is not consulted
+	 * today; listing it here would quietly authorise removal the moment anyone
+	 * wired one up. The runtime guard in 1.4.95 is how that endpoint is
+	 * stopped, and it is switched on deliberately by the operator.
+	 */
+
+	/** Does this finding rest on several malicious behaviours at once? */
+	private static function is_conclusive( string $type ): bool {
+		foreach ( self::CONCLUSIVE_TYPES as $t ) {
+			if ( $type === $t || 0 === strpos( $type, $t ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private static function is_heuristic( string $type ): bool {
 		foreach ( self::CONFIRMED_TYPES as $confirmed ) {
 			if ( $type === $confirmed || 0 === strpos( $type, $confirmed ) ) {
@@ -350,6 +409,36 @@ final class WPS_Remediation_Policy {
 			return $deny( 'trust_state_unreadable', 'the Safe list could not be read, so removal is denied' );
 		}
 
+		/*
+		 * 1.4.111: the host SSO loader is removed only if the operator has
+		 * asked for it.
+		 *
+		 * `sso-loader.php` is listed as a known-bad mu-plugin filename, which
+		 * queues it for automatic removal. The copy recovered from this site is
+		 * byte for byte the loader managed hosts install to power their
+		 * dashboard login button, so removing it automatically would break that
+		 * button with no warning, and the host would redeploy the file anyway.
+		 * That is the shape of the failure this plugin has already caused twice.
+		 *
+		 * The operator does have a way to say they want it gone: the
+		 * "Block unauthenticated sign-in endpoints" setting added in 1.4.95,
+		 * which disarms the endpoint on every request and clears the token.
+		 * Where that is switched on, removing the file as well is consistent
+		 * with what was asked for. Where it is off, the file is reported and
+		 * left alone, because nobody has asked for host software to be deleted.
+		 */
+		if ( false !== stripos( $id, 'sso-loader.php' ) ) {
+			$s = get_option( WPS_OPTION, [] );
+			$sso_guard_on = is_array( $s ) && ( $s['block_sso_bypass'] ?? '0' ) === '1';
+			if ( ! $sso_guard_on ) {
+				return $deny(
+					'host_sso_loader',
+					'this is the sign-in loader managed hosts install, so it is reported rather than removed; switch on "Block unauthenticated sign-in endpoints" in Settings to disable the endpoint and clear its token, and this file will be removed too',
+					'unreviewed'
+				);
+			}
+		}
+
 		// THE VETO.
 		$safe = self::safe_state( $target );
 		if ( $safe['safe'] ) {
@@ -455,8 +544,34 @@ final class WPS_Remediation_Policy {
 			}
 		}
 
+		/*
+		 * 1.4.105: a folder with no plugin header is not a plugin.
+		 *
+		 * The package-scope rule below exists to stop a behavioural guess
+		 * deleting software somebody installed on purpose. A folder in which no
+		 * file declares a Plugin Name is not that: WordPress cannot load it, it
+		 * has no entry point, and nothing on the site depends on it running.
+		 * The protection is for installed software, and this is packaging
+		 * around a payload.
+		 *
+		 * Written narrowly on purpose. This does not relax the package-scope
+		 * rule, which stays exactly as it was for every real plugin; it
+		 * declines to apply it to a directory that only resembles one. The
+		 * detector establishes the absence of a header directly, so the
+		 * judgement rests on a fact about the folder rather than on confidence
+		 * in a heuristic.
+		 */
+		if ( false !== stripos( $type, 'no plugin in it' ) ) {
+			return [
+				'allowed' => true,
+				'reason'  => 'this folder declares no Plugin Name, so it is not installed software and the protection for installed software does not apply',
+				'rule'    => 'not_a_plugin',
+				'trust'   => 'unreviewed',
+			];
+		}
+
 		// A heuristic finding may not remove a whole package directory.
-		if ( $heuristic && self::is_package_root( $id ) ) {
+		if ( $heuristic && ! self::is_conclusive( $type ) && self::is_package_root( $id ) ) {
 			return $deny( 'package_scope_denied', 'a behavioural finding may not remove an entire plugin or theme; remove it by hand after review' );
 		}
 
@@ -486,7 +601,7 @@ final class WPS_Remediation_Policy {
 		 *     removed automatically. This is the change that would have
 		 *     prevented both outages.
 		 */
-		if ( $heuristic && ! self::is_no_executables_location( $id ) ) {
+		if ( $heuristic && ! self::is_conclusive( $type ) && ! self::is_no_executables_location( $id ) ) {
 			return $deny(
 				'heuristic_in_managed_location',
 				'this is a behavioural finding about a file inside installed software, so it is reported rather than removed automatically - review it and remove it by hand, or mark it Safe if it is legitimate',
@@ -519,11 +634,36 @@ final class WPS_Remediation_Policy {
 		if ( 0 === strpos( $id, 'wp-admin/' ) || 0 === strpos( $id, 'wp-includes/' ) ) {
 			return true;
 		}
-		// Anything at the site root that is not user content.
-		if ( false === strpos( $id, '/' ) ) {
-			return (bool) preg_match( '#\.(php|txt|html)$#i', $id );
+		if ( false !== strpos( $id, '/' ) ) {
+			return false;
 		}
-		return false;
+
+		/*
+		 * 1.4.107: the root test is a list of the files WordPress actually
+		 * ships, rather than "any PHP file at the site root".
+		 *
+		 * The earlier rule was written to stop core being deleted and had an
+		 * effect nobody intended: it also shielded anything an attacker dropped
+		 * beside core. A recovered sample named `wp-slgnup.php`, one letter away
+		 * from `wp-signup.php`, sat in the root and was therefore protected from
+		 * removal even by a confirmed signature match. Naming a payload after a
+		 * core file is among the oldest techniques there is, and the protection
+		 * was rewarding it.
+		 *
+		 * WordPress ships a fixed, well-known set of root files. A file in the
+		 * root that is not among them is not core, whatever it is called, and is
+		 * judged on its merits like any other file. `wp-config.php` is included
+		 * because deleting it destroys a site even though WordPress does not
+		 * ship it.
+		 */
+		$core_root = [
+			'index.php', 'license.txt', 'readme.html', 'wp-activate.php',
+			'wp-blog-header.php', 'wp-comments-post.php', 'wp-config.php',
+			'wp-config-sample.php', 'wp-cron.php', 'wp-links-opml.php',
+			'wp-load.php', 'wp-login.php', 'wp-mail.php', 'wp-settings.php',
+			'wp-signup.php', 'wp-trackback.php', 'xmlrpc.php',
+		];
+		return in_array( strtolower( $id ), $core_root, true );
 	}
 
 	/**
@@ -541,6 +681,25 @@ final class WPS_Remediation_Policy {
 	 * already seen both wrongly suspected.
 	 */
 	private static function is_no_executables_location( string $id ): bool {
+		/*
+		 * 1.4.107: the WordPress root, excluding the files WordPress ships.
+		 *
+		 * The root is not a directory where arbitrary PHP belongs. WordPress
+		 * ships a fixed set of files there and nothing else, so a PHP file in
+		 * the root that is not one of them was placed by somebody, and a
+		 * behavioural finding about it should be acted on rather than held for
+		 * review. A recovered doorway script exploited exactly this gap: it sat
+		 * in the root under a near-copy of a core filename, where the rule
+		 * protecting installed software applied to it and the rule protecting
+		 * core did so as well.
+		 *
+		 * is_core_path() already enumerates the genuine root files, so this
+		 * asks it rather than keeping a second list that could drift.
+		 */
+		if ( false === strpos( $id, '/' ) && preg_match( '#\.php$#i', $id ) && ! self::is_core_path( $id ) ) {
+			return true;
+		}
+
 		$prefixes = [
 			'wp-content/uploads/',
 			'wp-content/cache/',

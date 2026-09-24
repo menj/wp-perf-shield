@@ -1,5 +1,197 @@
 # WP Perf Shield changelog
 
+## 1.4.111
+
+A webshell in mu-plugins that no check could see, and a legitimate file queued for deletion.
+
+### The webshell
+A 24KB `index.php` in `mu-plugins`, where every other file of that name is a one-line silence stub. Nothing in it resembles a dangerous call, because the dangerous calls are assembled at runtime from named constants:
+
+    define('CONTENTS','file'); define('FILE','contents'); define('PUT','put');
+    define('FPC', CONTENTS.'_'.PUT.'_'.FILE);      -> file_put_contents
+    define('LOGIN', RGS.'_'.STD.'_'.FCT);          -> register_shutdown_function
+    $kin = 'un'.'link';                             -> unlink
+
+It decodes an embedded payload, writes it to a temporary file, includes it, and registers a shutdown function to unlink it, so nothing remains on disk between requests.
+
+The split-string check added in 1.4.79 looks for adjacent string literals joined mid-word. This assembles through named constants instead, so that check saw nothing and neither did any signature. `check_constant_assembled_calls` resolves the constants and reports a dangerous call whose plain name is absent from the file. It requires all three conditions together, so a file using constants alongside an honest call is untouched, and a legitimate mu-plugin doing exactly that is a test case.
+
+The finding joins the conclusive tier from 1.4.110, since a nest of constants, a resolved dangerous call, and that call's plain name being missing only coincide when someone is hiding what the code does.
+
+### The file that was queued for deletion by mistake
+`sso-loader.php` is listed as a known-bad mu-plugin filename, which marked it for automatic removal. The copy recovered here is byte for byte the loader managed hosts install to power their dashboard login button. Removing it automatically would break that button without warning, and the host would redeploy the file regardless, which is the failure this plugin has already caused twice.
+
+The operator does have a way to say they want it gone: the setting added in 1.4.95, which disarms the endpoint on every request and clears its token. Where that is switched on, removing the file as well is consistent with what was asked for. Where it is off, the file is reported and left in place, and the finding names the setting that changes the answer. Every other known-bad mu-plugin filename is unaffected.
+
+### Verified
+`php -l` clean across all 42 includes. New harness `mu-constant-shell.php` (10/10): the real webshell is detected with the hidden call and the constant that concealed it both named, and it is removed; a mu-plugin using constants honestly and a genuine silence stub are left alone; the SSO loader is reported rather than removed while the guard is off, removed once it is on, and an ordinary mu-plugin signature is removed either way. Twenty-seven harnesses pass, 277 assertions.
+
+One assertion was corrected rather than the code: it matched a path suffix that `mu-plugins/index.php` also satisfies, so a passing case looked like a failure.
+
+### Meta
+Version markers move to 1.4.111. New check `check_constant_assembled_calls`, new event `constant_assembled_calls_found`. No new settings. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.110
+
+A backdoor plugin was being reported and left installed. The third instance of one mistake, fixed as a pattern rather than a fourth patch.
+
+### The sample
+`wp-compat.php`, presenting as "WP Compatibility Patch" by "WP Core Contributors". It calls `wp_insert_user` with the administrator role, filters `pre_user_query` and `views_users` so the account is invisible on the Users screen, filters `all_plugins` so the plugin is invisible on the Plugins screen, and hooks `init`, `admin_init` and `plugins_loaded` so the account returns after deletion. Its entire purpose is a concealed administrator account.
+
+It was detected correctly and then refused removal under `package_scope_denied`, so it stayed installed and kept granting access while being listed in a report.
+
+### The pattern
+The package-scope rule stops a behavioural finding removing an entire plugin. It exists because this plugin quarantined WP-Optimize on a single behavioural signal and stopped a site from booting, and that reason holds. It has now been applied three times to findings where it made no sense: an operator's own ban in 1.4.104, a folder containing no plugin in 1.4.105, and a hidden-administrator backdoor here. Each was patched on its own. A third instance is a pattern.
+
+The distinction the rule was missing lies between one suspicious behaviour and several malicious behaviours co-occurring. WP-Optimize was flagged by self-concealment alone, which legitimate software exhibits for legitimate reasons. A finding that requires creating an administrator AND hiding it from the user list, or declaring no plugin header AND carrying an encrypted payload, rests on a conjunction no legitimate software presents. Those findings may now remove a package. Every detector in the tier establishes its own conjunction before reporting, so the conclusion rests on the detector's evidence rather than on membership of a list.
+
+### What was excluded, and why
+The unauthenticated administrator sign-in endpoint meets the test on its face and is deliberately absent. Managed hosts install exactly that to power their dashboard login button, so the conjunction appears in legitimate software and the reasoning behind this tier does not hold for it. Its detector reports and sets no removal target, so listing it would have authorised nothing today and silently authorised removal of host software the moment anyone wired one up. That endpoint is stopped by the runtime guard added in 1.4.95, which the operator enables deliberately.
+
+### Verified
+`php -l` clean across all 42 includes. New harness `conclusive-tier.php` (12/12). The first five assertions exist to keep the outage impossible: self-concealment alone, split identifiers alone, an opaque data payload alone, and an unrecognised future detector all remain unable to remove a plugin package or a file inside one. The next confirm that conjunction-based findings do remove one. The last four confirm that core protection, an operator Safe decision and the circuit breaker all still outrank the tier. Twenty-six harnesses pass, 267 assertions.
+
+### Meta
+Version markers move to 1.4.110. No new checks, events or settings; one policy tier added. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.109
+
+Why a banned plugin kept coming back, answered properly.
+
+### The gap
+FileOrganizer is on the site-policy denylist and has been. The ban covered uploading a banned plugin, activating one, and listing one among the active plugins, and from 1.4.104 it removed one found installed. It did not cover **installing** one from the WordPress.org directory, which is how a plugin ordinarily arrives: search, click Install, done. Nothing objected until a scan ran, and between scans the plugin sat there installed.
+
+An operator watching a banned plugin reappear was watching that gap rather than a failure of the ban. The removal was working; it was simply the last stage of a sequence that had no first stage.
+
+Installation is now refused at `upgrader_package_options`, which runs before the package is unpacked, so the files never land rather than being cleaned up afterwards. The refusal covers a directory install and an uploaded archive alike, and the existing substring match means the pro add-on is caught by the same entry.
+
+Banned plugins are also labelled in the directory search results. Refusing an install at the last moment is correct and tells the person nothing until they have already tried; marking the entry where they are choosing costs one line and prevents the attempt.
+
+### Who is installing it
+The roster recorded that a plugin arrived through the dashboard, which distinguishes an ordinary install from a planted folder and stops there. For a plugin that keeps returning, that answer is no help: the operator already knows it came back and still cannot say who is putting it there.
+
+An install through the dashboard is performed by an account from an address, and both are available at the moment it happens. The roster now records them, counts how many times a plugin has been installed, and raises a finding at the third. A refused install names the account and the address in the log and in the notification, which says plainly that an account able to install plugins should be treated as compromised if the attempt was not the operator's.
+
+### The copy that prompted this
+Clean. Two hundred and fifty-two files, no injected `.htaccess`, and the single `.htaccess` present is the plugin's own protection for its temporary directory. It is banned on this site as a matter of policy rather than because it is malicious.
+
+### Verified
+`php -l` clean across all 42 includes. New harness `install-time-ban.php` (13/13): a directory install and an uploaded archive are both refused before unpacking, with the account and address named in the log and the notification; an ordinary install proceeds untouched; nothing is refused when the denylist is switched off; and banned entries are labelled in the search results while others are not. Twenty-five harnesses pass, 255 assertions.
+
+### Meta
+Version markers move to 1.4.109. New events `policy_install_blocked` and `plugin_reinstalled_repeatedly`. No new settings; the existing banned-plugins switch governs it. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.108
+
+Removing the file was never the whole answer. This release blocks the infrastructure behind it.
+
+### What the sample gave up
+The doorway script recovered as `wp-slgnup.php` keeps four command-and-control hosts as rot13 over URL-encoding inside an array, so nothing resembling a domain appears in the file and searching for one finds nothing. Two reversible transformations recover them:
+
+    3657-bright151.convoluty.xyz
+    3657-bright151.technexp.top
+    3657-bright151.quantuatt.xyz
+    3657-bright151.ephemeix.top
+
+All four share the `3657-bright151` campaign identifier, which also appears in the script as its own test parameter.
+
+### Why the hosts matter more than the file
+Deleting a doorway script removes the file and leaves the campaign untouched. The same operator drops a replacement, and the replacement calls the same hosts, because infrastructure is the expensive part of a campaign and a generated PHP file is not. Blocking the destination outlasts blocking any particular file, and it works against variants nobody has seen.
+
+The scanner now recovers hosts from a confirmed sample by applying the same reversible decodings the sample uses - the raw text, URL decoding, rot13, and rot13 over URL decoding - and records what looks like a real domain. Nothing is executed and nothing is fetched. The outbound guard then refuses any request to those hosts, whatever the request contains, which is stricter than its existing rule about data leaving the site.
+
+Entries expire after ninety days, long enough to cover a re-infection and short enough that a domain later put to innocent use does not stay blocked indefinitely. The site's own host and the WordPress ecosystem are refused as candidates regardless.
+
+### Blocking the address as well as reporting it
+Attribution has reported the address responsible for a piece of malware to Akismet since 1.4.85, which protects other sites and does nothing for this one. That address is now blocked here too, for thirty days. The evidence is stronger than what ordinarily earns a block: it is the address that was active while malware was written to disk, rather than one that failed a few sign-ins, and whatever hold it had may well have expired before a scan found the file.
+
+### Verified
+`php -l` clean across all 42 includes. New harness `autoblock-c2.php` (11/11): the encoded hosts are recovered exactly as the scanner recovers them, recorded, and refused by the outbound guard, with subdomains covered and the block logged; the site's own host, `api.wordpress.org` and a non-domain string are all rejected as candidates; an ordinary outbound request is untouched; and an expired entry stops blocking. Twenty-four harnesses pass, 242 assertions.
+
+### Meta
+Version markers move to 1.4.108. New option `wps_blocked_c2_hosts`, new events `c2_host_blocked`, `c2_request_blocked`, `malware_source_blocked`. No new settings; the existing outbound guard enforces it. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.107
+
+A doorway script in the WordPress root, and a protection rule that was shielding it.
+
+### The sample
+`wp-slgnup.php`, one letter from `wp-signup.php`, delivered gzipped. Eight kilobytes on two lines, twenty-six `goto` jumps, every string in hex and octal escapes. Its purpose is cloaking: it identifies search-engine crawlers and referrers, fetches content from elsewhere, and serves that content with forged headers - HTML, XML, a robots.txt, a 404, a 500, or a 302 redirect - while ordinary visitors see the real site. The site is used to rank somebody else's content, and the operator sees nothing wrong because the operator is not the audience.
+
+### Core protection was protecting the attacker
+1.4.89 widened the definition of core to "any PHP file at the site root", so that `index.php` and `xmlrpc.php` would be covered. The consequence went unnoticed: a file dropped in the root is also covered. This sample was refused removal under `core_protected` even against a confirmed signature match, by the rule written to keep WordPress safe.
+
+Naming a payload after a core file is among the oldest techniques in the field, and the protection was rewarding it. The root test is now the list of files WordPress actually ships, with `wp-config.php` added because deleting it destroys a site. A root file outside that list is not core, whatever it is called, and is judged on its merits.
+
+For the same reason, a non-core PHP file in the root now counts as a location where an unexpected executable does not belong, alongside uploads and cache directories. The root is not a directory where arbitrary PHP belongs; WordPress ships a fixed set there and nothing else.
+
+### Detection, and why it needed a new tell
+The control-flow-flattening check scored two tells and required three, one of which had to be an execution or payload tell. This file has neither an eval nor an encoded blob, so it passed. Its evidence of intent is different in kind: bot identification, a remote fetch, and forged response headers. That combination is now a tell, and it satisfies the evidence requirement.
+
+Obfuscated files are otherwise held for review rather than removed, because commercial plugins do ship through obfuscators and deleting one breaks paid software. No obfuscator produces code that serves search engines different content from visitors, so where cloaking is present the reason for hesitating does not apply and the file is removed.
+
+### Verified
+`php -l` clean across all 42 includes. New harness `root-impostor-cloaking.php` (13/13): five genuine core files including `wp-signup.php` itself remain protected against a confirmed signature; the impostor and any other planted root file are not; the real sample is detected with its cloaking named, queued for removal rather than review, and permitted by policy; and an operator Safe decision still overrides removal of a root file. Twenty-three harnesses pass, 231 assertions.
+
+### Meta
+Version markers move to 1.4.107. No new checks or settings; one tell added, two policy rules narrowed. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.106
+
+The headless-folder check now removes the options it warned about.
+
+### The gap
+1.4.105 detected a plugin-shaped folder with no plugin in it, quarantined the folder, named the two options it declared in `wp_options`, and instructed the operator to delete those by hand.
+
+That instruction repeats the error the finding itself describes. The folder is the visible part and the option is the part that survives; a check that removes one and delegates the other has completed half the work and described the remainder as somebody else's task. The plugin has quarantined options since 1.3.x, and three other checks already do exactly this, so the capability was present and unused.
+
+### What changed
+The options a headless folder declares are now quarantined alongside it, using the same store, so the values are recoverable and preserved as evidence rather than deleted outright. The finding reports what was handled instead of issuing an instruction.
+
+The cleanup respects the auto-delete setting. An operator who has switched automatic removal off still receives the finding, nothing is touched, and the action text tells them which options to remove and that enabling removal would do it for them.
+
+### Verified
+`php -l` clean across all 42 includes. `headless-plugin-folder.php` extended to 19 assertions: both declared options are quarantined and gone from the options table, the removal is logged, the finding reports them as restorable, and with auto-delete disabled the options are left untouched while the finding still asks the operator to act. Twenty-two harnesses pass, 218 assertions.
+
+One assertion was rewritten rather than the code. It required the finding to warn that removing the folder was not enough, which was correct in 1.4.105 and describes behaviour this release supersedes, since the warning has been replaced by the cleanup it asked for.
+
+### Meta
+Version markers move to 1.4.106. New event `headless_folder_option_cleared`. No new settings or checks. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.105
+
+A plugin folder with no plugin in it.
+
+### The sample
+`starter-speed-scanner-ff83` arrived as the packed family again, with one difference that defeated every existing check. It contains a readme, a LICENSE, a translation template, an empty `app/` directory, an `uninstall.php` naming two options, and two high-entropy binary files under `data/`. **No file anywhere in it carries a `Plugin Name:` header**, so WordPress cannot load it. It is not a plugin.
+
+Every content check in this scanner reads PHP. A folder holding no meaningful PHP is invisible to all of them, and this one was: eighty-odd checks, no finding.
+
+### What that state means
+Two readings, both worth acting on. Either the loader was already removed, by this plugin or by hand, and the payload and option names were left behind for a replacement loader to find; or the payload was staged ahead of a loader that has not arrived yet. The first is the lesson of 1.4.86 repeated at folder level, since removing code while leaving data accomplishes nothing when the data carries the behaviour.
+
+`check_headless_plugin_folder` reads the shape rather than the contents. A genuine plugin always declares itself, because the header is what makes it loadable. A folder imitating the packaging of a plugin without being one, while carrying encrypted data, has no innocent reading.
+
+It is kept narrow. A library directory dropped among the plugins also lacks a header, so the check additionally requires either an opaque data file or an uninstall script declaring options of its own. The finding names those options, because deleting the folder without them repeats the same error.
+
+### A policy question this raised
+The package-scope rule refuses to let a behavioural finding remove an entire plugin folder. It refused this one too, which would have left the payload sitting on disk while reporting it, exactly as the site-policy ban failed in 1.4.104.
+
+The answer here is narrower than an exception. The package-scope rule protects software somebody installed on purpose. A folder in which no file declares a Plugin Name is not that: WordPress cannot load it and nothing on the site depends on it. The rule is unchanged for every real plugin and simply does not apply to a directory that only resembles one, and the detector establishes the absence of a header as a fact rather than inferring it.
+
+### Verified
+`php -l` clean across all 42 includes. New harness `headless-plugin-folder.php` (12/12): the real sample is detected with its missing header, encrypted data files and surviving options all named; a genuine plugin carrying binary assets, a library folder, and a plugin whose header sits in a subdirectory are each left alone; removal is authorised under the not-a-plugin rule; a real plugin package is still protected from behavioural removal; and an operator Safe decision still overrides everything. Twenty-two harnesses pass, 211 assertions.
+
+### Meta
+Version markers move to 1.4.105. New check `check_headless_plugin_folder`, new event `headless_plugin_folder_found`, new policy rule `not_a_plugin`. No new settings. `INDICATOR_VERSION` unchanged.
+
+
 ## 1.4.104
 
 The site-policy ban has not removed anything since 1.4.90. This release repairs it.
