@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.111
+Stable tag: 1.4.113
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -106,6 +106,12 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.113 =
+A single-file loader of the packed family, carrying its payload compressed inside the PHP and printing it only to visitors who are neither editors nor crawlers, was detected but refused removal because the only matching check was behavioural. A new check reports that conjunction - compressed embedded script, printed inline, hidden from both editors and crawlers - which no legitimate plugin presents, and removes the folder along with the payload copy it saves into wp_options.
+
+= 1.4.112 =
+Removes empty folders left as landing slots for the packed payload family: an empty plugin folder at least 15 minutes old, either extending the name of a payload folder already found on the site or matching the family's naming shape, is removed by the hourly scan. Reappearances escalate to a warning that something still has write access to the site.
 
 = 1.4.111 =
 Adds detection for function names assembled from defined constants, a technique that defeats both signature matching and the split-string check added in 1.4.79. A 24KB index.php recovered from mu-plugins built file_put_contents, register_shutdown_function and unlink out of nested constants, then wrote a decoded payload to a temporary file, included it and deleted it so nothing persisted between requests. The check resolves the constants and reports a dangerous call whose plain name is absent from the file, requiring all three conditions so that honest use of constants is unaffected. Also corrects the host SSO loader being queued for automatic removal: the recovered copy is byte-identical to the loader managed hosts install for their dashboard login, so it is now reported rather than removed unless the operator has enabled the sign-in endpoint guard, in which case removal is consistent with what was asked for. Other known-bad mu-plugin filenames are unaffected.

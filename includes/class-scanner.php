@@ -594,6 +594,7 @@ class WPS_Scanner {
 			'check_hidden_admin_backdoor' => [ __CLASS__, 'check_hidden_admin_backdoor' ], // 1.4.81: code that creates an administrator AND hides it from the user list
 			'check_unauth_auth_bypass' => [ __CLASS__, 'check_unauth_auth_bypass' ], // 1.4.95: unauthenticated endpoint that hands out an admin session
 			'check_foreign_plugin_files' => [ __CLASS__, 'check_foreign_plugin_files' ], // 1.4.103: PHP inside a directory plugin that its own official manifest does not list
+			'check_encoded_inline_script_injector' => [ __CLASS__, 'check_encoded_inline_script_injector' ], // 1.4.113: gz+base64 blob printed as inline script, hidden from editors and crawlers
 			'check_headless_plugin_folder' => [ __CLASS__, 'check_headless_plugin_folder' ], // 1.4.105: plugin-shaped folder with no entry point, holding a staged or orphaned payload
 			'check_constant_assembled_calls' => [ __CLASS__, 'check_constant_assembled_calls' ], // 1.4.111: function names built from define() constants to defeat searching
 			'check_unattributed_plugins' => [ __CLASS__, 'check_unattributed_plugins' ], // 1.4.83: a plugin folder that appeared with no install ever recorded - the tool an intruder brought
@@ -5870,6 +5871,160 @@ class WPS_Scanner {
 		return $found;
 	}
 
+	/**
+	 * 1.4.113: a compressed payload printed as script, only to visitors.
+	 *
+	 * Recovered in a suffixed re-drop slot (page-speed-analytics-fbb4-975d)
+	 * beside a headless payload folder: a single-file loader with a genuine
+	 * Plugin Name header, carrying the ClickFix/EtherHiding payload inline as
+	 * a gzinflate(base64_decode(...)) blob, which it copies into an option
+	 * and prints with wp_print_inline_script_tag() - but only for visitors
+	 * who are neither logged in with an editing role nor a known crawler.
+	 * Every plain-text marker of the family is inside the compressed blob, so
+	 * no signature matched. The cloaked-injector check did match it, and the
+	 * policy then refused removal: that check is behavioural and the folder
+	 * carries a real header, so it was reported every scan and left running.
+	 *
+	 * Cloaking on its own is not conclusive - advertising and analytics
+	 * plugins skip administrators and bots and print footer scripts for
+	 * ordinary reasons. What no legitimate plugin does is all three at once:
+	 * decompress an embedded base64 blob, print the result as an inline
+	 * script, and gate that on hiding from BOTH editors and crawlers. A real
+	 * plugin ships its script as a file it enqueues; nothing honest needs to
+	 * compress JavaScript into PHP and show it only to people who will not
+	 * notice. That conjunction is what this reports, so it can join the
+	 * conclusive tier.
+	 *
+	 * The loader also persists the decoded payload into an option
+	 * (update_option(name, base64_encode(...))) and reads that option first
+	 * on later runs, so a copy survives the file. Those options are
+	 * quarantined with it, exactly as the headless-folder check does.
+	 *
+	 * @return array<int, array<string, string>>
+	 */
+	private static function check_encoded_inline_script_injector(): array {
+		$found = [];
+		if ( ! defined( 'WP_CONTENT_DIR' ) || ! is_dir( WP_CONTENT_DIR ) ) {
+			return $found;
+		}
+		$self_dir = realpath( WPS_DIR ) ?: '';
+		$roots    = [];
+		foreach ( [ defined( 'WP_PLUGIN_DIR' ) ? WP_PLUGIN_DIR : '', defined( 'WPMU_PLUGIN_DIR' ) ? WPMU_PLUGIN_DIR : '', WP_CONTENT_DIR . '/themes' ] as $r ) {
+			if ( '' !== $r && is_dir( $r ) ) {
+				$roots[] = rtrim( $r, '/\\' );
+			}
+		}
+
+		$rx_decode = '/\b(?:gzinflate|gzuncompress|gzdecode)\s*\(\s*@?\s*base64_decode\s*\(/i';
+		$rx_sink   = '/\bwp_print_inline_script_tag\s*\(|[\'"]<script[\s>\'"]|=\s*[\'"]script[\'"]\s*;/i';
+		$rx_role   = '/\bis_user_logged_in\s*\(.{0,400}?(?:administrator|editor|->roles|current_user_can)/is';
+		$rx_ua     = '/HTTP_USER_AGENT/';
+		$bots      = [ 'googlebot', 'bingpreview', 'yandex', 'ahrefs', 'semrush', 'lighthouse', 'pagespeed', 'crawl', 'spider', 'slurp', 'duckduck', 'facebookexternalhit', 'twitterbot', 'mj12', 'dotbot' ];
+
+		$seen  = [];
+		$count = 0;
+		foreach ( $roots as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 5 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() || ++$count > 20000 || self::scan_budget_exceeded() ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( false === $size || $size < 500 || $size > 2097152 ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) || ( '' !== $self_dir && 0 === strpos( $real, $self_dir ) ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					$raw = @file_get_contents( $path );
+					if ( ! is_string( $raw ) || '' === $raw ) {
+						continue;
+					}
+					// Cheap prefilter on the raw bytes before normalising.
+					if ( false === stripos( $raw, 'base64_decode' ) || ! preg_match( '/gz(?:inflate|uncompress|decode)/i', $raw ) ) {
+						continue;
+					}
+					$src = class_exists( 'WPS_Utils' ) ? WPS_Utils::normalise_split_literals( $raw ) : $raw;
+					if ( ! preg_match( $rx_decode, $src ) || ! preg_match( $rx_sink, $src ) ) {
+						continue;
+					}
+					if ( ! preg_match( $rx_ua, $src ) || ! preg_match( $rx_role, $src ) ) {
+						continue;
+					}
+					$lower = strtolower( $src );
+					$hits  = 0;
+					foreach ( $bots as $b ) {
+						if ( false !== strpos( $lower, "'" . $b ) || false !== strpos( $lower, '"' . $b ) ) {
+							++$hits;
+						}
+					}
+					if ( $hits < 4 ) {
+						continue; // a crawler list is part of the conjunction, not an incidental mention
+					}
+
+					// Options the loader persists its payload into.
+					$stores = [];
+					if ( preg_match_all( '/\bupdate_option\s*\(\s*[\'"]([A-Za-z0-9_\-]{3,80})[\'"]\s*,\s*base64_encode\s*\(/i', $src, $om ) ) {
+						foreach ( $om[1] as $o ) {
+							$stores[ $o ] = true;
+						}
+					}
+					$stores  = array_keys( $stores );
+					$cleaned = [];
+					if ( $stores && self::auto_delete_enabled() && class_exists( 'WPS_Quarantine' ) && method_exists( 'WPS_Quarantine', 'quarantine_option' ) ) {
+						foreach ( $stores as $opt ) {
+							if ( null === get_option( $opt, null ) ) {
+								continue;
+							}
+							WPS_Quarantine::quarantine_option( $opt, [
+								'type'   => 'db_option (encoded inline-script injector)',
+								'reason' => 'payload copy persisted by ' . self::display_path( $path ),
+							] );
+							$cleaned[] = $opt;
+							if ( class_exists( 'WPS_Logger' ) ) {
+								WPS_Logger::log_event( 'injector_payload_option_cleared', $opt . ' quarantined; written by ' . self::display_path( $path ) );
+							}
+						}
+					}
+
+					$container = self::containing_extension_dir( $path );
+					$found[]   = [
+						'severity'    => 'critical',
+						'type'        => 'Compressed script payload injected only for unwatched visitors',
+						'subject'     => self::display_path( $path ) . ( $stores ? ' [payload stored in ' . implode( ', ', $stores ) . ']' : '' ),
+						'path'        => $path,
+						'action'      => 'This file decompresses a script embedded in it as base64, prints it into your pages as inline JavaScript, and skips doing so for logged-in editors and for '
+							. $hits . ' named search crawlers - so the people who would notice never see it. A legitimate plugin ships its script as a file and does not hide it from you. '
+							. ( $cleaned
+								? 'It had also saved its payload into ' . implode( ' and ', $cleaned ) . ' in wp_options so a copy would survive deletion of the file; that has been quarantined too and is restorable from Diagnostics. '
+								: ( $stores ? 'It saves its payload into ' . implode( ' and ', $stores ) . ' in wp_options so a copy survives deletion of the file; remove that as well. ' : '' ) )
+							. 'Treat the site as compromised and find how it arrived.',
+						'auto_delete' => true,
+						'delete_path' => '' !== $container ? $container : $path,
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'encoded_inline_injector_found', self::display_path( $path ) . ( $stores ? ' (stores: ' . implode( ',', $stores ) . ')' : '' ) );
+					}
+					self::report_malware_source( $path, 'a compressed script injector hidden from editors and crawlers' );
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		return $found;
+	}
+
 	private static function check_headless_plugin_folder(): array {
 		$found = [];
 		if ( ! defined( 'WP_PLUGIN_DIR' ) || ! is_dir( WP_PLUGIN_DIR ) ) {
@@ -5899,6 +6054,7 @@ class WPS_Scanner {
 			$opaque     = [];
 			$options    = [];
 			$examined   = 0;
+			$files_seen = 0;
 			try {
 				$iter = new RecursiveIteratorIterator(
 					new RecursiveDirectoryIterator( $pdir, FilesystemIterator::SKIP_DOTS ),
@@ -5912,6 +6068,7 @@ class WPS_Scanner {
 					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
 						continue;
 					}
+					++$files_seen;
 					$fp  = $f->getPathname();
 					$ext = strtolower( $f->getExtension() );
 
@@ -5963,10 +6120,62 @@ class WPS_Scanner {
 			if ( $has_header ) {
 				continue; // a real plugin, whatever else it contains
 			}
+
+			/*
+			 * 1.4.112: an empty slot left for a re-drop.
+			 *
+			 * Recovered alongside a headless folder of this family
+			 * (advanced-asset-analytics-4ad1): an EMPTY folder named
+			 * advanced-asset-analytics-4ad1-5419, created the same minute.
+			 * The dropper found its name taken or removed and made a fresh,
+			 * suffixed slot for the payload to land in. Every condition this
+			 * check keys on is a file, so a folder with no files at all was
+			 * invisible and stayed on disk as a standing landing pad.
+			 *
+			 * An empty folder can run nothing, so the only question is
+			 * whether removing it could cost anything. It removes no data by
+			 * definition; the one real risk is racing an upload in progress
+			 * (an FTP transfer creates the folder before the first file - the
+			 * exact failure seen when a plugin was activated mid-upload), so
+			 * the folder must also be at least 15 minutes old. On top of
+			 * that it must be tied to this campaign, either by extending the
+			 * name of a headless folder this check has already found, or by
+			 * the family's own naming shape: three lowercase words and one
+			 * or more four-character hex tags. Seven recovered samples share
+			 * that shape and no directory plugin uses it.
+			 */
+			if ( 0 === $files_seen ) {
+				$age   = time() - (int) @filemtime( $pdir );
+				$known = self::headless_slug_parent( $slug );
+				$shape = (bool) preg_match( '/^[a-z]+-[a-z]+-[a-z]+(?:-[0-9a-f]{4})+$/', $slug );
+				if ( $age >= 15 * MINUTE_IN_SECONDS && ( '' !== $known || $shape ) ) {
+					$seen = self::remember_headless_slug( '' !== $known ? $known : $slug );
+					$found[] = [
+						'severity'    => 'high',
+						'type'        => 'Plugin folder with no plugin in it (empty slot left for a re-drop)',
+						'subject'     => $slug . ( '' !== $known ? ' extends ' . $known . ', a payload folder found earlier' : ' matches the naming of a known payload family' ),
+						'path'        => $pdir,
+						'action'      => 'This folder is empty, named the way this malware family names its payload folders'
+							. ( '' !== $known ? ', and extends the name of one already found here' : '' )
+							. '. It is a slot prepared for a payload to be dropped into, and it is removed so nothing can land in it. '
+							. ( $seen >= 2
+								? 'This family has now been seen on this site ' . $seen . ' times. Something is still actively placing folders here, so removing them treats the symptom: change FTP/SFTP and hosting control-panel passwords, check for unknown cron jobs, and check the plugin roster and FTP log for how the folder arrived.'
+								: 'If a folder like this reappears, something on the server is still actively dropping files and the access behind it needs closing, not just the folder.' ),
+						'auto_delete' => true,
+						'delete_path' => $pdir,
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'headless_redrop_slot_found', $slug . ( '' !== $known ? ' (extends ' . $known . ')' : '' ) . '; seen ' . $seen . 'x' );
+					}
+				}
+				continue;
+			}
+
 			if ( ! $opaque && ! $options ) {
 				continue; // a library or an asset folder: unusual, not hostile
 			}
 
+			self::remember_headless_slug( $slug );
 			$opt_list = array_keys( $options );
 
 			/*
@@ -6027,6 +6236,53 @@ class WPS_Scanner {
 		}
 
 		return $found;
+	}
+
+	/**
+	 * 1.4.112: slugs of headless payload folders found on this site, so an
+	 * empty re-drop slot named after one can be tied back to it. Returns the
+	 * number of times the slug (or its family) has now been seen.
+	 */
+	private static function remember_headless_slug( string $slug ): int {
+		$map = get_option( 'wps_headless_slugs', [] );
+		if ( ! is_array( $map ) ) {
+			$map = [];
+		}
+		$cutoff = time() - 180 * DAY_IN_SECONDS;
+		foreach ( $map as $k => $rec ) {
+			if ( ! is_array( $rec ) || (int) ( $rec['last'] ?? 0 ) < $cutoff ) {
+				unset( $map[ $k ] );
+			}
+		}
+		$rec          = isset( $map[ $slug ] ) && is_array( $map[ $slug ] ) ? $map[ $slug ] : [ 'count' => 0, 'last' => 0 ];
+		$last_scan    = (int) $rec['last'];
+		// Count sightings, not scans: the same folder seen by consecutive
+		// hourly scans before removal must not inflate the number.
+		if ( time() - $last_scan > 2 * HOUR_IN_SECONDS ) {
+			$rec['count'] = (int) $rec['count'] + 1;
+		}
+		$rec['last']  = time();
+		$map[ $slug ] = $rec;
+		if ( count( $map ) > 50 ) {
+			uasort( $map, static function ( $a, $b ) { return (int) $a['last'] <=> (int) $b['last']; } );
+			$map = array_slice( $map, -50, null, true );
+		}
+		update_option( 'wps_headless_slugs', $map, false );
+		return (int) $rec['count'];
+	}
+
+	/** The recorded headless slug this folder name extends with a suffix, or ''. */
+	private static function headless_slug_parent( string $slug ): string {
+		$map = get_option( 'wps_headless_slugs', [] );
+		if ( ! is_array( $map ) ) {
+			return '';
+		}
+		foreach ( array_keys( $map ) as $known ) {
+			if ( $slug !== $known && 0 === strpos( $slug, $known . '-' ) ) {
+				return (string) $known;
+			}
+		}
+		return '';
 	}
 
 	private static function check_foreign_plugin_files(): array {

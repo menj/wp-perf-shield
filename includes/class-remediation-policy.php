@@ -150,6 +150,12 @@ final class WPS_Remediation_Policy {
 		// plain name is absent from the file. Three conditions that only
 		// coincide when someone is hiding what the code calls.
 		'Function names assembled from constants to defeat searching',
+		// 1.4.113: an embedded compressed blob printed as inline script, gated
+		// on hiding from BOTH editors and a list of crawlers. Cloaking alone
+		// stays behavioural - ad and analytics plugins do that honestly - but
+		// no legitimate plugin compresses its JavaScript into PHP and shows it
+		// only to visitors who will not notice.
+		'Compressed script payload injected only for unwatched visitors',
 	];
 
 	/*

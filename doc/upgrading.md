@@ -59,6 +59,14 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.113
+
+**A loader that was being reported and left running is now removed.** If a scan has been listing a "Cloaked content injector" inside a plugin folder with a random-looking name every hour without removing it, this release removes it, and the copy of its payload it saved in `wp_options`. Nothing to configure.
+
+## 1.4.112
+
+**Empty re-drop folders are now removed.** If you have seen an empty folder like `advanced-asset-analytics-4ad1-5419` in your plugins directory, the hourly scan now removes it once it is 15 minutes old. If the finding says the family has been seen more than once, change your FTP/SFTP and hosting control-panel passwords: something still has write access. Nothing to configure.
+
 ## 1.4.111
 
 **Detects webshells that build their function names out of constants.** A 24KB file was sitting in your mu-plugins folder, where every legitimate file of that name is a single line. It contained no recognisable dangerous call, because the names were assembled at runtime from defined constants, then used to write a payload to a temporary file, run it, and delete it so nothing remained between requests. It is now detected and removed.

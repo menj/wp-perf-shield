@@ -1,5 +1,62 @@
 # WP Perf Shield changelog
 
+## 1.4.113
+
+Ten samples from the packed family, one of which was detected and left running.
+
+### The batch
+Eight headless payload folders (`advanced-content-profiler-5380`, `advanced-render-insights-2dd6`, `auto-health-analytics-6b81`, `cloud-seo-insights-172d`, `essential-layout-loader-60fb`, `essential-security-monitor-fc82`, `fast-resource-checker-572d`, `page-speed-analytics-fbb4`), one empty re-drop slot (`native-database-checker-c975-5d93`), and one re-drop slot that was not empty: `page-speed-analytics-fbb4-975d`, extending the name of a headless folder in the same batch and holding a single-file loader.
+
+Four of the headless folders now carry a loader (`class-init.php`, `class-handler.php`, `class-manager.php`, `class-engine.php`) that still declares no Plugin Name, and add a server-side heartbeat: a `wp_remote_post` with `sslverify` off, reporting the site's domain, current page, PHP and WordPress versions and active-plugin count to the operator. All nine are removed by existing checks under the `not_a_plugin` rule, most also by signature.
+
+### The one that stayed
+The single-file loader has a genuine Plugin Name header. It carries the ClickFix/EtherHiding payload (same Polygon contract, same `webanalytics-cdn.sbs` fallback) three layers deep: `gzinflate(base64_decode())` in PHP, then `atob` and a byte-shift XOR in JavaScript, run through `new Function`, with a debugger-timing check to stop analysis. Every plain-text marker of the family is inside the blob, so no signature matched.
+
+The cloaked-injector check did match it. The policy then refused removal under `package_scope_denied`, because that check is behavioural and the folder is real, header-carrying software as far as the policy can tell. It would have been reported every hour and left injecting. Verified by running the scanner and the policy against the sample, not inferred.
+
+### Why not make cloaking conclusive
+Advertising and analytics plugins skip administrators and bots and print footer scripts for ordinary reasons. Cloaking alone stays behavioural, and it does.
+
+### What was added
+`check_encoded_inline_script_injector` reports the conjunction no legitimate plugin presents: an embedded base64 blob decompressed with `gzinflate`/`gzuncompress`/`gzdecode`, printed as inline script, gated on hiding from logged-in editors AND from a list of at least four named crawlers. A real plugin ships its script as a file it enqueues; nothing honest compresses JavaScript into PHP and shows it only to visitors who will not notice. The finding type joins the conclusive tier, so removal of the containing folder is authorised.
+
+The loader also copies its decoded payload into an option (`update_option(name, base64_encode(...))`, here `wp_4269cfad33_cfg`) and reads that option first on later runs, so a copy outlives the file. Options written that way are quarantined alongside it, restorable from Diagnostics.
+
+### Verified
+`php -l` clean across all includes. The real scanner and policy were run against all ten samples: each one now has an authorised removal. New harness `encoded-inline-injector.php` (8/8): the loader is detected, its payload option quarantined, its whole folder queued and allowed by policy; an ad plugin that hides from admins and bots with no compressed blob, a plugin decompressing an embedded asset with no cloaking, and a compressed inline script hidden from admins only with no crawler list are all left alone. `headless-redrop-slot.php` still 11/11.
+
+### Meta
+Version markers move to 1.4.113. New check `check_encoded_inline_script_injector`, new events `encoded_inline_injector_found`, `injector_payload_option_cleared`, one conclusive-tier entry. No new settings. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.112
+
+An empty folder left as a landing pad for the next drop.
+
+### The sample
+Recovered together: `advanced-asset-analytics-4ad1`, a headless payload folder of the packed family (encrypted `settings.dat` and `cache.cache`, an `uninstall.php` declaring two options, no `Plugin Name` anywhere), and `advanced-asset-analytics-4ad1-5419`, created the same minute and completely empty. The dropper found its name taken or removed and prepared a suffixed slot for the payload to land in.
+
+The first is caught by `check_headless_plugin_folder` (1.4.105) and removed with its options (1.4.106). The second was invisible: every condition that check keys on is a file, and a folder with no files met none of them, so it stayed on disk as a standing target.
+
+### What changed
+`check_headless_plugin_folder` now also removes an empty plugin folder when all of the following hold:
+
+- it contains no files at all;
+- it is at least 15 minutes old, so an FTP upload that has created the folder but not yet its first file is never raced (the same timing that broke a plugin activated mid-upload);
+- it is tied to this campaign, either by extending the name of a headless folder this check has already found on the site, or by the family's own naming shape: three lowercase words followed by one or more four-character hex tags. All seven recovered samples of the family share that shape, and no directory plugin uses it.
+
+An empty folder can run nothing and holds no data, so removing one costs nothing; the conditions exist to keep the check from acting on an ordinary leftover or an upload in progress, not because removal is risky. The finding carries the existing "no plugin in it" type, so it is authorised under the `not_a_plugin` rule from 1.4.105 and every higher protection (core, Safe decisions, the circuit breaker) still applies.
+
+### Reappearance
+Headless folders found are now remembered for 180 days in `wps_headless_slugs`, which is what lets an empty `...-5419` slot be tied back to the folder it extends. Sightings are counted, not scans, so the same folder seen by consecutive hourly scans before removal is one sighting. From the second sighting of a family on a site, the finding stops describing the folder and says that something is still actively placing files, naming FTP/SFTP and control-panel credentials, cron jobs, the plugin roster and the FTP log as the places to look. Removing the folders treats a symptom; the access that keeps creating them is the actual problem.
+
+### Verified
+`php -l` clean across all includes. New harness `headless-redrop-slot.php` (11/11): the headless sample is still detected; the empty slot is detected, typed for the `not_a_plugin` rule, queued for removal and tied back to its parent; a fresh empty folder, an ordinary empty folder and a real plugin are all left alone; a family-shaped empty folder with no recorded parent is detected; a reappearance escalates to the access warning; and consecutive scans do not inflate the sighting count.
+
+### Meta
+Version markers move to 1.4.112. New option `wps_headless_slugs`, new event `headless_redrop_slot_found`. No new checks or settings; the existing hourly scan removes the slot. `INDICATOR_VERSION` unchanged.
+
+
 ## 1.4.111
 
 A webshell in mu-plugins that no check could see, and a legitimate file queued for deletion.
