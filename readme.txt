@@ -5,7 +5,11 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
+<<<<<<< HEAD
 Stable tag: 1.4.118
+=======
+Stable tag: 1.4.113
+>>>>>>> 224acf1bb7e5cd9cbf5058fc39b4f3a583e5d2fd
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -112,6 +116,7 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 
 == Changelog ==
 
+<<<<<<< HEAD
 = 1.4.118 =
 Error-page drop-ins (maintenance.php, db-error.php, php-error.php). A theme's harmless static copies were being reported as "unknown publisher" on every scan; a page that provably runs nothing (comments and header calls only, no script, form, refresh or external reference) is now recognised on its content. Testing that also showed a publisher label in a comment was enough to hide a backdoor in these files from all 90 checks; for these three files a label no longer excuses executable code, request-header reading or outbound calls, which are now reported as high, review-only. The drop-in baseline guard, which raised a high alert every time a theme wrote or rewrote such a page, uses the same verdict. Other drop-ins are unchanged.
 
@@ -127,6 +132,8 @@ Maintenance release: version bump only, no functional changes from 1.4.114.
 = 1.4.114 =
 Detects and removes the self-propagating worm ("WP Link Helper") that is the foothold behind the doorway-spam campaign: the file that re-drops the payload folders, reinstalls itself from mu-plugins copies, and spreads to other sites under the same hosting account by creating temporary admins in their databases. Matched on a conjunction of its own request handlers, option family and signed worm operations, with the runtime-assembled markers normalised first so they do not evade the scan. The file and its self-heal options in wp_options are removed together so a surviving copy cannot re-claim. Removing it from this site does not clean sibling sites or revoke admins it created elsewhere - change hosting passwords and check every site on the account.
 
+=======
+>>>>>>> 224acf1bb7e5cd9cbf5058fc39b4f3a583e5d2fd
 = 1.4.113 =
 A single-file loader of the packed family, carrying its payload compressed inside the PHP and printing it only to visitors who are neither editors nor crawlers, was detected but refused removal because the only matching check was behavioural. A new check reports that conjunction - compressed embedded script, printed inline, hidden from both editors and crawlers - which no legitimate plugin presents, and removes the folder along with the payload copy it saves into wp_options.
 

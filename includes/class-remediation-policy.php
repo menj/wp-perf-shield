@@ -156,11 +156,14 @@ final class WPS_Remediation_Policy {
 		// no legitimate plugin compresses its JavaScript into PHP and shows it
 		// only to visitors who will not notice.
 		'Compressed script payload injected only for unwatched visitors',
+<<<<<<< HEAD
 		// 1.4.114: the propagation worm. Its detector already requires a
 		// conjunction of its own request handlers, its option family and a
 		// signed worm operation before reporting - several malicious
 		// behaviours at once, never one incidental match.
 		'Self-propagating link-injection worm',
+=======
+>>>>>>> 224acf1bb7e5cd9cbf5058fc39b4f3a583e5d2fd
 	];
 
 	/*

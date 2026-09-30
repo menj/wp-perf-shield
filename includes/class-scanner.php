@@ -594,7 +594,10 @@ class WPS_Scanner {
 			'check_hidden_admin_backdoor' => [ __CLASS__, 'check_hidden_admin_backdoor' ], // 1.4.81: code that creates an administrator AND hides it from the user list
 			'check_unauth_auth_bypass' => [ __CLASS__, 'check_unauth_auth_bypass' ], // 1.4.95: unauthenticated endpoint that hands out an admin session
 			'check_foreign_plugin_files' => [ __CLASS__, 'check_foreign_plugin_files' ], // 1.4.103: PHP inside a directory plugin that its own official manifest does not list
+<<<<<<< HEAD
 			'check_link_helper_worm' => [ __CLASS__, 'check_link_helper_worm' ], // 1.4.114: WP Link Helper self-propagating worm - the campaign's foothold; removes file + heal-state options
+=======
+>>>>>>> 224acf1bb7e5cd9cbf5058fc39b4f3a583e5d2fd
 			'check_encoded_inline_script_injector' => [ __CLASS__, 'check_encoded_inline_script_injector' ], // 1.4.113: gz+base64 blob printed as inline script, hidden from editors and crawlers
 			'check_headless_plugin_folder' => [ __CLASS__, 'check_headless_plugin_folder' ], // 1.4.105: plugin-shaped folder with no entry point, holding a staged or orphaned payload
 			'check_constant_assembled_calls' => [ __CLASS__, 'check_constant_assembled_calls' ], // 1.4.111: function names built from define() constants to defeat searching
@@ -5903,6 +5906,7 @@ class WPS_Scanner {
 	 *
 	 * @return array<int, array<string, string>>
 	 */
+<<<<<<< HEAD
 	/**
 	 * 1.4.114: the propagation engine behind this whole campaign.
 	 *
@@ -6072,6 +6076,8 @@ class WPS_Scanner {
 		return $found;
 	}
 
+=======
+>>>>>>> 224acf1bb7e5cd9cbf5058fc39b4f3a583e5d2fd
 	private static function check_encoded_inline_script_injector(): array {
 		$found = [];
 		if ( ! defined( 'WP_CONTENT_DIR' ) || ! is_dir( WP_CONTENT_DIR ) ) {

@@ -2,7 +2,11 @@
 /**
  * Plugin Name: WP Perf Shield
  * Description: Blocks wp-perf-analytics traffic-hijacking malware and all renamed variants. Includes real-time activation blocking, scheduled scanning, and one-click remediation.
+<<<<<<< HEAD
  * Version: 1.4.118
+=======
+ * Version: 1.4.113
+>>>>>>> 224acf1bb7e5cd9cbf5058fc39b4f3a583e5d2fd
  * Author: MENJ
  * Author URI: https://github.com/menj
  * License: GPL-2.0+
@@ -14,7 +18,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+<<<<<<< HEAD
 define( 'WPS_VERSION', '1.4.118' );
+=======
+define( 'WPS_VERSION', '1.4.113' );
+>>>>>>> 224acf1bb7e5cd9cbf5058fc39b4f3a583e5d2fd
 define( 'WPS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPS_URL', plugin_dir_url( __FILE__ ) );
 define( 'WPS_LOG_DIR', WPS_DIR . 'logs' );
