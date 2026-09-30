@@ -57,6 +57,20 @@ class WPS_Dropin_Guard {
 		return [ 'object-cache.php', 'advanced-cache.php', 'db.php', 'db-error.php', 'maintenance.php', 'fatal-error-handler.php', 'install.php', 'php-error.php', 'sunrise.php' ];
 	}
 
+	/**
+	 * 1.4.118: publisher verdict for a named drop-in. Error-page drop-ins are
+	 * judged on content by WPS_Scanner::effective_drop_in_publisher(), so a
+	 * theme's static maintenance page is no longer "unknown publisher" (high)
+	 * every time it appears or is rewritten, and a publisher label pasted into
+	 * one that contains executable code no longer makes it "known".
+	 */
+	private static function effective_publisher( string $name, string $contents ): string {
+		if ( method_exists( 'WPS_Scanner', 'effective_drop_in_publisher' ) ) {
+			return WPS_Scanner::effective_drop_in_publisher( $name, $contents );
+		}
+		return self::publisher_of( $contents );
+	}
+
 	private static function publisher_of( string $contents ): string {
 		if ( method_exists( 'WPS_Scanner', 'match_drop_in_publisher' ) ) {
 			return WPS_Scanner::match_drop_in_publisher( $contents );
@@ -86,7 +100,7 @@ class WPS_Dropin_Guard {
 				'hash'      => hash( 'sha256', $contents ),
 				'mtime'     => (int) @filemtime( $path ),
 				'size'      => (int) @filesize( $path ),
-				'publisher' => self::publisher_of( $contents ),
+				'publisher' => self::effective_publisher( $name, $contents ),
 			];
 		}
 		return $state;
@@ -159,6 +173,17 @@ class WPS_Dropin_Guard {
 			$in_base = isset( $baseline[ $name ] );
 			$in_curr = isset( $current[ $name ] );
 			$full    = $dir . DIRECTORY_SEPARATOR . $name;
+
+			// 1.4.118: a page verified as running nothing is not a change worth
+			// reporting, whether it is new or rewritten. Judged on the CURRENT
+			// content only, so a verified page replacing anything else is quiet
+			// and anything unverified replacing it is still reported below.
+			if ( $in_curr && WPS_Scanner::VERIFIED_STATIC_PAGE === (string) ( $current[ $name ]['publisher'] ?? '' ) ) {
+				if ( ! $in_base || (string) ( $baseline[ $name ]['hash'] ?? '' ) !== (string) ( $current[ $name ]['hash'] ?? '' ) ) {
+					WPS_Logger::log_event( 'dropin_static_page_change', 'name=' . $name . ' verified inert; not reported' );
+				}
+				continue;
+			}
 
 			if ( ! $in_base && $in_curr ) {
 				$pub     = (string) ( $current[ $name ]['publisher'] ?? '' );

@@ -1,5 +1,186 @@
 # WP Perf Shield changelog
 
+## 1.4.118
+
+Error-page drop-ins: a false positive on a real theme's files, and a blind spot found while fixing it.
+
+### The sample
+Three byte-identical files, `db-error.php`, `maintenance.php` and `php-error.php`, written by a theme: a 503 response with `Retry-After`, then a static page with a light/dark stylesheet, no script, no external reference. All three are official WordPress drop-in names. `check_drop_ins` reported each as "unknown publisher" on every scan (medium, review-only, so nothing was ever deleted, but every site running that theme carried three standing "possible backdoor" items for a harmless page).
+
+### Why not add the theme to the publisher list
+The list matches a string anywhere in the file. A string is whatever the file's author wrote, so a comment naming the theme would have cleared these three files and also cleared any file carrying that comment.
+
+### The blind spot
+Testing that showed the existing labels are exactly that weak. A `maintenance.php` that read a function name and its argument from two request headers and called it, headed by the comment `GENERATED AUTOMATICALLY` (one of the Plesk WP Toolkit labels), produced no finding from `check_drop_ins`, and none from the other 89 checks. Drop-ins load before any plugin, so this is the highest-privilege place a backdoor can sit, and it was invisible.
+
+### What changed
+Both changes apply only to `db-error.php`, `maintenance.php` and `php-error.php`, which exist to show a message and have no reason to run logic. `fatal-error-handler.php`, `install.php`, `sunrise.php` and the cache and database drop-ins legitimately contain code and are untouched.
+
+- **A verifiably inert page needs no publisher.** The PHP must be a single block containing only comments and `header()`, `headers_sent()` or `http_response_code()` calls with literal arguments, checked token by token with the tokenizer rather than by pattern. A header may not redirect, refresh, set a cookie or link elsewhere. The HTML must carry no script, frame, form, event handler, meta refresh, `javascript:`/`data:` URL, `@import`, or reference to another host (protocol-relative, backslash and entity-encoded forms included). Anything it cannot prove falls through to the ordinary review finding, so an unusual but honest page costs one acknowledgement and nothing is cleared on a guess. Without the tokenizer extension a file containing PHP is not cleared.
+- **A label no longer excuses executable code.** A publisher match is now accepted for these three names only if the file also contains none of: `eval`, `assert`, a decoder, command execution, a backtick, a call through a variable name, request input or headers, an include of a computed path, a file write, or an outbound request. Otherwise it is reported as high, "Error-page drop-in carries a publisher label and executable code", review-only because a hosting tool may have generated it. Matching runs on the split-literal-normalised source, so a fragmented function name is still caught.
+
+### The same call, made a second time
+`WPS_Dropin_Guard` (the temporal baseline guard) classifies drop-ins by the same string lookup, independently. For these files it reported "New WordPress drop-in appeared since baseline" as **high** when a theme wrote them and "modified since baseline, inspect immediately" as **high** on every theme update, and it trusted a pasted label the same way. Found by reading what else watches these filenames after the first fix, not by a failing test: the fix above did not reach it. Both now take their verdict from one shared function, `WPS_Scanner::effective_drop_in_publisher()`, so the scanner check and the guard cannot disagree. A page verified as inert is not reported by the guard when it appears or is rewritten; a verified page replaced by anything unverified is still reported high, whether it was in the baseline (as "modified") or appeared after it (as "appeared", because it was never baselined); and a page removed from the baseline is still reported. A drop-in with a publisher label and executable code is high in the guard too, where before its label made it "known".
+
+### Verified
+All 90 checks run over the three real files: 3 findings before, 0 after. New harness `error-page-dropins.php` (38/38): the three real files clean; 23 abuses of the shortcut each still flagged (injected script, inline script, iframe, external image, protocol-relative, backslash and entity-encoded links, event handler, meta refresh, `javascript:` link, `@import`, form, Location and Refresh headers, an added `eval`, `include` or variable call, a second PHP block, a short echo tag, PHP not first, a nested function, an oversized header string, a NUL byte); the labelled backdoor flagged high; a labelled static page, an HTML-only page and a genuine labelled cache drop-in all unchanged; and the identical inert content in each of the six other drop-in names still flagged. New harness `dropin-guard-error-pages.php` (15/15): a baselined theme page rewritten with a version bump, and three inert pages appearing after the baseline, both silent (before: high, three times over); a baselined page replaced by a backdoor, a page that appeared post-baseline then replaced by a backdoor, a verified page that gains a script, and a labelled backdoor appearing, all reported high; a genuine labelled cache drop-in modified still medium; the same inert content as `advanced-cache.php` still high; removal still reported; and the scanner and the guard agree on all five sample contents. All 18 recovered samples still removable; earlier harnesses (11, 8, 11, 8, 9) and the 34-check UI suite pass.
+
+### Not verified
+Real Plesk WP Toolkit or other hosting-generated files were not available. The new rejection only applies if such a file contains one of the executable primitives above, which a page that just shows a message should not; if one does, the result is a high review-only finding, never a removal.
+
+### Meta
+Version markers move to 1.4.118. New constants `ERROR_PAGE_DROP_INS` and `VERIFIED_STATIC_PAGE`, new methods `is_inert_error_page()`, `error_page_executable_primitive()` and the shared `effective_drop_in_publisher()`; `WPS_Dropin_Guard` now calls it. New event `dropin_static_page_change` (log only). No new settings or checks. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.117
+
+UI/UX review of the admin. The look and the tab structure were sound; four things were not.
+
+### How it was checked
+The Settings tab was rendered with the real class and CSS in headless Chromium, in light and dark, at 320, 375, 768 and 1280px, and measured rather than judged by reading the code: horizontal overflow, contrast ratios, page height, and (for the new sub-tabs) behaviour. Of the checks that produced a finding, two were wrong first and are worth recording: an "undefined CSS class" audit flagged eight classes that turned out to be truncated names or JS hooks (no styles were missing), and the first screenshot of the new tab strip looked broken because it was captured mid-transition.
+
+### Fixed: Settings was one 5,230px scroll
+26 setting rows in six stacked cards, and one card ("Detection rules") held 18 of them, including sign-in protection and XML-RPC, which are not detection rules. Settings is now six panels behind a sub-tab strip: Detection, Sign-in, Posting & accounts, Response, Banned plugins, Appearance. The tallest panel is 1,673px (Sign-in) against 5,230 before; the rest are 423-910px. Every existing row moved verbatim; the only rows whose content changed are the seven below.
+
+It stays one form with one Save, and the page says so beside the button. Every field still submits with its panel hidden (a hidden panel's inputs are not disabled): verified by comparing all 30 named fields before and after, and the browser's FormData with the tabs on and off (identical). With JavaScript off the markup is unchanged: every panel is visible and the strip is hidden by CSS, so the change only ever enhances the page. A `#field-id` link opens the panel containing that field, the last panel used is remembered for the session, and an invalid field inside a hidden panel reveals its panel instead of failing to submit silently. Arrow keys, Home and End move between tabs (roving tabindex, `role=tablist`/`tab`/`tabpanel`, `aria-selected`).
+
+### Fixed: incident reports in the settings screen
+The seven rows added in 1.4.100-1.4.101 carried the incident narrative from the changelog: a dated incident, "a real site", "67 blocked hits recorded on one site in a single week", the name of a specific tool, and an internal setting key. That is release-note prose, it is not help text, and it ships to every user. Rewritten as one or two plain sentences each, keeping the behaviour, the default (on/off) and the one caveat that matters (the gambling scanner can misfire on a site that genuinely covers gambling). The detail stays in the changelog, where it belongs.
+
+### Fixed: phone overflow
+`.wps-app .description code` is `white-space: nowrap` so a copyable snippet never splits mid-expression, which is right on desktop. A snippet wider than the screen has nowhere to go on a phone, and because `max-width` does not shrink a table cell's minimum width it pushed the whole page sideways: 435px of content in a 375px viewport. Below the admin's own 782px breakpoint it now wraps in place; desktop is unchanged. Measured clean at 320, 375, 768 and 1280px in both schemes.
+
+### Fixed: the new sub-tab strip in dark mode
+First draft drew the strip straight onto WordPress's own light-grey page background. The dark scheme darkens only the plugin's own panels, so the strip rendered near-white text on pale grey, close to unreadable. It now sits on the same card surface token as the panels. Measured contrast in the settled state: selected label 16.5:1 light / 13.4:1 dark, inactive 5.0:1 / 6.4:1, active underline 6.5:1 / 6.0:1. This one was found by looking at the dark render; the behavioural tests passed throughout.
+
+### Checked and fine
+All 50 CSS design tokens are defined and used, none undefined. Light, dark and auto schemes, `prefers-reduced-motion`, visible focus rings, a 782px breakpoint, 48 `aria-` attributes across the admin, and every one of the 28 visible Settings controls has a label, by `for=` or by wrapping. Body text 16.5:1 light and 13.4:1 dark; helper text 5.0:1 and 5.3:1. Assets remain in `assets/css/` and `assets/js/`.
+
+### Not verified
+Only this plugin's own markup and CSS were rendered. WordPress core's admin stylesheet (buttons, the top-level tab bar, `.form-table` defaults) was not loaded, and no live wp-admin was available, so how the strip sits beneath the real top-level tabs, and the plugin's `.button` styling, are unchecked. The other eight tabs were not rendered.
+
+### Meta
+Version markers move to 1.4.117. New markup in `class-admin-settings.php`, a `Settings sub-tabs` block appended to `assets/js/admin.js`, and a `.wps-subnav`/`.wps-subtab` block plus a phone rule appended to `assets/css/admin.css`. No settings added, removed or renamed; no option names or defaults changed. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.116
+
+Codebase check. Structure was clean; running every registered check and the removal policy against every recovered sample found three places where malware was recognised and still not removed, and one small leak.
+
+### How it was checked
+`php -l` on all 41 PHP files; version markers consistent; all 37 autoloader entries resolve and every declared class is mapped; 90 checks registered, each defined exactly once, none defined without registration; every conclusive-tier entry matches a finding type a detector actually emits. Then the part structural checks cannot do: all 18 recovered samples from this campaign planted in a stubbed site, all 90 checks run, and each finding put through `WPS_Remediation_Policy::decide()`. Two samples came back reported by several checks and removable by none.
+
+### Fixed: guard test that accepted a mention (second instance)
+`check_disguised_plugin_index` skipped any oversized plugin `index.php` containing `defined('ABSPATH')` at all - the same flaw 1.4.99 fixed in `check_unauthenticated_file_manager`. A CMS-agnostic shell (CAXIUM) writes `$is_wordpress = defined('ABSPATH') || defined('WPINC')` as a feature flag and runs standalone regardless. Now requires the guard shape (negated and followed by exit/die/return, either form). Verified: the real shell disguised as a plugin's `index.php` was cleared before and is flagged after; both genuinely guarded forms are still left alone. The two copies were the only instances in the codebase.
+
+### Fixed: host SSO exemption applied anywhere
+1.4.111 protected `sso-loader.php` from removal because managed hosts install a legitimate copy. The test matched the filename wherever it was found, so a planted copy in `uploads/`, recovered next to a web shell, a file-write editor and a miner, was reported by three checks and protected from removal. Hosts install it directly in `mu-plugins`, so the exemption now applies only there. A copy in an `mu-plugins` subfolder, uploads, a plugin folder or the root gets no exemption.
+
+### Fixed: the 1.4.111 setting never removed the file
+1.4.111 documented that switching on "Block unauthenticated sign-in endpoints" would also remove the host loader. It did not: the finding type is not in the confirmed list, so the managed-location rule refused it. Confirmed pre-existing by running the unmodified 1.4.115 policy. The setting is now honoured as an operator instruction, the same standing as a policy ban (1.4.104), placed after the circuit breaker, the Safe veto and core protection. A Safe decision still wins, tested.
+
+### Fixed: unauthenticated file manager in uploads never removed
+This finding is review-only by design, because a plugin or host may place a real file manager in its own folder. That is never true of `uploads/`, where no legitimate PHP runs and which the plugin already treats as strict. Five checks recognised the real CAXIUM shell there and none set a removal target. The critical form (a browser UI, an upload primitive, or three file mutators) in uploads is now removed, file only, never its folder. The same shell in a plugin folder, and a single-primitive file in uploads, both stay review-only.
+
+### Fixed: option left after uninstall
+`wps_headless_slugs` (1.4.112) is now cleared by `wps_uninstall()`.
+
+### Checked and not a problem
+A heuristic audit flagged seven checks that walk overlapping roots without an obvious dedupe guard. Run against the samples, none produced a duplicate finding; the flag was a false alarm and nothing was changed.
+
+### Verified
+All 18 samples now reported and removable. New harness `codebase-check-116.php` (9/9) covers the SSO location rule in four positions, the operator setting, the Safe veto over it, and the file-manager removal limited to critical findings in uploads. Harnesses from 1.4.112 (11/11), 1.4.113 (8/8) and 1.4.114 (11/11) pass against this tree.
+
+### Meta
+Version markers move to 1.4.116. New policy rule `operator_disarmed_sso`, new private helper `is_directly_in_mu_plugins()`. No new checks or settings. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.115
+
+Maintenance release: version bump only, no code changes. Identical detection and remediation to 1.4.114; reissued under a new version number for packaging and deployment tracking. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.114
+
+The propagation engine behind the whole campaign.
+
+### What it is
+Recovered as `wp-link-helper.php` (header "WP Link Helper"): the worm that drops and re-drops every payload folder the other checks remove. Its own embedded changelog documents it: `?wlh_neighbors` scans the server for sibling sites under the same owner with writable plugin directories; `?wlh_adopt` copies the file into a sibling's `wp-content/plugins/` and activates it through the sibling's own database, or creates a temporary administrator in that database and returns the credentials over an HMAC-signed channel; `?wlh_wchinstall` installs the main payload plugin (`wp-cache-helper`) plugin-onto-plugin with no wp-admin credentials. It reinstalls itself on deactivation, on a gutted main file, and from `mu-plugins` heal-copies carrying a baked-in re-claim URL, explicitly so that "a donor wiped down to plugin + all options gone can re-claim and heal". Marker strings are runtime-assembled to defeat a plain grep, and badly-signed requests get silent pass-through so the endpoint is not an unauthenticated presence oracle.
+
+This is the foothold. While any copy of it or its options survives anywhere on the account, everything else this plugin removes comes back. Removing payload folders was always treating the symptom.
+
+### What was added
+`check_link_helper_worm` scans plugins, mu-plugins and the rest of wp-content and reports a file only on a conjunction with no benign reading: at least three of its own `?wlh_*` request handlers, at least three members of its `WLH_OPT_*` option family, and at least one signed worm operation (`adopt.ts`, `adoptclean.ts`, `wchinstall.ts`). Matching runs against the split-literal-normalised source, so the runtime-assembled markers do not evade it. Any single incidental mention of `wlh_` is far below the threshold.
+
+Because the worm self-heals from wp_options, the file and its state are taken together: the whole `WLH_OPT_*` family (`wlh_key`, `wlh_cdn`, `wlh_origin`, `wlh_proj`, `wlh_adopted` and the rest) is quarantined in the same pass, so a surviving heal-copy has nothing to re-claim from. Copies in `mu-plugins` are detected and labelled as such. The finding type joins the conclusive tier; removal is authorised for every copy.
+
+### Verified
+`php -l` clean across all includes. New harness `link-helper-worm.php` (11/11) run against the real sample: the worm is detected in both `plugins/` and `mu-plugins/`, all five seeded heal-state options are quarantined, the mu copy is labelled, an ordinary links plugin and a file with a single incidental `wlh_` mention are both left alone, and the policy authorises removal of every copy. The 1.4.113 (8/8) and 1.4.112 (11/11) harnesses still pass.
+
+### Not a substitute for closing the access
+The worm spreads across sites sharing a hosting account and creates admin users in their databases. Removing it from this site does not clean siblings or revoke a temporary admin already created elsewhere. Change FTP/SFTP and control-panel passwords, check every site on the account for this file, and review each site's administrator list.
+
+### Meta
+Version markers move to 1.4.114. New check `check_link_helper_worm`, new events `link_helper_worm_found`, `link_helper_option_cleared`, one conclusive-tier entry. No new settings. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.113
+
+Ten samples from the packed family, one of which was detected and left running.
+
+### The batch
+Eight headless payload folders (`advanced-content-profiler-5380`, `advanced-render-insights-2dd6`, `auto-health-analytics-6b81`, `cloud-seo-insights-172d`, `essential-layout-loader-60fb`, `essential-security-monitor-fc82`, `fast-resource-checker-572d`, `page-speed-analytics-fbb4`), one empty re-drop slot (`native-database-checker-c975-5d93`), and one re-drop slot that was not empty: `page-speed-analytics-fbb4-975d`, extending the name of a headless folder in the same batch and holding a single-file loader.
+
+Four of the headless folders now carry a loader (`class-init.php`, `class-handler.php`, `class-manager.php`, `class-engine.php`) that still declares no Plugin Name, and add a server-side heartbeat: a `wp_remote_post` with `sslverify` off, reporting the site's domain, current page, PHP and WordPress versions and active-plugin count to the operator. All nine are removed by existing checks under the `not_a_plugin` rule, most also by signature.
+
+### The one that stayed
+The single-file loader has a genuine Plugin Name header. It carries the ClickFix/EtherHiding payload (same Polygon contract, same `webanalytics-cdn.sbs` fallback) three layers deep: `gzinflate(base64_decode())` in PHP, then `atob` and a byte-shift XOR in JavaScript, run through `new Function`, with a debugger-timing check to stop analysis. Every plain-text marker of the family is inside the blob, so no signature matched.
+
+The cloaked-injector check did match it. The policy then refused removal under `package_scope_denied`, because that check is behavioural and the folder is real, header-carrying software as far as the policy can tell. It would have been reported every hour and left injecting. Verified by running the scanner and the policy against the sample, not inferred.
+
+### Why not make cloaking conclusive
+Advertising and analytics plugins skip administrators and bots and print footer scripts for ordinary reasons. Cloaking alone stays behavioural, and it does.
+
+### What was added
+`check_encoded_inline_script_injector` reports the conjunction no legitimate plugin presents: an embedded base64 blob decompressed with `gzinflate`/`gzuncompress`/`gzdecode`, printed as inline script, gated on hiding from logged-in editors AND from a list of at least four named crawlers. A real plugin ships its script as a file it enqueues; nothing honest compresses JavaScript into PHP and shows it only to visitors who will not notice. The finding type joins the conclusive tier, so removal of the containing folder is authorised.
+
+The loader also copies its decoded payload into an option (`update_option(name, base64_encode(...))`, here `wp_4269cfad33_cfg`) and reads that option first on later runs, so a copy outlives the file. Options written that way are quarantined alongside it, restorable from Diagnostics.
+
+### Verified
+`php -l` clean across all includes. The real scanner and policy were run against all ten samples: each one now has an authorised removal. New harness `encoded-inline-injector.php` (8/8): the loader is detected, its payload option quarantined, its whole folder queued and allowed by policy; an ad plugin that hides from admins and bots with no compressed blob, a plugin decompressing an embedded asset with no cloaking, and a compressed inline script hidden from admins only with no crawler list are all left alone. `headless-redrop-slot.php` still 11/11.
+
+### Meta
+Version markers move to 1.4.113. New check `check_encoded_inline_script_injector`, new events `encoded_inline_injector_found`, `injector_payload_option_cleared`, one conclusive-tier entry. No new settings. `INDICATOR_VERSION` unchanged.
+
+
+## 1.4.112
+
+An empty folder left as a landing pad for the next drop.
+
+### The sample
+Recovered together: `advanced-asset-analytics-4ad1`, a headless payload folder of the packed family (encrypted `settings.dat` and `cache.cache`, an `uninstall.php` declaring two options, no `Plugin Name` anywhere), and `advanced-asset-analytics-4ad1-5419`, created the same minute and completely empty. The dropper found its name taken or removed and prepared a suffixed slot for the payload to land in.
+
+The first is caught by `check_headless_plugin_folder` (1.4.105) and removed with its options (1.4.106). The second was invisible: every condition that check keys on is a file, and a folder with no files met none of them, so it stayed on disk as a standing target.
+
+### What changed
+`check_headless_plugin_folder` now also removes an empty plugin folder when all of the following hold:
+
+- it contains no files at all;
+- it is at least 15 minutes old, so an FTP upload that has created the folder but not yet its first file is never raced (the same timing that broke a plugin activated mid-upload);
+- it is tied to this campaign, either by extending the name of a headless folder this check has already found on the site, or by the family's own naming shape: three lowercase words followed by one or more four-character hex tags. All seven recovered samples of the family share that shape, and no directory plugin uses it.
+
+An empty folder can run nothing and holds no data, so removing one costs nothing; the conditions exist to keep the check from acting on an ordinary leftover or an upload in progress, not because removal is risky. The finding carries the existing "no plugin in it" type, so it is authorised under the `not_a_plugin` rule from 1.4.105 and every higher protection (core, Safe decisions, the circuit breaker) still applies.
+
+### Reappearance
+Headless folders found are now remembered for 180 days in `wps_headless_slugs`, which is what lets an empty `...-5419` slot be tied back to the folder it extends. Sightings are counted, not scans, so the same folder seen by consecutive hourly scans before removal is one sighting. From the second sighting of a family on a site, the finding stops describing the folder and says that something is still actively placing files, naming FTP/SFTP and control-panel credentials, cron jobs, the plugin roster and the FTP log as the places to look. Removing the folders treats a symptom; the access that keeps creating them is the actual problem.
+
+### Verified
+`php -l` clean across all includes. New harness `headless-redrop-slot.php` (11/11): the headless sample is still detected; the empty slot is detected, typed for the `not_a_plugin` rule, queued for removal and tied back to its parent; a fresh empty folder, an ordinary empty folder and a real plugin are all left alone; a family-shaped empty folder with no recorded parent is detected; a reappearance escalates to the access warning; and consecutive scans do not inflate the sighting count.
+
+### Meta
+Version markers move to 1.4.112. New option `wps_headless_slugs`, new event `headless_redrop_slot_found`. No new checks or settings; the existing hourly scan removes the slot. `INDICATOR_VERSION` unchanged.
+
+
 ## 1.4.111
 
 A webshell in mu-plugins that no check could see, and a legitimate file queued for deletion.

@@ -150,6 +150,17 @@ final class WPS_Remediation_Policy {
 		// plain name is absent from the file. Three conditions that only
 		// coincide when someone is hiding what the code calls.
 		'Function names assembled from constants to defeat searching',
+		// 1.4.113: an embedded compressed blob printed as inline script, gated
+		// on hiding from BOTH editors and a list of crawlers. Cloaking alone
+		// stays behavioural - ad and analytics plugins do that honestly - but
+		// no legitimate plugin compresses its JavaScript into PHP and shows it
+		// only to visitors who will not notice.
+		'Compressed script payload injected only for unwatched visitors',
+		// 1.4.114: the propagation worm. Its detector already requires a
+		// conjunction of its own request handlers, its option family and a
+		// signed worm operation before reporting - several malicious
+		// behaviours at once, never one incidental match.
+		'Self-propagating link-injection worm',
 	];
 
 	/*
@@ -165,6 +176,19 @@ final class WPS_Remediation_Policy {
 	 * wired one up. The runtime guard in 1.4.95 is how that endpoint is
 	 * stopped, and it is switched on deliberately by the operator.
 	 */
+
+	/** True when the path sits directly inside the must-use plugins directory (not a subfolder). */
+	private static function is_directly_in_mu_plugins( string $path ): bool {
+		$mu = defined( 'WPMU_PLUGIN_DIR' ) ? WPMU_PLUGIN_DIR : ( defined( 'WP_CONTENT_DIR' ) ? WP_CONTENT_DIR . '/mu-plugins' : '' );
+		if ( '' === $mu ) {
+			return false;
+		}
+		$mu_real  = @realpath( $mu );
+		$dir_real = @realpath( dirname( $path ) );
+		$mu_norm  = str_replace( '\\', '/', rtrim( is_string( $mu_real ) && '' !== $mu_real ? $mu_real : $mu, '/\\' ) );
+		$dir_norm = str_replace( '\\', '/', rtrim( is_string( $dir_real ) && '' !== $dir_real ? $dir_real : dirname( $path ), '/\\' ) );
+		return '' !== $mu_norm && $mu_norm === $dir_norm;
+	}
 
 	/** Does this finding rest on several malicious behaviours at once? */
 	private static function is_conclusive( string $type ): bool {
@@ -427,9 +451,21 @@ final class WPS_Remediation_Policy {
 		 * with what was asked for. Where it is off, the file is reported and
 		 * left alone, because nobody has asked for host software to be deleted.
 		 */
-		if ( false !== stripos( $id, 'sso-loader.php' ) ) {
+		/*
+		 * 1.4.116: the exemption applies only where hosts actually install
+		 * it - directly in mu-plugins. The recovered host loader is a
+		 * must-use plugin; hosts do not drop it in uploads, a plugin folder
+		 * or the site root, and a copy found there is not the host's. A
+		 * codebase check found the 1.4.111 test matched the filename
+		 * anywhere, so a planted sso-loader.php in uploads/ - recovered
+		 * alongside a web shell, a file-write editor and a miner - was
+		 * reported and protected from removal by the host exemption.
+		 */
+		$operator_disarmed_sso = false;
+		if ( 'sso-loader.php' === strtolower( basename( $id ) ) && self::is_directly_in_mu_plugins( $target ) ) {
 			$s = get_option( WPS_OPTION, [] );
 			$sso_guard_on = is_array( $s ) && ( $s['block_sso_bypass'] ?? '0' ) === '1';
+			$operator_disarmed_sso = $sso_guard_on;
 			if ( ! $sso_guard_on ) {
 				return $deny(
 					'host_sso_loader',
@@ -526,6 +562,27 @@ final class WPS_Remediation_Policy {
 		 * protection and the circuit breaker all outrank it, so this authorises
 		 * the removal the operator asked for and nothing else.
 		 */
+		/*
+		 * 1.4.116: the host SSO loader, once the operator has disarmed it.
+		 *
+		 * 1.4.111 said that with "Block unauthenticated sign-in endpoints"
+		 * switched on, the host loader in mu-plugins would be removed too.
+		 * It never was: the finding type is not in the confirmed list, so the
+		 * managed-location rule below refused it. Found by testing the
+		 * setting against the real file. The setting is the operator's
+		 * explicit instruction, the same standing as a policy ban, so it is
+		 * honoured at the same point - below the Safe veto, core protection
+		 * and the circuit breaker, above the heuristic restrictions.
+		 */
+		if ( $operator_disarmed_sso ) {
+			return [
+				'allowed' => true,
+				'reason'  => 'the operator switched on "Block unauthenticated sign-in endpoints", which asks for this loader to be disabled',
+				'rule'    => 'operator_disarmed_sso',
+				'trust'   => 'unreviewed',
+			];
+		}
+
 		if ( false !== stripos( $type, 'banned by site policy' ) ) {
 			return [
 				'allowed' => true,

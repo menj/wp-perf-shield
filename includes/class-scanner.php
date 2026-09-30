@@ -594,6 +594,8 @@ class WPS_Scanner {
 			'check_hidden_admin_backdoor' => [ __CLASS__, 'check_hidden_admin_backdoor' ], // 1.4.81: code that creates an administrator AND hides it from the user list
 			'check_unauth_auth_bypass' => [ __CLASS__, 'check_unauth_auth_bypass' ], // 1.4.95: unauthenticated endpoint that hands out an admin session
 			'check_foreign_plugin_files' => [ __CLASS__, 'check_foreign_plugin_files' ], // 1.4.103: PHP inside a directory plugin that its own official manifest does not list
+			'check_link_helper_worm' => [ __CLASS__, 'check_link_helper_worm' ], // 1.4.114: WP Link Helper self-propagating worm - the campaign's foothold; removes file + heal-state options
+			'check_encoded_inline_script_injector' => [ __CLASS__, 'check_encoded_inline_script_injector' ], // 1.4.113: gz+base64 blob printed as inline script, hidden from editors and crawlers
 			'check_headless_plugin_folder' => [ __CLASS__, 'check_headless_plugin_folder' ], // 1.4.105: plugin-shaped folder with no entry point, holding a staged or orphaned payload
 			'check_constant_assembled_calls' => [ __CLASS__, 'check_constant_assembled_calls' ], // 1.4.111: function names built from define() constants to defeat searching
 			'check_unattributed_plugins' => [ __CLASS__, 'check_unattributed_plugins' ], // 1.4.83: a plugin folder that appeared with no install ever recorded - the tool an intruder brought
@@ -5870,6 +5872,329 @@ class WPS_Scanner {
 		return $found;
 	}
 
+	/**
+	 * 1.4.113: a compressed payload printed as script, only to visitors.
+	 *
+	 * Recovered in a suffixed re-drop slot (page-speed-analytics-fbb4-975d)
+	 * beside a headless payload folder: a single-file loader with a genuine
+	 * Plugin Name header, carrying the ClickFix/EtherHiding payload inline as
+	 * a gzinflate(base64_decode(...)) blob, which it copies into an option
+	 * and prints with wp_print_inline_script_tag() - but only for visitors
+	 * who are neither logged in with an editing role nor a known crawler.
+	 * Every plain-text marker of the family is inside the compressed blob, so
+	 * no signature matched. The cloaked-injector check did match it, and the
+	 * policy then refused removal: that check is behavioural and the folder
+	 * carries a real header, so it was reported every scan and left running.
+	 *
+	 * Cloaking on its own is not conclusive - advertising and analytics
+	 * plugins skip administrators and bots and print footer scripts for
+	 * ordinary reasons. What no legitimate plugin does is all three at once:
+	 * decompress an embedded base64 blob, print the result as an inline
+	 * script, and gate that on hiding from BOTH editors and crawlers. A real
+	 * plugin ships its script as a file it enqueues; nothing honest needs to
+	 * compress JavaScript into PHP and show it only to people who will not
+	 * notice. That conjunction is what this reports, so it can join the
+	 * conclusive tier.
+	 *
+	 * The loader also persists the decoded payload into an option
+	 * (update_option(name, base64_encode(...))) and reads that option first
+	 * on later runs, so a copy survives the file. Those options are
+	 * quarantined with it, exactly as the headless-folder check does.
+	 *
+	 * @return array<int, array<string, string>>
+	 */
+	/**
+	 * 1.4.114: the propagation engine behind this whole campaign.
+	 *
+	 * Recovered as wp-link-helper.php: a single file, header "WP Link Helper",
+	 * that is the worm which drops and re-drops the payload folders every other
+	 * check here removes. Its own embedded changelog documents it plainly:
+	 *
+	 *   - ?wlh_neighbors scans the server for sibling sites under the same
+	 *     owner (same_uid) with writable plugin dirs; ?wlh_adopt copies this
+	 *     file into a sibling's wp-content/plugins/, activates it through the
+	 *     sibling's own database, or creates a TEMPORARY ADMIN in that database
+	 *     and returns the credentials over an HMAC-signed channel. One
+	 *     compromised account becomes every site on the account.
+	 *   - ?wlh_wchinstall fetches and installs the main payload plugin
+	 *     ("wp-cache-helper") plugin-onto-plugin, no wp-admin credentials.
+	 *   - it reinstalls itself on deactivation, on a gutted main file, and from
+	 *     mu-plugins heal-copies carrying a baked-in re-claim URL, "so a donor
+	 *     wiped down to plugin + all options gone can re-claim and heal". This
+	 *     is why the payload folders keep coming back after removal.
+	 *   - mu marker strings are runtime-assembled to avoid content-grep, and
+	 *     badly-signed ?wlh_* requests get silent pass-through so the endpoint
+	 *     is not an unauthenticated presence oracle.
+	 *
+	 * Because it self-heals, the file and its options must be taken together:
+	 * removing the file while wlh_key/wlh_cdn/wlh_adopted survive lets a
+	 * heal-copy re-claim and pull everything back. This check removes the file
+	 * (wherever it sits, including mu-plugins) and quarantines the whole
+	 * WLH_OPT_* family in the same pass.
+	 *
+	 * Detected on a conjunction that has no benign reading: several of its own
+	 * ?wlh_* request handlers present together, its option family, and at
+	 * least one of the adoption/worm-install HMAC operations. Any one alone is
+	 * not enough; the set is unique to this malware.
+	 *
+	 * @return array<int, array<string, string>>
+	 */
+	private static function check_link_helper_worm(): array {
+		$found = [];
+		$self_dir = realpath( WPS_DIR ) ?: '';
+		$roots    = [];
+		foreach ( [
+			defined( 'WP_PLUGIN_DIR' ) ? WP_PLUGIN_DIR : '',
+			defined( 'WPMU_PLUGIN_DIR' ) ? WPMU_PLUGIN_DIR : ( defined( 'WP_CONTENT_DIR' ) ? WP_CONTENT_DIR . '/mu-plugins' : '' ),
+			defined( 'WP_CONTENT_DIR' ) ? WP_CONTENT_DIR : '',
+		] as $r ) {
+			if ( '' !== $r && is_dir( $r ) ) {
+				$roots[] = rtrim( $r, '/\\' );
+			}
+		}
+
+		// Its own request-trigger handlers. These strings are assembled at
+		// runtime in the sample to beat a plain grep, so match against the
+		// split-literal-normalised source.
+		$triggers = [ 'wlh_claim', 'wlh_neighbors', 'wlh_adopt', 'wlh_adoptclean', 'wlh_wchinstall', 'wlh_update', 'wlh_links', 'wlh_snippet', 'wlh_botstats', 'wlh_cfg' ];
+		// The option family it persists its identity and worm state into.
+		$options  = [ 'wlh_cdn', 'wlh_key', 'wlh_origin', 'wlh_proj', 'wlh_ca', 'wlh_err', 'wlh_lh', 'wlh_links', 'wlh_sw_links', 'wlh_snippet', 'wlh_adopted' ];
+		// The signed worm operations: propagation and second-stage install.
+		$worm_ops = [ 'adopt.ts', 'adoptclean.ts', 'wchinstall.ts' ];
+
+		$seen  = [];
+		$count = 0;
+		foreach ( $roots as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 5 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() || ++$count > 20000 || self::scan_budget_exceeded() ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( false === $size || $size < 1000 || $size > 4194304 ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) || ( '' !== $self_dir && 0 === strpos( $real, $self_dir ) ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					$raw = @file_get_contents( $path );
+					if ( ! is_string( $raw ) || '' === $raw ) {
+						continue;
+					}
+					// Cheap prefilter before the (more expensive) normalise.
+					if ( false === stripos( $raw, 'wlh_' ) && false === stripos( $raw, 'wch' ) ) {
+						continue;
+					}
+					$src = class_exists( 'WPS_Utils' ) ? WPS_Utils::normalise_split_literals( $raw ) : $raw;
+
+					$t_hits = 0;
+					foreach ( $triggers as $t ) {
+						if ( false !== strpos( $src, $t ) ) {
+							++$t_hits;
+						}
+					}
+					$o_hits = 0;
+					foreach ( $options as $o ) {
+						if ( preg_match( '/[\'"]' . preg_quote( $o, '/' ) . '[\'"]/', $src ) ) {
+							++$o_hits;
+						}
+					}
+					$w_hits = 0;
+					foreach ( $worm_ops as $w ) {
+						if ( false !== strpos( $src, $w ) ) {
+							++$w_hits;
+						}
+					}
+
+					// The conjunction: a cluster of its own handlers, its
+					// option family, and at least one signed worm operation.
+					// No legitimate plugin presents all three.
+					if ( $t_hits < 3 || $o_hits < 3 || $w_hits < 1 ) {
+						continue;
+					}
+
+					$cleaned = [];
+					if ( self::auto_delete_enabled() && class_exists( 'WPS_Quarantine' ) && method_exists( 'WPS_Quarantine', 'quarantine_option' ) ) {
+						foreach ( $options as $opt ) {
+							if ( null === get_option( $opt, null ) ) {
+								continue;
+							}
+							WPS_Quarantine::quarantine_option( $opt, [
+								'type'   => 'db_option (link-helper worm)',
+								'reason' => 'self-heal/identity state for ' . self::display_path( $path ),
+							] );
+							$cleaned[] = $opt;
+							if ( class_exists( 'WPS_Logger' ) ) {
+								WPS_Logger::log_event( 'link_helper_option_cleared', $opt . ' quarantined; written by ' . self::display_path( $path ) );
+							}
+						}
+					}
+
+					$in_mu = ( defined( 'WPMU_PLUGIN_DIR' ) && 0 === strpos( $real, rtrim( realpath( WPMU_PLUGIN_DIR ) ?: WPMU_PLUGIN_DIR, '/\\' ) ) );
+					$found[] = [
+						'severity'    => 'critical',
+						'type'        => 'Self-propagating link-injection worm (WP Link Helper)',
+						'subject'     => self::display_path( $path )
+							. ( $in_mu ? ' [mu-plugins self-heal copy]' : '' )
+							. ( $cleaned ? ' [cleared ' . count( $cleaned ) . ' option(s)]' : '' ),
+						'path'        => $path,
+						'action'      => 'This file is the propagation and persistence engine of the doorway-spam campaign. It re-drops the payload '
+							. 'folders you keep removing, reinstalls itself on deactivation and from mu-plugins copies, and can copy itself into '
+							. 'other sites under the same hosting account - including by creating a temporary administrator in their database. '
+							. ( $cleaned
+								? 'Its self-heal state (' . implode( ', ', array_slice( $cleaned, 0, 4 ) ) . ( count( $cleaned ) > 4 ? ', ...' : '' ) . ') has been quarantined with it so it cannot re-claim, and is restorable from Diagnostics. '
+								: 'It also stores self-heal state in wp_options (wlh_key, wlh_cdn, wlh_adopted and similar) that must be removed too, or a copy will re-claim; enable auto-remediation and scan again, or delete those options by hand. ' )
+							. 'This is the foothold: while any copy or its options survive anywhere on the account, everything else comes back. '
+							. 'Change FTP/SFTP and hosting control-panel passwords, and check every other site on the same account for this file.',
+						'auto_delete' => true,
+						'delete_path' => $path,
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'link_helper_worm_found', self::display_path( $path ) . ' (triggers=' . $t_hits . ', options=' . $o_hits . ', worm_ops=' . $w_hits . ')' );
+					}
+					self::report_malware_source( $path, 'the WP Link Helper propagation worm' );
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		return $found;
+	}
+
+	private static function check_encoded_inline_script_injector(): array {
+		$found = [];
+		if ( ! defined( 'WP_CONTENT_DIR' ) || ! is_dir( WP_CONTENT_DIR ) ) {
+			return $found;
+		}
+		$self_dir = realpath( WPS_DIR ) ?: '';
+		$roots    = [];
+		foreach ( [ defined( 'WP_PLUGIN_DIR' ) ? WP_PLUGIN_DIR : '', defined( 'WPMU_PLUGIN_DIR' ) ? WPMU_PLUGIN_DIR : '', WP_CONTENT_DIR . '/themes' ] as $r ) {
+			if ( '' !== $r && is_dir( $r ) ) {
+				$roots[] = rtrim( $r, '/\\' );
+			}
+		}
+
+		$rx_decode = '/\b(?:gzinflate|gzuncompress|gzdecode)\s*\(\s*@?\s*base64_decode\s*\(/i';
+		$rx_sink   = '/\bwp_print_inline_script_tag\s*\(|[\'"]<script[\s>\'"]|=\s*[\'"]script[\'"]\s*;/i';
+		$rx_role   = '/\bis_user_logged_in\s*\(.{0,400}?(?:administrator|editor|->roles|current_user_can)/is';
+		$rx_ua     = '/HTTP_USER_AGENT/';
+		$bots      = [ 'googlebot', 'bingpreview', 'yandex', 'ahrefs', 'semrush', 'lighthouse', 'pagespeed', 'crawl', 'spider', 'slurp', 'duckduck', 'facebookexternalhit', 'twitterbot', 'mj12', 'dotbot' ];
+
+		$seen  = [];
+		$count = 0;
+		foreach ( $roots as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 5 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() || ++$count > 20000 || self::scan_budget_exceeded() ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( false === $size || $size < 500 || $size > 2097152 ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) || ( '' !== $self_dir && 0 === strpos( $real, $self_dir ) ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					$raw = @file_get_contents( $path );
+					if ( ! is_string( $raw ) || '' === $raw ) {
+						continue;
+					}
+					// Cheap prefilter on the raw bytes before normalising.
+					if ( false === stripos( $raw, 'base64_decode' ) || ! preg_match( '/gz(?:inflate|uncompress|decode)/i', $raw ) ) {
+						continue;
+					}
+					$src = class_exists( 'WPS_Utils' ) ? WPS_Utils::normalise_split_literals( $raw ) : $raw;
+					if ( ! preg_match( $rx_decode, $src ) || ! preg_match( $rx_sink, $src ) ) {
+						continue;
+					}
+					if ( ! preg_match( $rx_ua, $src ) || ! preg_match( $rx_role, $src ) ) {
+						continue;
+					}
+					$lower = strtolower( $src );
+					$hits  = 0;
+					foreach ( $bots as $b ) {
+						if ( false !== strpos( $lower, "'" . $b ) || false !== strpos( $lower, '"' . $b ) ) {
+							++$hits;
+						}
+					}
+					if ( $hits < 4 ) {
+						continue; // a crawler list is part of the conjunction, not an incidental mention
+					}
+
+					// Options the loader persists its payload into.
+					$stores = [];
+					if ( preg_match_all( '/\bupdate_option\s*\(\s*[\'"]([A-Za-z0-9_\-]{3,80})[\'"]\s*,\s*base64_encode\s*\(/i', $src, $om ) ) {
+						foreach ( $om[1] as $o ) {
+							$stores[ $o ] = true;
+						}
+					}
+					$stores  = array_keys( $stores );
+					$cleaned = [];
+					if ( $stores && self::auto_delete_enabled() && class_exists( 'WPS_Quarantine' ) && method_exists( 'WPS_Quarantine', 'quarantine_option' ) ) {
+						foreach ( $stores as $opt ) {
+							if ( null === get_option( $opt, null ) ) {
+								continue;
+							}
+							WPS_Quarantine::quarantine_option( $opt, [
+								'type'   => 'db_option (encoded inline-script injector)',
+								'reason' => 'payload copy persisted by ' . self::display_path( $path ),
+							] );
+							$cleaned[] = $opt;
+							if ( class_exists( 'WPS_Logger' ) ) {
+								WPS_Logger::log_event( 'injector_payload_option_cleared', $opt . ' quarantined; written by ' . self::display_path( $path ) );
+							}
+						}
+					}
+
+					$container = self::containing_extension_dir( $path );
+					$found[]   = [
+						'severity'    => 'critical',
+						'type'        => 'Compressed script payload injected only for unwatched visitors',
+						'subject'     => self::display_path( $path ) . ( $stores ? ' [payload stored in ' . implode( ', ', $stores ) . ']' : '' ),
+						'path'        => $path,
+						'action'      => 'This file decompresses a script embedded in it as base64, prints it into your pages as inline JavaScript, and skips doing so for logged-in editors and for '
+							. $hits . ' named search crawlers - so the people who would notice never see it. A legitimate plugin ships its script as a file and does not hide it from you. '
+							. ( $cleaned
+								? 'It had also saved its payload into ' . implode( ' and ', $cleaned ) . ' in wp_options so a copy would survive deletion of the file; that has been quarantined too and is restorable from Diagnostics. '
+								: ( $stores ? 'It saves its payload into ' . implode( ' and ', $stores ) . ' in wp_options so a copy survives deletion of the file; remove that as well. ' : '' ) )
+							. 'Treat the site as compromised and find how it arrived.',
+						'auto_delete' => true,
+						'delete_path' => '' !== $container ? $container : $path,
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'encoded_inline_injector_found', self::display_path( $path ) . ( $stores ? ' (stores: ' . implode( ',', $stores ) . ')' : '' ) );
+					}
+					self::report_malware_source( $path, 'a compressed script injector hidden from editors and crawlers' );
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		return $found;
+	}
+
 	private static function check_headless_plugin_folder(): array {
 		$found = [];
 		if ( ! defined( 'WP_PLUGIN_DIR' ) || ! is_dir( WP_PLUGIN_DIR ) ) {
@@ -5899,6 +6224,7 @@ class WPS_Scanner {
 			$opaque     = [];
 			$options    = [];
 			$examined   = 0;
+			$files_seen = 0;
 			try {
 				$iter = new RecursiveIteratorIterator(
 					new RecursiveDirectoryIterator( $pdir, FilesystemIterator::SKIP_DOTS ),
@@ -5912,6 +6238,7 @@ class WPS_Scanner {
 					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
 						continue;
 					}
+					++$files_seen;
 					$fp  = $f->getPathname();
 					$ext = strtolower( $f->getExtension() );
 
@@ -5963,10 +6290,62 @@ class WPS_Scanner {
 			if ( $has_header ) {
 				continue; // a real plugin, whatever else it contains
 			}
+
+			/*
+			 * 1.4.112: an empty slot left for a re-drop.
+			 *
+			 * Recovered alongside a headless folder of this family
+			 * (advanced-asset-analytics-4ad1): an EMPTY folder named
+			 * advanced-asset-analytics-4ad1-5419, created the same minute.
+			 * The dropper found its name taken or removed and made a fresh,
+			 * suffixed slot for the payload to land in. Every condition this
+			 * check keys on is a file, so a folder with no files at all was
+			 * invisible and stayed on disk as a standing landing pad.
+			 *
+			 * An empty folder can run nothing, so the only question is
+			 * whether removing it could cost anything. It removes no data by
+			 * definition; the one real risk is racing an upload in progress
+			 * (an FTP transfer creates the folder before the first file - the
+			 * exact failure seen when a plugin was activated mid-upload), so
+			 * the folder must also be at least 15 minutes old. On top of
+			 * that it must be tied to this campaign, either by extending the
+			 * name of a headless folder this check has already found, or by
+			 * the family's own naming shape: three lowercase words and one
+			 * or more four-character hex tags. Seven recovered samples share
+			 * that shape and no directory plugin uses it.
+			 */
+			if ( 0 === $files_seen ) {
+				$age   = time() - (int) @filemtime( $pdir );
+				$known = self::headless_slug_parent( $slug );
+				$shape = (bool) preg_match( '/^[a-z]+-[a-z]+-[a-z]+(?:-[0-9a-f]{4})+$/', $slug );
+				if ( $age >= 15 * MINUTE_IN_SECONDS && ( '' !== $known || $shape ) ) {
+					$seen = self::remember_headless_slug( '' !== $known ? $known : $slug );
+					$found[] = [
+						'severity'    => 'high',
+						'type'        => 'Plugin folder with no plugin in it (empty slot left for a re-drop)',
+						'subject'     => $slug . ( '' !== $known ? ' extends ' . $known . ', a payload folder found earlier' : ' matches the naming of a known payload family' ),
+						'path'        => $pdir,
+						'action'      => 'This folder is empty, named the way this malware family names its payload folders'
+							. ( '' !== $known ? ', and extends the name of one already found here' : '' )
+							. '. It is a slot prepared for a payload to be dropped into, and it is removed so nothing can land in it. '
+							. ( $seen >= 2
+								? 'This family has now been seen on this site ' . $seen . ' times. Something is still actively placing folders here, so removing them treats the symptom: change FTP/SFTP and hosting control-panel passwords, check for unknown cron jobs, and check the plugin roster and FTP log for how the folder arrived.'
+								: 'If a folder like this reappears, something on the server is still actively dropping files and the access behind it needs closing, not just the folder.' ),
+						'auto_delete' => true,
+						'delete_path' => $pdir,
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'headless_redrop_slot_found', $slug . ( '' !== $known ? ' (extends ' . $known . ')' : '' ) . '; seen ' . $seen . 'x' );
+					}
+				}
+				continue;
+			}
+
 			if ( ! $opaque && ! $options ) {
 				continue; // a library or an asset folder: unusual, not hostile
 			}
 
+			self::remember_headless_slug( $slug );
 			$opt_list = array_keys( $options );
 
 			/*
@@ -6027,6 +6406,53 @@ class WPS_Scanner {
 		}
 
 		return $found;
+	}
+
+	/**
+	 * 1.4.112: slugs of headless payload folders found on this site, so an
+	 * empty re-drop slot named after one can be tied back to it. Returns the
+	 * number of times the slug (or its family) has now been seen.
+	 */
+	private static function remember_headless_slug( string $slug ): int {
+		$map = get_option( 'wps_headless_slugs', [] );
+		if ( ! is_array( $map ) ) {
+			$map = [];
+		}
+		$cutoff = time() - 180 * DAY_IN_SECONDS;
+		foreach ( $map as $k => $rec ) {
+			if ( ! is_array( $rec ) || (int) ( $rec['last'] ?? 0 ) < $cutoff ) {
+				unset( $map[ $k ] );
+			}
+		}
+		$rec          = isset( $map[ $slug ] ) && is_array( $map[ $slug ] ) ? $map[ $slug ] : [ 'count' => 0, 'last' => 0 ];
+		$last_scan    = (int) $rec['last'];
+		// Count sightings, not scans: the same folder seen by consecutive
+		// hourly scans before removal must not inflate the number.
+		if ( time() - $last_scan > 2 * HOUR_IN_SECONDS ) {
+			$rec['count'] = (int) $rec['count'] + 1;
+		}
+		$rec['last']  = time();
+		$map[ $slug ] = $rec;
+		if ( count( $map ) > 50 ) {
+			uasort( $map, static function ( $a, $b ) { return (int) $a['last'] <=> (int) $b['last']; } );
+			$map = array_slice( $map, -50, null, true );
+		}
+		update_option( 'wps_headless_slugs', $map, false );
+		return (int) $rec['count'];
+	}
+
+	/** The recorded headless slug this folder name extends with a suffix, or ''. */
+	private static function headless_slug_parent( string $slug ): string {
+		$map = get_option( 'wps_headless_slugs', [] );
+		if ( ! is_array( $map ) ) {
+			return '';
+		}
+		foreach ( array_keys( $map ) as $known ) {
+			if ( $slug !== $known && 0 === strpos( $slug, $known . '-' ) ) {
+				return (string) $known;
+			}
+		}
+		return '';
 	}
 
 	private static function check_foreign_plugin_files(): array {
@@ -7317,8 +7743,17 @@ class WPS_Scanner {
 				// A genuine plugin main file always carries this header in
 				// the layout being impersonated; a bootstrap guard means it
 				// refuses to run standalone either way. Either disqualifies.
+				// 1.4.116: test for a GUARD SHAPE, not a mention. The previous
+				// test exempted any file containing defined('ABSPATH') at all,
+				// which is the bypass 1.4.99 closed in
+				// check_unauthenticated_file_manager: a CMS-agnostic shell
+				// (CAXIUM) writes $is_wordpress = defined('ABSPATH') ||
+				// defined('WPINC') as a feature flag and runs standalone
+				// regardless. Only a negated check followed by exit/die/return
+				// means the file refuses to run outside WordPress.
 				if ( preg_match( '/Plugin Name\s*:/i', $c )
-					|| preg_match( '/defined\s*\(\s*[\'"](?:ABSPATH|WPINC|WP_UNINSTALL_PLUGIN)[\'"]\s*\)/i', $c )
+					|| preg_match( '/if\s*\(\s*!\s*defined\s*\(\s*[\'"](?:ABSPATH|WPINC|WP_UNINSTALL_PLUGIN)[\'"]\s*\)\s*\)\s*\{?\s*(?:exit|die|return)\b'
+						. '|defined\s*\(\s*[\'"](?:ABSPATH|WPINC|WP_UNINSTALL_PLUGIN)[\'"]\s*\)\s*(?:\|\|\s*(?:exit|die|return)\b|or\s+(?:exit|die|return)\b)/i', $c )
 				) {
 					continue;
 				}
@@ -7499,6 +7934,30 @@ class WPS_Scanner {
 						? 'This is a file manager that anyone on the internet can use. '
 						: 'This file can be used by anyone on the internet to modify files on this server. ';
 
+					/*
+					 * 1.4.116: remove it when it sits in uploads.
+					 *
+					 * This finding is review-only by design, because its
+					 * action text allows that a plugin or host may have put
+					 * a file manager in place - true of plugin and theme
+					 * folders. It is never true of uploads: PHP does not
+					 * legitimately run there, and this plugin already treats
+					 * uploads as strict. A codebase check planted a real
+					 * recovered shell (CAXIUM, full upload/edit/delete/chmod
+					 * UI) in uploads/ and five checks recognised it while
+					 * none set a removal target, so it stayed. Only the
+					 * critical form is acted on (a UI, an upload primitive,
+					 * or three mutators); a lone single-primitive file stays
+					 * review-only. The file is removed, never its folder.
+					 */
+					$in_uploads = false;
+					if ( 'critical' === $severity && function_exists( 'wp_upload_dir' ) ) {
+						$ud = wp_upload_dir( null, false );
+						$ub = is_array( $ud ) && ! empty( $ud['basedir'] ) ? realpath( $ud['basedir'] ) : false;
+						$pr = realpath( $path );
+						$in_uploads = $ub && $pr && 0 === strpos( str_replace( '\\', '/', $pr ), rtrim( str_replace( '\\', '/', $ub ), '/' ) . '/' );
+					}
+
 					$found[] = [
 						'severity' => $severity,
 						'type'     => 'Unauthenticated file manager (web shell)',
@@ -7512,9 +7971,15 @@ class WPS_Scanner {
 							. 'Note that it is not obfuscated: it did not need to hide, which is why signature and '
 							. 'obfuscation checks do not flag it. '
 							. 'If you did not put this here, treat the site as compromised and look for how it arrived. '
-							. 'If a plugin or your host did put it here, it is still reachable by anyone and should be '
-							. 'removed or placed behind authentication.',
+							. ( $in_uploads
+								? 'It sits in the uploads directory, where no legitimate PHP runs, so it has been removed; it is restorable from quarantine if this was a mistake.'
+								: 'If a plugin or your host did put it here, it is still reachable by anyone and should be '
+									. 'removed or placed behind authentication.' ),
 					];
+					if ( $in_uploads ) {
+						$found[ count( $found ) - 1 ]['auto_delete'] = true;
+						$found[ count( $found ) - 1 ]['delete_path'] = $path;
+					}
 				}
 			} catch ( \Throwable $t ) {
 				continue;
@@ -8713,6 +9178,15 @@ class WPS_Scanner {
 	// constant rather than a public IoC accessor because the list is purely
 	// internal allowlist data, not threat intelligence.
 
+	/**
+	 * 1.4.118: the drop-ins that exist only to show a page when WordPress
+	 * cannot. They have no reason to run logic, which is what makes it
+	 * possible to verify their content instead of trusting a label.
+	 * fatal-error-handler.php, install.php, sunrise.php and the cache/db
+	 * drop-ins legitimately contain code and are not in this list.
+	 */
+	const ERROR_PAGE_DROP_INS = [ 'db-error.php', 'maintenance.php', 'php-error.php' ];
+
 	const DROP_IN_CANONICAL_NAMES = [
 		'object-cache.php',
 		'advanced-cache.php',
@@ -8810,6 +9284,36 @@ class WPS_Scanner {
 	 * signature appears in $contents, or '' if none. Reused by the drop-in
 	 * integrity guard for severity classification.
 	 */
+	/** Label reported for an error-page drop-in whose content was verified as inert. */
+	const VERIFIED_STATIC_PAGE = 'verified static page (no code)';
+
+	/**
+	 * 1.4.118: the publisher verdict for a named drop-in, shared by the
+	 * point-in-time check and WPS_Dropin_Guard so the two cannot disagree.
+	 * For the error-page drop-ins the content decides: a page that
+	 * provably runs nothing is verified regardless of any label, and a
+	 * label on a page that contains executable code counts for nothing.
+	 * Every other drop-in keeps the label lookup exactly as before.
+	 *
+	 * @return string Publisher label, VERIFIED_STATIC_PAGE, or '' (unknown).
+	 */
+	public static function effective_drop_in_publisher( string $name, string $contents ): string {
+		if ( '' === $contents ) {
+			return '';
+		}
+		if ( in_array( $name, self::ERROR_PAGE_DROP_INS, true ) ) {
+			if ( self::is_inert_error_page( $contents ) ) {
+				return self::VERIFIED_STATIC_PAGE;
+			}
+			$label = self::match_drop_in_publisher( $contents );
+			if ( '' !== $label && '' !== self::error_page_executable_primitive( $contents ) ) {
+				return '';
+			}
+			return $label;
+		}
+		return self::match_drop_in_publisher( $contents );
+	}
+
 	public static function match_drop_in_publisher( string $contents ): string {
 		if ( $contents === '' ) {
 			return '';
@@ -8964,6 +9468,136 @@ class WPS_Scanner {
 		return $found;
 	}
 
+	/**
+	 * 1.4.118: is this an error-page drop-in that provably runs nothing?
+	 *
+	 * Recovered from a real theme that writes maintenance.php, db-error.php
+	 * and php-error.php (byte-identical, a 503 response and a styled page).
+	 * All three were reported as "unknown publisher" on every scan. Adding
+	 * the theme's own comment to the publisher list would have cleared them
+	 * and also cleared anything else carrying that comment, so instead the
+	 * file is checked for what it is.
+	 *
+	 * The PHP must be one block containing nothing but comments and calls
+	 * to header(), headers_sent() and http_response_code() with literal
+	 * arguments, checked token by token, not by pattern, so nothing else
+	 * can hide in it. The remaining HTML must carry no script, frame,
+	 * form, event handler, refresh, redirect or link to another host: the
+	 * other way to abuse a page shown to every visitor while the site is
+	 * down. Anything this cannot prove is left to the ordinary review
+	 * finding, so an unusual but honest page costs one acknowledgement and
+	 * nothing is ever cleared on a guess. Needs the tokenizer extension;
+	 * without it a file containing PHP is not cleared.
+	 */
+	private static function is_inert_error_page( string $c ): bool {
+		if ( '' === $c || strlen( $c ) > 65536 || false !== strpos( $c, "\0" ) ) {
+			return false;
+		}
+		$html = $c;
+		if ( false !== strpos( $c, '<?' ) ) {
+			if ( ! function_exists( 'token_get_all' ) || 0 !== strpos( $c, '<?php' ) ) {
+				return false;
+			}
+			$allowed_fn = [ 'headers_sent', 'header', 'http_response_code', 'true', 'false' ];
+			$allowed_ch = [ '(' => 1, ')' => 1, '{' => 1, '}' => 1, '!' => 1, ';' => 1, ',' => 1 ];
+			$opens      = 0;
+			$html       = '';
+			try {
+				$tokens = token_get_all( $c );
+			} catch ( \Throwable $t ) {
+				return false;
+			}
+			foreach ( $tokens as $tok ) {
+				if ( ! is_array( $tok ) ) {
+					if ( ! isset( $allowed_ch[ $tok ] ) ) {
+						return false;
+					}
+					continue;
+				}
+				switch ( $tok[0] ) {
+					case T_OPEN_TAG:
+						if ( ++$opens > 1 ) {
+							return false;
+						}
+						break;
+					case T_CLOSE_TAG:
+					case T_WHITESPACE:
+					case T_COMMENT:
+					case T_DOC_COMMENT:
+					case T_IF:
+					case T_LNUMBER:
+						break;
+					case T_INLINE_HTML:
+						$html .= $tok[1];
+						break;
+					case T_STRING:
+						if ( ! in_array( strtolower( $tok[1] ), $allowed_fn, true ) ) {
+							return false;
+						}
+						break;
+					case T_CONSTANT_ENCAPSED_STRING:
+						// A header may describe the response; it may not redirect,
+						// refresh, set a cookie or link elsewhere.
+						if ( strlen( $tok[1] ) > 300 || preg_match( '/\b(?:location|refresh|set-cookie|link|content-location)\s*:/i', $tok[1] ) ) {
+							return false;
+						}
+						break;
+					default:
+						return false;
+				}
+			}
+			if ( 1 !== $opens ) {
+				return false;
+			}
+		}
+
+		$decoded = html_entity_decode( $html, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		foreach ( [ $html, $decoded ] as $h ) {
+			if ( preg_match( '/<\s*(?:script|iframe|frame|frameset|object|embed|applet|form|base|svg|math|template)\b/i', $h )
+				|| preg_match( '/<\s*meta\b[^>]*http-equiv/i', $h )
+				|| preg_match( '/\bon[a-z]{3,}\s*=/i', $h )
+				|| preg_match( '/(?:javascript|vbscript|data)\s*:/i', $h )
+				|| preg_match( '#https?\s*:#i', $h )
+				|| preg_match( '#(?:src|href|action|formaction|poster|srcset|url\()\s*=?\s*["\']?\s*[/\\\\]{2}#i', $h )
+				|| preg_match( '/@import|expression\s*\(|behavior\s*:|-moz-binding/i', $h )
+				|| false !== strpos( $h, '<?' ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * 1.4.118: the first executable or request-reading primitive in an
+	 * error-page drop-in, or '' if none. Deliberately the unambiguous set:
+	 * a page that displays a message has no use for any of these, so a hit
+	 * is meaningful and an honest file is unlikely to trip it. Run on the
+	 * split-literal-normalised source so fragmenting a name does not hide it.
+	 */
+	private static function error_page_executable_primitive( string $c ): string {
+		$src = class_exists( 'WPS_Utils' ) ? WPS_Utils::normalise_split_literals( $c ) : $c;
+		$rules = [
+			'eval()'                          => '/\beval\s*\(/i',
+			'assert()'                        => '/\bassert\s*\(/i',
+			'create_function()'               => '/\bcreate_function\b/i',
+			'a decoder (base64/gz/rot13)'     => '/\b(?:base64_decode|gzinflate|gzuncompress|gzdecode|str_rot13)\s*\(/i',
+			'a command-execution function'    => '/\b(?:system|exec|shell_exec|passthru|proc_open|popen|pcntl_exec)\s*\(/i',
+			'a backtick command'              => '/`[^`\n]+`/',
+			'a call through a variable name'  => '/(?<![A-Za-z0-9_>:$])\$[A-Za-z_][A-Za-z0-9_]*\s*\(/',
+			'request input'                   => '/\$_(?:GET|POST|REQUEST|COOKIE|FILES)\b/',
+			'a request header'                => '/\$_SERVER\s*\[\s*[\'"]HTTP_/i',
+			'an include of a computed path'   => '/\b(?:include|require)(?:_once)?\b[^;]*\$/i',
+			'a file write'                    => '/\b(?:file_put_contents|fwrite|fputs|move_uploaded_file|unlink|chmod|rename|copy)\s*\(/i',
+			'an outbound request'             => '/\b(?:curl_exec|curl_init|fsockopen|stream_socket_client|wp_remote_(?:get|post|request))\s*\(/i',
+		];
+		foreach ( $rules as $label => $rx ) {
+			if ( preg_match( $rx, $src ) ) {
+				return $label;
+			}
+		}
+		return '';
+	}
+
 	private static function check_drop_ins(): array {
 		$found = [];
 		if ( ! defined( 'WP_CONTENT_DIR' ) ) return $found;
@@ -8986,7 +9620,39 @@ class WPS_Scanner {
 					break;
 				}
 			}
-			if ( $matched_publisher !== null ) continue; // legitimate
+
+			// 1.4.118: an error-page drop-in is judged on what it IS.
+			$is_error_page = in_array( $name, self::ERROR_PAGE_DROP_INS, true );
+			if ( $is_error_page && self::is_inert_error_page( $contents ) ) {
+				continue; // a static page that verifiably runs nothing needs no publisher
+			}
+			if ( $matched_publisher !== null ) {
+				// A publisher label is a string in the file, and a string
+				// is whatever the file's author wrote. Found by test: a
+				// maintenance.php that read a function name and its
+				// argument from request headers and called it, with the
+				// comment "GENERATED AUTOMATICALLY" above it, produced no
+				// finding from this check and none from the other 89. For
+				// a page that only displays a message, a label does not
+				// excuse code that executes.
+				$prim = $is_error_page ? self::error_page_executable_primitive( $contents ) : '';
+				if ( '' === $prim ) {
+					continue; // legitimate
+				}
+				$found[] = [
+					'severity' => 'high',
+					'type'     => 'Error-page drop-in carries a publisher label and executable code',
+					'subject'  => $name . ' at wp-content/ [' . $prim . ']',
+					'path'     => $path,
+					'action'   => 'wp-content/' . $name . ' contains text matching ' . $matched_publisher . ', but it also contains ' . $prim
+						. '. A drop-in of this kind exists to show a message when WordPress is down; it has no reason to execute code or read request headers, '
+						. 'and a label in a comment proves nothing about what the file does. Drop-ins load before any plugin, so this is the highest-privilege '
+						. 'place a backdoor can sit. Inspect it, and if you did not write it, remove it and treat the site as compromised. It is reported '
+						. 'rather than removed automatically because a hosting tool may have generated it.',
+				];
+				WPS_Logger::log_event( 'unknown_drop_in', 'name=' . $name . '; labelled_but_executable=' . $prim );
+				continue;
+			}
 
 			// No publisher matched. Surface for operator review.
 			$found[] = [

@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.111
+Stable tag: 1.4.118
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -15,7 +15,7 @@ Blocks wp-perf-analytics traffic-hijacking malware and renamed variants with act
 
 WP Perf Shield is a focused WordPress security plugin built to detect and disrupt the wp-perf-analytics / session-manager malware family and related ClickFix render-hijacker variants such as native-render-toolkit, total-render-profiler, total-render-toolkit, pro-font-optimizer, site-speed-insights, advanced-asset-insights, page-seo-toolkit, starter-image-guard, auto-content-profiler, pro-cache-scanner, and total-database-optimizer.
 
-It has grown well past that starting point. Detection now covers doorway kits, obfuscated packers, file-operation web shells that contain no executable code at all, PHP configuration files that switch hardening back off, and cloaked injectors that hide from administrators and crawlers alike while serving content to ordinary visitors. Source is normalised before matching, so malware that splits its identifiers across concatenated fragments to defeat scanners is caught anyway.
+It has grown well past that starting point. Detection now covers doorway kits, obfuscated packers, file-operation web shells that contain no executable code at all, PHP configuration files that switch hardening back off, cloaked injectors that hide from administrators and crawlers alike while serving content to ordinary visitors, payloads packaged to survive removal, and the self-propagating worm that re-drops them. Source is normalised before matching, so malware that splits its identifiers across concatenated fragments to defeat scanners is caught anyway.
 
 Beyond scanning, the plugin records what happens on the site - sign-ins, account creation, role elevation, plugin and theme activity, uploads - grouping related activity into incidents with a cumulative risk score.
 
@@ -36,6 +36,7 @@ It combines real-time plugin activation blocking, hourly malware scanning, behav
 * Includes hardening actions for wp-config.php constants, .htaccess marker blocks, transient cleanup, session invalidation, and auth salt rotation.
 * Stores structured logs in a PHP-guarded file under wp-content/plugins/wp-perf-shield/logs.
 * Uses a modern minimalist admin UI with rounded panels, gradient accents, and mobile-friendly layout behavior.
+* Groups Settings into sub-tabs inside one form with a single Save button; the sections all display if JavaScript is off.
 * Enqueues admin CSS and JavaScript from assets/css/admin.css and assets/js/admin.js.
 * Auto-deletes confirmed malware artifacts by default, with a Settings tab control for detect-only operation.
 * Auto-blocks IP addresses that attempt to upload known malware ZIPs or renamed ZIPs containing known malicious folders, hashes, or payload markers.
@@ -43,6 +44,10 @@ It combines real-time plugin activation blocking, hourly malware scanning, behav
 * Detects file-operation web shells by capability cluster - browsing, writing, deleting and uploading driven by raw request parameters - which contain no eval or shell_exec and so evade execution-focused scanning.
 * Detects php.ini and .user.ini files that re-enable shell execution or remove open_basedir and disable_functions restrictions.
 * Detects cloaked injectors that serve content to visitors while hiding from logged-in administrators and from search-engine, SEO and page-speed crawlers.
+* Detects eval-free payload loaders: a blob decoded to a temporary file and included, a custom stream wrapper that decodes its own path, and dangerous calls assembled at runtime from named constants - including PHP hidden under a non-code file extension.
+* Detects a compressed script printed as inline JavaScript only to visitors who are neither logged-in editors nor known crawlers.
+* Detects and removes payloads packaged to survive removal: a plugin-shaped folder with no plugin header carrying an encrypted payload, and the empty suffixed folders left as landing pads for the next drop - each removed together with the wp_options entries it declares.
+* Detects and removes the self-propagating worm behind the campaign (WP Link Helper): it re-drops payload folders, reinstalls itself from mu-plugins copies, and spreads to other sites on the same hosting account by creating temporary admins in their databases. Removed together with the wp_options state it uses to re-claim.
 * Normalises split-literal obfuscation before matching, so identifiers written as glued fragments are found and every existing indicator keeps working.
 * Blocks outbound requests carrying WordPress session cookies to external hosts, and quarantines the files responsible.
 * Optionally blocks external post creation, editing and deletion through the REST API and XML-RPC (the auto-blogging and doorway-spam injection route), allowing only genuine dashboard publishing; off by default.
@@ -106,6 +111,27 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.118 =
+Error-page drop-ins (maintenance.php, db-error.php, php-error.php). A theme's harmless static copies were being reported as "unknown publisher" on every scan; a page that provably runs nothing (comments and header calls only, no script, form, refresh or external reference) is now recognised on its content. Testing that also showed a publisher label in a comment was enough to hide a backdoor in these files from all 90 checks; for these three files a label no longer excuses executable code, request-header reading or outbound calls, which are now reported as high, review-only. The drop-in baseline guard, which raised a high alert every time a theme wrote or rewrote such a page, uses the same verdict. Other drop-ins are unchanged.
+
+= 1.4.117 =
+UI/UX review. Settings is now six panels behind a sub-tab strip (Detection, Sign-in, Posting & accounts, Response, Banned plugins, Appearance) instead of one 5,000-pixel scroll; it is still one form with one Save, and everything shows if JavaScript is off. The help text on the seven settings added in 1.4.100-1.4.101 was rewritten from incident-report prose into short plain descriptions. Fixed a phone-width layout overflow caused by long inline code snippets, and a dark-mode contrast problem in the first draft of the new tab strip. No settings were added, removed or renamed.
+
+= 1.4.116 =
+Codebase check. Running every check and the removal policy against every recovered sample found malware recognised but not removed in three places: a disguised plugin index.php shell exempted because it merely mentioned ABSPATH; a planted sso-loader.php in uploads protected by an exemption meant only for the host's copy in mu-plugins; and an unauthenticated file manager in uploads that no check was allowed to remove. All fixed. The "Block unauthenticated sign-in endpoints" setting now actually removes the host loader as documented in 1.4.111, and a leftover option is cleared on uninstall.
+
+= 1.4.115 =
+Maintenance release: version bump only, no functional changes from 1.4.114.
+
+= 1.4.114 =
+Detects and removes the self-propagating worm ("WP Link Helper") that is the foothold behind the doorway-spam campaign: the file that re-drops the payload folders, reinstalls itself from mu-plugins copies, and spreads to other sites under the same hosting account by creating temporary admins in their databases. Matched on a conjunction of its own request handlers, option family and signed worm operations, with the runtime-assembled markers normalised first so they do not evade the scan. The file and its self-heal options in wp_options are removed together so a surviving copy cannot re-claim. Removing it from this site does not clean sibling sites or revoke admins it created elsewhere - change hosting passwords and check every site on the account.
+
+= 1.4.113 =
+A single-file loader of the packed family, carrying its payload compressed inside the PHP and printing it only to visitors who are neither editors nor crawlers, was detected but refused removal because the only matching check was behavioural. A new check reports that conjunction - compressed embedded script, printed inline, hidden from both editors and crawlers - which no legitimate plugin presents, and removes the folder along with the payload copy it saves into wp_options.
+
+= 1.4.112 =
+Removes empty folders left as landing slots for the packed payload family: an empty plugin folder at least 15 minutes old, either extending the name of a payload folder already found on the site or matching the family's naming shape, is removed by the hourly scan. Reappearances escalate to a warning that something still has write access to the site.
 
 = 1.4.111 =
 Adds detection for function names assembled from defined constants, a technique that defeats both signature matching and the split-string check added in 1.4.79. A 24KB index.php recovered from mu-plugins built file_put_contents, register_shutdown_function and unlink out of nested constants, then wrote a decoded payload to a temporary file, included it and deleted it so nothing persisted between requests. The check resolves the constants and reports a dangerous call whose plain name is absent from the file, requiring all three conditions so that honest use of constants is unaffected. Also corrects the host SSO loader being queued for automatic removal: the recovered copy is byte-identical to the loader managed hosts install for their dashboard login, so it is now reported rather than removed unless the operator has enabled the sign-in endpoint guard, in which case removal is consistent with what was asked for. Other known-bad mu-plugin filenames are unaffected.

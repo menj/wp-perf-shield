@@ -620,3 +620,96 @@
 		for (var i = 0; i < boxes.length; i++) { boxes[i].checked = all.checked; }
 	});
 })();
+
+
+/*
+ * 1.4.117: Settings sub-tabs.
+ *
+ * Settings grew to 26 options in one 5,000px scroll. The sections are now
+ * panels inside the SAME form: one Save, and every field still submits
+ * because a hidden panel's inputs are not disabled. Without JavaScript the
+ * markup is untouched (all panels visible, tab strip hidden by CSS), so this
+ * only ever enhances the page.
+ */
+(function () {
+	'use strict';
+
+	var root = document.querySelector('[data-wps-subtabs]');
+	if (!root) {
+		return;
+	}
+	var tabs = [].slice.call(root.querySelectorAll('[role="tab"]'));
+	var panels = [].slice.call(root.querySelectorAll('[data-wps-panel]'));
+	if (!tabs.length || !panels.length) {
+		return;
+	}
+	root.classList.add('wps-js');
+
+	function has(id) {
+		return panels.some(function (p) { return p.getAttribute('data-wps-panel') === id; });
+	}
+
+	function show(id, focus) {
+		if (!has(id)) {
+			id = panels[0].getAttribute('data-wps-panel');
+		}
+		tabs.forEach(function (t) {
+			var on = t.getAttribute('data-panel') === id;
+			t.setAttribute('aria-selected', on ? 'true' : 'false');
+			t.tabIndex = on ? 0 : -1;
+			if (on) {
+				// On a narrow screen the strip scrolls sideways; bring the
+				// active tab into view by moving the strip, never the page.
+				var strip = t.parentNode;
+				if (strip && strip.scrollWidth > strip.clientWidth) {
+					strip.scrollLeft = Math.max(0, t.offsetLeft - (strip.clientWidth - t.offsetWidth) / 2);
+				}
+				if (focus) {
+					t.focus();
+				}
+			}
+		});
+		panels.forEach(function (p) {
+			p.hidden = p.getAttribute('data-wps-panel') !== id;
+		});
+		try { window.sessionStorage.setItem('wpsSubtab', id); } catch (e) { /* storage unavailable */ }
+	}
+
+	tabs.forEach(function (t, i) {
+		t.addEventListener('click', function () { show(t.getAttribute('data-panel'), false); });
+		t.addEventListener('keydown', function (e) {
+			var n = null;
+			if (e.key === 'ArrowRight') { n = (i + 1) % tabs.length; }
+			else if (e.key === 'ArrowLeft') { n = (i - 1 + tabs.length) % tabs.length; }
+			else if (e.key === 'Home') { n = 0; }
+			else if (e.key === 'End') { n = tabs.length - 1; }
+			if (n !== null) {
+				e.preventDefault();
+				show(tabs[n].getAttribute('data-panel'), true);
+			}
+		});
+	});
+
+	// A browser cannot focus an invalid field inside a hidden panel and will
+	// silently refuse to submit. Reveal the panel that holds it instead.
+	var form = root.closest('form');
+	if (form) {
+		form.addEventListener('invalid', function (e) {
+			var p = e.target.closest ? e.target.closest('[data-wps-panel]') : null;
+			if (p) { show(p.getAttribute('data-wps-panel'), false); }
+		}, true);
+	}
+
+	// Initial panel: a #field-id link wins, then the last one used, then the first.
+	var start = null;
+	var hash = window.location.hash ? window.location.hash.replace('#', '') : '';
+	if (hash) {
+		var target = document.getElementById(hash);
+		var host = target && target.closest ? target.closest('[data-wps-panel]') : null;
+		if (host) { start = host.getAttribute('data-wps-panel'); }
+	}
+	if (!start) {
+		try { start = window.sessionStorage.getItem('wpsSubtab'); } catch (e) { start = null; }
+	}
+	show(start || panels[0].getAttribute('data-wps-panel'), false);
+}());

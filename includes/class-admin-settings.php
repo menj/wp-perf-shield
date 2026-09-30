@@ -35,10 +35,21 @@ class WPS_Admin_Settings {
 				<input type="hidden" name="action" value="wps_save_settings">
 				<?php wp_nonce_field( 'wps_save_settings' ); ?>
 
-				<div class="wps-card wps-card--pad-lg">
-					<h2 class="wps-card-h">Detection rules</h2>
-					<p class="wps-sm wps-muted wps-p">Site-specific indicators layered on top of the built-in catalogue.</p>
-					<table class="form-table wps-p0">
+				<div class="wps-subtabs" data-wps-subtabs>
+				<div class="wps-subnav" role="tablist" aria-label="Settings sections">
+					<button type="button" class="wps-subtab" role="tab" id="wps-st-detection" aria-controls="wps-sp-detection" aria-selected="true" data-panel="detection">Detection</button>
+					<button type="button" class="wps-subtab" role="tab" id="wps-st-signin" aria-controls="wps-sp-signin" aria-selected="false" data-panel="signin">Sign-in</button>
+					<button type="button" class="wps-subtab" role="tab" id="wps-st-posting" aria-controls="wps-sp-posting" aria-selected="false" data-panel="posting">Posting &amp; accounts</button>
+					<button type="button" class="wps-subtab" role="tab" id="wps-st-response" aria-controls="wps-sp-response" aria-selected="false" data-panel="response">Response</button>
+					<button type="button" class="wps-subtab" role="tab" id="wps-st-banned" aria-controls="wps-sp-banned" aria-selected="false" data-panel="banned">Banned plugins</button>
+					<button type="button" class="wps-subtab" role="tab" id="wps-st-appearance" aria-controls="wps-sp-appearance" aria-selected="false" data-panel="appearance">Appearance</button>
+				</div>
+
+				<section class="wps-subpanel" role="tabpanel" id="wps-sp-detection" aria-labelledby="wps-st-detection" data-wps-panel="detection">
+					<div class="wps-card wps-card--pad-lg">
+						<h2 class="wps-card-h">Detection rules</h2>
+						<p class="wps-sm wps-muted wps-p">Site-specific indicators layered on top of the built-in catalogue.</p>
+						<table class="form-table wps-p0">
 						<tr>
 							<th><label for="extra_slugs">Extra blocked slugs</label></th>
 							<td>
@@ -46,6 +57,29 @@ class WPS_Admin_Settings {
 								<p class="description">One slug per line. Any plugin path containing this text is blocked from activation and flagged during scans.</p>
 							</td>
 						</tr>
+						<tr>
+							<th><label for="extra_hashes">Blocked file hashes</label></th>
+							<td>
+								<textarea id="extra_hashes" name="extra_hashes" rows="4" class="wps-mono wps-sm"><?php echo esc_textarea( (string) ( $settings['extra_hashes'] ?? '' ) ); ?></textarea>
+								<p class="description">One MD5 or SHA-256 hash per line. Get with: <code>md5sum plugin-file.php</code> or <code>sha256sum plugin-file.php</code>.</p>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="first_party_plugins">Your own plugins</label></th>
+							<td>
+								<textarea id="first_party_plugins" name="first_party_plugins" rows="3" class="wps-mono wps-sm"><?php echo esc_textarea( (string) ( $settings['first_party_plugins'] ?? '' ) ); ?></textarea>
+								<p class="description">One plugin folder name per line, for plugins you wrote or commissioned. These stop being reported as lacking a wordpress.org baseline &ndash; there is no baseline to be had for code never published there. They are not ignored: their PHP files are fingerprinted, and a change that arrives without a version bump is reported, since editing files in place is what both a hotfix and a planted file look like.</p>
+							</td>
+						</tr>
+						</table>
+					</div>
+				</section>
+
+				<section class="wps-subpanel" role="tabpanel" id="wps-sp-signin" aria-labelledby="wps-st-signin" data-wps-panel="signin">
+					<div class="wps-card wps-card--pad-lg">
+						<h2 class="wps-card-h">Sign-in protection</h2>
+						<p class="wps-sm wps-muted wps-p">How the site treats repeated or automated sign-in attempts.</p>
+						<table class="form-table wps-p0">
 						<tr>
 							<th><label for="login_guard_enabled">Login protection</label></th>
 							<td>
@@ -95,6 +129,13 @@ class WPS_Admin_Settings {
 							</td>
 						</tr>
 						<tr>
+							<th><label for="login_ip_allowlist">Never block these addresses</label></th>
+							<td>
+								<textarea id="login_ip_allowlist" name="login_ip_allowlist" rows="2" class="wps-mono wps-sm"><?php echo esc_textarea( (string) ( $settings['login_ip_allowlist'] ?? '' ) ); ?></textarea>
+								<p class="description">One IP address per line. Useful where an office or VPN shares one address and several people could trip the counter together.</p>
+							</td>
+						</tr>
+						<tr>
 							<th><label for="xmlrpc_strip_multicall">XML-RPC multicall</label></th>
 							<td>
 								<label class="wps-toggle-row">
@@ -107,104 +148,6 @@ class WPS_Admin_Settings {
 							</td>
 						</tr>
 						<tr>
-							<th><label for="block_sso_bypass">Unauthenticated sign-in endpoints</label></th>
-							<td>
-								<label class="wps-toggle-row">
-									<input type="checkbox" id="block_sso_bypass" name="block_sso_bypass" value="1" <?php checked( ( $settings['block_sso_bypass'] ?? '0' ) === '1' ); ?>>
-									<span>
-										<strong>Block sign-in endpoints that need no password</strong><br>
-										<span class="description">Managed hosts install a loader in <code>mu-plugins</code> that hands out an administrator session to anyone presenting the right token &ndash; no password, no second factor. It powers their &ldquo;log in to WordPress&rdquo; button. This removes the endpoint on every request, so a copy redeployed by your host is unreachable rather than merely deleted, and clears the stored token, which is the actual key and survives every password reset you perform. <strong>Turning this on will stop your host&rsquo;s one-click dashboard login working</strong> &ndash; you will sign in at <code>wp-login.php</code> as normal. Off by default for that reason; worth turning on if you do not use that button, and worth strong consideration on a site that has been compromised, since a copied token is a permanent administrator key.</span>
-									</span>
-								</label>
-							</td>
-						</tr>
-						<tr>
-							<th><label for="post_guard_enabled">External post writing</label></th>
-							<td>
-								<label class="wps-toggle-row">
-									<input type="checkbox" id="post_guard_enabled" name="post_guard_enabled" value="1" <?php checked( ( $settings['post_guard_enabled'] ?? '0' ) === '1' ); ?>>
-									<span>
-										<strong>Block external post creation, editing and deletion</strong><br>
-										<span class="description">Refuses writes to the posts and pages REST routes (<code>/wp/v2/posts</code>, <code>/wp/v2/pages</code>) and unregisters the post-writing XML-RPC methods, unless the request is a genuine administrator dashboard session &ndash; a test an Application Password, Basic Auth, JWT, OAuth or an unauthenticated bot cannot pass. This is the injection route behind auto-blogging and doorway/SEO-spam posts. Dashboard publishing (Gutenberg, Classic Editor) and scheduled posts are unaffected, and blocked attempts are logged. <strong>Off by default</strong>, because it will break headless WordPress, mobile-app posting, and Zapier/IFTTT-style integrations that publish through the API &ndash; turn it on only if nothing legitimately posts to this site from outside the dashboard.</span>
-									</span>
-								</label>
-							</td>
-						</tr>
-						<tr>
-							<th><label for="account_guard_enabled">Account-takeover write pattern</label></th>
-							<td>
-								<label class="wps-toggle-row">
-									<input type="checkbox" id="account_guard_enabled" name="account_guard_enabled" value="1" <?php checked( ( $settings['account_guard_enabled'] ?? '1' ) !== '0' ); ?>>
-									<span>
-										<strong>Flag posts and pages written seconds after a login from a device that account has never used before</strong><br>
-										<span class="description">Built from a confirmed incident: correct credentials, a genuine login, a genuine session - then a spam post or an edit to an existing page within seconds, from an IP/browser the account had never logged in from before. A real administrator does not do that; <code>post_guard_enabled</code> above cannot catch it either, because the session really is genuine. <strong>On by default</strong>, because nothing legitimate produces this exact shape - a normal first login from a new computer that happens to publish within seconds of signing in is the only false-positive case, and the action taken is reversible.</span>
-									</span>
-								</label>
-								<label class="wps-toggle-row" style="margin-top:8px;">
-									<input type="checkbox" id="account_guard_auto_trash" name="account_guard_auto_trash" value="1" <?php checked( ( $settings['account_guard_auto_trash'] ?? '1' ) !== '0' ); ?>>
-									<span>
-										<strong>Move the flagged post or page to Trash automatically</strong><br>
-										<span class="description">Trash, never permanent deletion - restorable from Diagnostics if this was a false positive.</span>
-									</span>
-								</label>
-								<label class="wps-toggle-row" style="margin-top:8px;">
-									<input type="checkbox" id="account_guard_lockdown" name="account_guard_lockdown" value="1" <?php checked( ( $settings['account_guard_lockdown'] ?? '1' ) !== '0' ); ?>>
-									<span>
-										<strong>Sign that account out everywhere and block the address</strong><br>
-										<span class="description">Ends every other active session for the account (they simply log in again if it was really them) and blocks the requesting address for 7 days, skipping known shared-infrastructure addresses the same way the hostile-IP list always does.</span>
-									</span>
-								</label>
-							</td>
-						</tr>
-						<tr>
-							<th><label for="account_guard_app_password_enabled">Application Password self-authorization phishing</label></th>
-							<td>
-								<label class="wps-toggle-row">
-									<input type="checkbox" id="account_guard_app_password_enabled" name="account_guard_app_password_enabled" value="1" <?php checked( ( $settings['account_guard_app_password_enabled'] ?? '1' ) !== '0' ); ?>>
-									<span>
-										<strong>Block scripted requests for a new Application Password sent to an outside domain</strong><br>
-										<span class="description">The same incident's next step: a direct, scripted hit on <code>authorize-application.php</code> asking WordPress to mail a new Application Password to a callback on another domain, disguised as an app named &ldquo;SEO Super Tool&rdquo;. A real integration only reaches that page because the user clicked something inside it, which carries a referer from the integration's own domain; this blocks the request when that referer is missing. <strong>On by default.</strong></span>
-									</span>
-								</label>
-							</td>
-						</tr>
-						<tr>
-							<th><label for="account_guard_critical_writes">User creation &amp; role changes via REST</label></th>
-							<td>
-								<label class="wps-toggle-row">
-									<input type="checkbox" id="account_guard_critical_writes" name="account_guard_critical_writes" value="1" <?php checked( ( $settings['account_guard_critical_writes'] ?? '1' ) !== '0' ); ?>>
-									<span>
-										<strong>Block creating users, changing roles, and unauthenticated batch requests via the REST API</strong><br>
-										<span class="description">Ported from a real incident on a real site (25-Aug-2026): a new WordPress user was created via <code>POST /wp/v2/users</code> using a compromised account's own genuine session &ndash; privilege escalation, not just a spam post. Also blocks any write to <code>/wp/v2/users</code> carrying a <code>roles</code> or <code>role</code> field (promoting an existing account), and unauthenticated <code>POST /batch/v1</code> requests (a currently-targeted route unrelated to account takeover &ndash; 67 blocked hits recorded on one site in a single week). None of these three has an ordinary legitimate use from outside wp-admin, so each is blocked outright rather than waiting for a pattern. <strong>On by default.</strong></span>
-									</span>
-								</label>
-							</td>
-						</tr>
-						<tr>
-							<th><label for="account_guard_disable_app_passwords">Disable Application Passwords entirely</label></th>
-							<td>
-								<label class="wps-toggle-row">
-									<input type="checkbox" id="account_guard_disable_app_passwords" name="account_guard_disable_app_passwords" value="1" <?php checked( ( $settings['account_guard_disable_app_passwords'] ?? '0' ) === '1' ); ?>>
-									<span>
-										<strong>Turn off Application Passwords site-wide (creating new ones AND authenticating with existing ones)</strong><br>
-										<span class="description">The blunter option. The app-password checks above already cover the two main abuse routes (post_guard's dashboard-session test, and this file's self-authorization-phishing block), so this is only worth turning on if the site has no legitimate use for Application Passwords at all &ndash; no mobile app posting, no Zapier/IFTTT-style integration. <strong>Off by default</strong> for that reason.</span>
-									</span>
-								</label>
-							</td>
-						</tr>
-						<tr>
-							<th><label for="spam_content_guard_enabled">Gambling/casino spam-content scanner</label></th>
-							<td>
-								<label class="wps-toggle-row">
-									<input type="checkbox" id="spam_content_guard_enabled" name="spam_content_guard_enabled" value="1" <?php checked( ( $settings['spam_content_guard_enabled'] ?? '0' ) === '1' ); ?>>
-									<span>
-										<strong>Scan post/page content for gambling-spam links and keyword clusters at write time, and sweep daily for anything already published</strong><br>
-										<span class="description">Content-based, not behavioural &ndash; a narrower, spam-vertical-specific second layer, ported from a mu-plugin whose own log shows it working (11 spam posts blocked at write time, several more cleaned at the save boundary, a handful quarantined by the daily sweep, all independently cross-checked against the same spam recovered from that site's access logs). Unlike the checks above, this CAN misfire on a site that legitimately writes about gambling &ndash; addiction-recovery content, gambling-law journalism, a games-industry blog &ndash; and can be evaded by an attacker who avoids this specific vocabulary. <strong>Off by default</strong> for that reason; turn it on if this particular spam category is what the site is actually fighting.</span>
-									</span>
-								</label>
-							</td>
-						</tr>
-						<tr>
 							<th><label for="xmlrpc_auth_disabled">XML-RPC sign-in</label></th>
 							<td>
 								<label class="wps-toggle-row">
@@ -212,6 +155,18 @@ class WPS_Admin_Settings {
 									<span>
 										<strong>Disable authentication over XML-RPC</strong><br>
 										<span class="description">XML-RPC lets one request carry hundreds of credential guesses through <code>system.multicall</code>, which is why so much automated traffic goes there. Off by default because Jetpack and the WordPress mobile apps sign in this way &ndash; if you use either, leave this alone.</span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="block_sso_bypass">Unauthenticated sign-in endpoints</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="block_sso_bypass" name="block_sso_bypass" value="1" <?php checked( ( $settings['block_sso_bypass'] ?? '0' ) === '1' ); ?>>
+									<span>
+										<strong>Block sign-in endpoints that need no password</strong><br>
+										<span class="description">Managed hosts install a loader in <code>mu-plugins</code> that hands out an administrator session to anyone presenting the right token &ndash; no password, no second factor. It powers their &ldquo;log in to WordPress&rdquo; button. This removes the endpoint on every request, so a copy redeployed by your host is unreachable rather than merely deleted, and clears the stored token, which is the actual key and survives every password reset you perform. <strong>Turning this on will stop your host&rsquo;s one-click dashboard login working</strong> &ndash; you will sign in at <code>wp-login.php</code> as normal. Off by default for that reason; worth turning on if you do not use that button, and worth strong consideration on a site that has been compromised, since a copied token is a permanent administrator key.</span>
 									</span>
 								</label>
 							</td>
@@ -252,156 +207,242 @@ class WPS_Admin_Settings {
 								</label>
 							</td>
 						</tr>
-						<tr>
-							<th><label for="login_ip_allowlist">Never block these addresses</label></th>
-							<td>
-								<textarea id="login_ip_allowlist" name="login_ip_allowlist" rows="2" class="wps-mono wps-sm"><?php echo esc_textarea( (string) ( $settings['login_ip_allowlist'] ?? '' ) ); ?></textarea>
-								<p class="description">One IP address per line. Useful where an office or VPN shares one address and several people could trip the counter together.</p>
-							</td>
-						</tr>
-						<tr>
-							<th><label for="first_party_plugins">Your own plugins</label></th>
-							<td>
-								<textarea id="first_party_plugins" name="first_party_plugins" rows="3" class="wps-mono wps-sm"><?php echo esc_textarea( (string) ( $settings['first_party_plugins'] ?? '' ) ); ?></textarea>
-								<p class="description">One plugin folder name per line, for plugins you wrote or commissioned. These stop being reported as lacking a wordpress.org baseline &ndash; there is no baseline to be had for code never published there. They are not ignored: their PHP files are fingerprinted, and a change that arrives without a version bump is reported, since editing files in place is what both a hotfix and a planted file look like.</p>
-							</td>
-						</tr>
-						<tr>
-							<th><label for="extra_hashes">Blocked file hashes</label></th>
-							<td>
-								<textarea id="extra_hashes" name="extra_hashes" rows="4" class="wps-mono wps-sm"><?php echo esc_textarea( (string) ( $settings['extra_hashes'] ?? '' ) ); ?></textarea>
-								<p class="description">One MD5 or SHA-256 hash per line. Get with: <code>md5sum plugin-file.php</code> or <code>sha256sum plugin-file.php</code>.</p>
-							</td>
-						</tr>
-					</table>
-				</div>
+						</table>
+					</div>
+				</section>
 
-				<div class="wps-card wps-card--pad-lg">
-					<h2 class="wps-card-h">Remediation</h2>
-					<p class="wps-sm wps-muted wps-p">What happens when the scanner confirms malware.</p>
-					<table class="form-table wps-p0">
+				<section class="wps-subpanel" role="tabpanel" id="wps-sp-posting" aria-labelledby="wps-st-posting" data-wps-panel="posting">
+					<div class="wps-card wps-card--pad-lg">
+						<h2 class="wps-card-h">Posting &amp; accounts</h2>
+						<p class="wps-sm wps-muted wps-p">Controls for content written through the REST API and XML-RPC, and for accounts that may have been taken over.</p>
+						<table class="form-table wps-p0">
 						<tr>
-							<th>Auto-remediation</th>
+							<th><label for="post_guard_enabled">External post writing</label></th>
 							<td>
 								<label class="wps-toggle-row">
-									<input type="checkbox" name="auto_delete_enabled" value="1" <?php checked( $auto_delete_enabled ); ?>>
+									<input type="checkbox" id="post_guard_enabled" name="post_guard_enabled" value="1" <?php checked( ( $settings['post_guard_enabled'] ?? '0' ) === '1' ); ?>>
 									<span>
-										<strong>Auto-delete confirmed malware artifacts</strong><br>
-										<span class="description">Enabled by default. Applies only to findings the scanner marks as safe for automatic deletion; heuristic and review-only findings remain untouched.</span>
+										<strong>Block external post creation, editing and deletion</strong><br>
+										<span class="description">Refuses writes to the posts and pages REST routes (<code>/wp/v2/posts</code>, <code>/wp/v2/pages</code>) and unregisters the post-writing XML-RPC methods, unless the request is a genuine administrator dashboard session &ndash; a test an Application Password, Basic Auth, JWT, OAuth or an unauthenticated bot cannot pass. This is the injection route behind auto-blogging and doorway/SEO-spam posts. Dashboard publishing (Gutenberg, Classic Editor) and scheduled posts are unaffected, and blocked attempts are logged. <strong>Off by default</strong>, because it will break headless WordPress, mobile-app posting, and Zapier/IFTTT-style integrations that publish through the API &ndash; turn it on only if nothing legitimately posts to this site from outside the dashboard.</span>
 									</span>
 								</label>
 							</td>
 						</tr>
 						<tr>
-							<th>Quarantine</th>
+							<th><label for="account_guard_enabled">Account-takeover write pattern</label></th>
 							<td>
 								<label class="wps-toggle-row">
-									<input type="checkbox" name="quarantine_enabled" value="1" <?php checked( $quarantine_enabled ); ?>>
+									<input type="checkbox" id="account_guard_enabled" name="account_guard_enabled" value="1" <?php checked( ( $settings['account_guard_enabled'] ?? '1' ) !== '0' ); ?>>
 									<span>
-										<strong>Quarantine removed threats instead of deleting them</strong><br>
-										<span class="description">Enabled by default. When auto-remediation removes a confirmed threat, it is moved to a hardened, non-executable store (recoverable for <?php echo (int) WPS_Quarantine::RETENTION_DAYS; ?> days from the Forensics tab) rather than destroyed  so a false positive can be restored and forensic evidence is preserved. Untick to permanently delete on removal.</span>
+										<strong>Flag posts and pages published seconds after a sign-in from a new device</strong><br>
+										<span class="description">A real editor rarely publishes moments after signing in from a device the account has never used. Catches spam posted with a stolen password, which an ordinary sign-in check cannot see. <strong>On by default.</strong></span>
 									</span>
 								</label>
-							</td>
-						</tr>
-					</table>
-				</div>
-
-				<div class="wps-card wps-card--pad-lg">
-					<h2 class="wps-card-h">Blocking &amp; uploads</h2>
-					<p class="wps-sm wps-muted wps-p">Front-door defences against hostile sources and upload paths.</p>
-					<table class="form-table wps-p0">
-						<tr>
-							<th>Hostile IP blocking</th>
-							<td>
-								<label class="wps-toggle-row">
-									<input type="checkbox" name="auto_ip_block_enabled" value="1" <?php checked( $auto_ip_block_enabled ); ?>>
+								<label class="wps-toggle-row" style="margin-top:8px;">
+									<input type="checkbox" id="account_guard_auto_trash" name="account_guard_auto_trash" value="1" <?php checked( ( $settings['account_guard_auto_trash'] ?? '1' ) !== '0' ); ?>>
 									<span>
-										<strong>Auto-block IPs that attempt known malware uploads</strong><br>
-										<span class="description">Enabled by default. When an IP tries to upload a known malware filename or a renamed ZIP containing known malware folders, hashes, or payload markers, WP Perf Shield blocks future WordPress requests from that IP for 7 days and records the source in the event log.</span>
+										<strong>Move the flagged post or page to Trash</strong><br>
+										<span class="description">Reversible: restore it from Trash if it was a false alarm.</span>
+									</span>
+								</label>
+								<label class="wps-toggle-row" style="margin-top:8px;">
+									<input type="checkbox" id="account_guard_lockdown" name="account_guard_lockdown" value="1" <?php checked( ( $settings['account_guard_lockdown'] ?? '1' ) !== '0' ); ?>>
+									<span>
+										<strong>Sign the account out everywhere and block the address</strong><br>
+										<span class="description">Ends the account&rsquo;s other sessions and blocks the address for 7 days. Shared networks are never blocked.</span>
 									</span>
 								</label>
 							</td>
 						</tr>
 						<tr>
-							<th>Upload pathway guard</th>
+							<th><label for="account_guard_app_password_enabled">Application Password phishing</label></th>
 							<td>
 								<label class="wps-toggle-row">
-									<input type="checkbox" name="strict_upload_gate_enabled" value="1" <?php checked( $strict_upload_gate_enabled ); ?>>
+									<input type="checkbox" id="account_guard_app_password_enabled" name="account_guard_app_password_enabled" value="1" <?php checked( ( $settings['account_guard_app_password_enabled'] ?? '1' ) !== '0' ); ?>>
 									<span>
-										<strong>Restrict ZIP uploads to trusted admin routes</strong><br>
-										<span class="description">Enabled by default. Blocks ZIP uploads unless they come from an administrator using normal WordPress upload screens such as plugin install, media upload, or async upload. Trusted routes are still inspected for known malware inside the ZIP.</span>
-									</span>
-								</label>
-							</td>
-						</tr>
-					</table>
-				</div>
-
-				<div class="wps-card wps-card--pad-lg">
-					<h2 class="wps-card-h">Banned plugins</h2>
-					<p class="wps-sm wps-muted wps-p">Ordinary plugins &mdash; not malware &mdash; that this site refuses to run. A banned plugin cannot be uploaded or activated while WP Perf Shield is active, and is deactivated on sight if it is already running. Every refusal is recorded as a policy decision, and the uploader's address is never added to the hostile-IP list for it.</p>
-					<table class="form-table wps-p0">
-						<tr>
-							<th>Enforce the banned list</th>
-							<td>
-								<label class="wps-toggle-row">
-									<input type="checkbox" name="policy_ban_enabled" value="1" <?php checked( ( $settings['policy_ban_enabled'] ?? '1' ) !== '0' ); ?>>
-									<span>
-										<strong>Refuse banned plugins on upload and activation</strong><br>
-										<span class="description">On by default. Three plugins ship banned out of the box: <code>wp-file-manager</code> (WP File Manager &ndash; full dashboard filesystem access, with a history of critical remote-code-execution holes), <code>fileorganizer</code> (FileOrganizer &ndash; same risk class, an elFinder-based full-filesystem file manager from a different vendor), and <code>filebird</code> (FileBird). Untick to switch the whole list off without clearing it.</span>
+										<strong>Block scripted requests to send a new Application Password to another site</strong><br>
+										<span class="description">A real integration reaches this page from its own site. A direct request with no referer, asking for a credential to be sent elsewhere, is blocked. <strong>On by default.</strong></span>
 									</span>
 								</label>
 							</td>
 						</tr>
 						<tr>
-							<th><label for="policy_banned_slugs">Additional banned slugs</label></th>
-							<td>
-								<textarea id="policy_banned_slugs" name="policy_banned_slugs" rows="3" class="wps-mono wps-sm"><?php echo esc_textarea( (string) ( $settings['policy_banned_slugs'] ?? '' ) ); ?></textarea>
-								<p class="description">One plugin folder slug per line, added to the two built-in bans above. Any plugin whose folder name contains one of these is refused. Leave this empty to ban only the two defaults.</p>
-							</td>
-						</tr>
-					</table>
-				</div>
-
-				<div class="wps-card wps-card--pad-lg">
-					<h2 class="wps-card-h">Appearance</h2>
-					<p class="wps-sm wps-muted wps-p">Colour scheme for the WP Perf Shield screens only.</p>
-					<table class="form-table wps-p0">
-						<tr>
-							<th><label for="wps_appearance">Colour scheme</label></th>
-							<td>
-								<select id="wps_appearance" name="appearance">
-									<option value="auto"  <?php selected( $appearance, 'auto' ); ?>>Auto (follow system)</option>
-									<option value="light" <?php selected( $appearance, 'light' ); ?>>Light (default)</option>
-									<option value="dark"  <?php selected( $appearance, 'dark' ); ?>>Dark</option>
-								</select>
-								<p class="description">Auto follows the operating system's light or dark preference.</p>
-							</td>
-						</tr>
-					</table>
-				</div>
-
-				<div class="wps-card wps-card--pad-lg">
-					<h2 class="wps-card-h">Public identification</h2>
-					<p class="wps-sm wps-muted wps-p">Whether an anonymous visitor can tell that this site runs WP Perf Shield. Off by default, and nothing else about the plugin is visible on the front end.</p>
-					<table class="form-table wps-p0">
-						<tr>
-							<th><label for="public_marker">Identify the plugin publicly</label></th>
+							<th><label for="account_guard_critical_writes">Users &amp; roles over REST</label></th>
 							<td>
 								<label class="wps-toggle-row">
-									<input type="checkbox" id="public_marker" name="public_marker" value="1" <?php checked( ( $settings['public_marker'] ?? '0' ) === '1' ); ?>>
+									<input type="checkbox" id="account_guard_critical_writes" name="account_guard_critical_writes" value="1" <?php checked( ( $settings['account_guard_critical_writes'] ?? '1' ) !== '0' ); ?>>
 									<span>
-										<strong>Add a generator meta tag to front-end pages</strong><br>
-										<span class="description">Emits <code>&lt;meta name="generator" content="WP Perf Shield" /&gt;</code> so technology profilers such as Wappalyzer and BuiltWith can recognise the plugin. The version number is deliberately never included: releases regularly close specific evasion techniques, so publishing which one you run would tell an attacker which bypasses still work against this site. Leaving this off means an attacker cannot tell from the outside what is watching. Turning it on trades a little of that for visibility.</span>
+										<strong>Block creating users, changing roles, and anonymous batch requests over the REST API</strong><br>
+										<span class="description">Creating users and changing roles belong in wp-admin, so these are blocked outright and any signed-in account involved is signed out. <strong>On by default.</strong></span>
 									</span>
 								</label>
 							</td>
 						</tr>
-					</table>
+						<tr>
+							<th><label for="account_guard_disable_app_passwords">Application Passwords</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="account_guard_disable_app_passwords" name="account_guard_disable_app_passwords" value="1" <?php checked( ( $settings['account_guard_disable_app_passwords'] ?? '0' ) === '1' ); ?>>
+									<span>
+										<strong>Turn off Application Passwords site-wide</strong><br>
+										<span class="description">Only if nothing here needs them (mobile apps, Zapier, IFTTT). The two checks above already cover the common abuse routes. <strong>Off by default.</strong></span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="spam_content_guard_enabled">Gambling-spam scanner</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="spam_content_guard_enabled" name="spam_content_guard_enabled" value="1" <?php checked( ( $settings['spam_content_guard_enabled'] ?? '0' ) === '1' ); ?>>
+									<span>
+										<strong>Reject and clean gambling-spam posts</strong><br>
+										<span class="description">Scans posts and pages for gambling links and keywords as they are written, and sweeps daily. It reads content, so it can misfire on a site that genuinely covers gambling. <strong>Off by default.</strong></span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						</table>
+					</div>
+				</section>
+
+				<section class="wps-subpanel" role="tabpanel" id="wps-sp-response" aria-labelledby="wps-st-response" data-wps-panel="response">
+					<div class="wps-card wps-card--pad-lg">
+						<h2 class="wps-card-h">Remediation</h2>
+						<p class="wps-sm wps-muted wps-p">What happens when the scanner confirms malware.</p>
+						<table class="form-table wps-p0">
+							<tr>
+								<th>Auto-remediation</th>
+								<td>
+									<label class="wps-toggle-row">
+										<input type="checkbox" name="auto_delete_enabled" value="1" <?php checked( $auto_delete_enabled ); ?>>
+										<span>
+											<strong>Auto-delete confirmed malware artifacts</strong><br>
+											<span class="description">Enabled by default. Applies only to findings the scanner marks as safe for automatic deletion; heuristic and review-only findings remain untouched.</span>
+										</span>
+									</label>
+								</td>
+							</tr>
+							<tr>
+								<th>Quarantine</th>
+								<td>
+									<label class="wps-toggle-row">
+										<input type="checkbox" name="quarantine_enabled" value="1" <?php checked( $quarantine_enabled ); ?>>
+										<span>
+											<strong>Quarantine removed threats instead of deleting them</strong><br>
+											<span class="description">Enabled by default. When auto-remediation removes a confirmed threat, it is moved to a hardened, non-executable store (recoverable for <?php echo (int) WPS_Quarantine::RETENTION_DAYS; ?> days from the Forensics tab) rather than destroyed  so a false positive can be restored and forensic evidence is preserved. Untick to permanently delete on removal.</span>
+										</span>
+									</label>
+								</td>
+							</tr>
+						</table>
+					</div>
+
+					<div class="wps-card wps-card--pad-lg">
+						<h2 class="wps-card-h">Blocking &amp; uploads</h2>
+						<p class="wps-sm wps-muted wps-p">Front-door defences against hostile sources and upload paths.</p>
+						<table class="form-table wps-p0">
+							<tr>
+								<th>Hostile IP blocking</th>
+								<td>
+									<label class="wps-toggle-row">
+										<input type="checkbox" name="auto_ip_block_enabled" value="1" <?php checked( $auto_ip_block_enabled ); ?>>
+										<span>
+											<strong>Auto-block IPs that attempt known malware uploads</strong><br>
+											<span class="description">Enabled by default. When an IP tries to upload a known malware filename or a renamed ZIP containing known malware folders, hashes, or payload markers, WP Perf Shield blocks future WordPress requests from that IP for 7 days and records the source in the event log.</span>
+										</span>
+									</label>
+								</td>
+							</tr>
+							<tr>
+								<th>Upload pathway guard</th>
+								<td>
+									<label class="wps-toggle-row">
+										<input type="checkbox" name="strict_upload_gate_enabled" value="1" <?php checked( $strict_upload_gate_enabled ); ?>>
+										<span>
+											<strong>Restrict ZIP uploads to trusted admin routes</strong><br>
+											<span class="description">Enabled by default. Blocks ZIP uploads unless they come from an administrator using normal WordPress upload screens such as plugin install, media upload, or async upload. Trusted routes are still inspected for known malware inside the ZIP.</span>
+										</span>
+									</label>
+								</td>
+							</tr>
+						</table>
+					</div>
+
+				</section>
+
+				<section class="wps-subpanel" role="tabpanel" id="wps-sp-banned" aria-labelledby="wps-st-banned" data-wps-panel="banned">
+					<div class="wps-card wps-card--pad-lg">
+						<h2 class="wps-card-h">Banned plugins</h2>
+						<p class="wps-sm wps-muted wps-p">Ordinary plugins &mdash; not malware &mdash; that this site refuses to run. A banned plugin cannot be uploaded or activated while WP Perf Shield is active, and is deactivated on sight if it is already running. Every refusal is recorded as a policy decision, and the uploader's address is never added to the hostile-IP list for it.</p>
+						<table class="form-table wps-p0">
+							<tr>
+								<th>Enforce the banned list</th>
+								<td>
+									<label class="wps-toggle-row">
+										<input type="checkbox" name="policy_ban_enabled" value="1" <?php checked( ( $settings['policy_ban_enabled'] ?? '1' ) !== '0' ); ?>>
+										<span>
+											<strong>Refuse banned plugins on upload and activation</strong><br>
+											<span class="description">On by default. Three plugins ship banned out of the box: <code>wp-file-manager</code> (WP File Manager &ndash; full dashboard filesystem access, with a history of critical remote-code-execution holes), <code>fileorganizer</code> (FileOrganizer &ndash; same risk class, an elFinder-based full-filesystem file manager from a different vendor), and <code>filebird</code> (FileBird). Untick to switch the whole list off without clearing it.</span>
+										</span>
+									</label>
+								</td>
+							</tr>
+							<tr>
+								<th><label for="policy_banned_slugs">Additional banned slugs</label></th>
+								<td>
+									<textarea id="policy_banned_slugs" name="policy_banned_slugs" rows="3" class="wps-mono wps-sm"><?php echo esc_textarea( (string) ( $settings['policy_banned_slugs'] ?? '' ) ); ?></textarea>
+									<p class="description">One plugin folder slug per line, added to the two built-in bans above. Any plugin whose folder name contains one of these is refused. Leave this empty to ban only the two defaults.</p>
+								</td>
+							</tr>
+						</table>
+					</div>
+
+				</section>
+
+				<section class="wps-subpanel" role="tabpanel" id="wps-sp-appearance" aria-labelledby="wps-st-appearance" data-wps-panel="appearance">
+					<div class="wps-card wps-card--pad-lg">
+						<h2 class="wps-card-h">Appearance</h2>
+						<p class="wps-sm wps-muted wps-p">Colour scheme for the WP Perf Shield screens only.</p>
+						<table class="form-table wps-p0">
+							<tr>
+								<th><label for="wps_appearance">Colour scheme</label></th>
+								<td>
+									<select id="wps_appearance" name="appearance">
+										<option value="auto"  <?php selected( $appearance, 'auto' ); ?>>Auto (follow system)</option>
+										<option value="light" <?php selected( $appearance, 'light' ); ?>>Light (default)</option>
+										<option value="dark"  <?php selected( $appearance, 'dark' ); ?>>Dark</option>
+									</select>
+									<p class="description">Auto follows the operating system's light or dark preference.</p>
+								</td>
+							</tr>
+						</table>
+					</div>
+
+					<div class="wps-card wps-card--pad-lg">
+						<h2 class="wps-card-h">Public identification</h2>
+						<p class="wps-sm wps-muted wps-p">Whether an anonymous visitor can tell that this site runs WP Perf Shield. Off by default, and nothing else about the plugin is visible on the front end.</p>
+						<table class="form-table wps-p0">
+							<tr>
+								<th><label for="public_marker">Identify the plugin publicly</label></th>
+								<td>
+									<label class="wps-toggle-row">
+										<input type="checkbox" id="public_marker" name="public_marker" value="1" <?php checked( ( $settings['public_marker'] ?? '0' ) === '1' ); ?>>
+										<span>
+											<strong>Add a generator meta tag to front-end pages</strong><br>
+											<span class="description">Emits <code>&lt;meta name="generator" content="WP Perf Shield" /&gt;</code> so technology profilers such as Wappalyzer and BuiltWith can recognise the plugin. The version number is deliberately never included: releases regularly close specific evasion techniques, so publishing which one you run would tell an attacker which bypasses still work against this site. Leaving this off means an attacker cannot tell from the outside what is watching. Turning it on trades a little of that for visibility.</span>
+										</span>
+									</label>
+								</td>
+							</tr>
+						</table>
+					</div>
+
+				</section>
+
 				</div>
 
-				<p class="wps-mt10"><button type="submit" class="button button-primary">Save settings</button></p>
+				<p class="wps-mt10"><button type="submit" class="button button-primary">Save settings</button> <span class="description wps-sm">One Save applies the changes on every tab.</span></p>
 			</form>
 
 			<p class="description wps-mt10 wps-xs wps-dim">

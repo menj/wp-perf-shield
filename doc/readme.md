@@ -64,6 +64,10 @@ WP Perf Shield describes malware by **technique** rather than by name, because t
 | **Character-built identifiers** | Names spelled out of an innocuous sentence by position, or assembled with `chr()`. |
 | **Self-extracting payloads** | A file that reads itself, splits on its own closing tag, and runs what follows. |
 | **Obfuscated JavaScript in PHP** | The hexadecimal renaming automated obfuscators leave behind. |
+| **Encoded payload via temp-file include** | A blob decoded and run by writing it to a temporary file and `include`-ing it, so no `eval` is ever called. Also catches PHP hidden under a non-code extension such as `.txt`. |
+| **Stream-wrapper include loader** | A custom stream wrapper whose `stream_open()` decodes its own path and is then `include`-ed — a third way to run decoded code without `eval`. |
+| **Constant-assembled calls** | Dangerous function names built at runtime from `define()`d constants, so the plain name never appears in the file. |
+| **Compressed script shown only to visitors** | An embedded `gzinflate`/`base64` blob printed as inline JavaScript, but only to visitors who are neither logged-in editors nor known crawlers. The people who would notice never see it. |
 
 > **Minified assets are never flagged.** Minifiers shorten names; obfuscators rename everything to hex. A legitimate 80 KB single-line bundle scores zero.
 
@@ -82,6 +86,22 @@ WP Perf Shield describes malware by **technique** rather than by name, because t
 |---|---|
 | **Hardening-bypass configuration** | A `php.ini` or `.user.ini` re-enabling `shell_exec` or removing `open_basedir`. Not a payload — what makes the next payload work. |
 | **Search-engine cloaking** | Different content served to crawlers than to visitors, so spam reaches your search results while your pages look untouched. |
+
+### Code that will not stay removed
+
+Some payloads are packaged to survive the removal of any single file, or to reappear after a scan. WP Perf Shield removes the part that regenerates the rest, not just the visible copy.
+
+| Technique | What WP Perf Shield does |
+|---|---|
+| **Headless plugin folder** | A folder packaged to look like a plugin with no `Plugin Name` anywhere, holding an encrypted payload and an `uninstall.php` that declares its own options. It cannot load in WordPress, so it is staging or an orphaned payload. Removed together with the `wp_options` entries it declares, so a replacement loader cannot read its configuration back. |
+| **Empty re-drop slot** | An empty, suffixed folder (`…-analytics-4ad1-5419`) created as a landing pad for the next drop. Removed once it is at least 15 minutes old — never mid-upload — and only when it extends a payload folder already found or matches the family's naming shape. |
+| **Self-propagating worm** | The propagation engine of the doorway-spam campaign ("WP Link Helper"): it re-drops payload folders, reinstalls itself from `mu-plugins` copies, and spreads to other sites under the same hosting account by creating temporary admins in their databases. Detected on a conjunction of its own request handlers, option family and signed worm operations, then removed together with the `wp_options` state it uses to re-claim. |
+
+> ### ⚠ Removing a self-healing payload from one site is not the whole job
+>
+> The worm spreads across every site sharing a hosting account and can create administrator accounts in their databases. Cleaning one site does not clean its siblings or revoke an admin already created elsewhere.
+>
+> Change FTP/SFTP and hosting control-panel passwords, check every site on the account for the same file, and review each site's administrator list.
 
 ### Code that steals
 
@@ -164,7 +184,7 @@ Tabs follow the incident-response workflow, grouped into an action band, an obse
 - **Diagnostics**: attack attempts, hostile IPs, clearance actions, scan outcomes, daily activity, Source Trace, and operational status; the permanent sign-in denylist with a field to permanently block an address or range by hand; and the Event-chain self-test.
 - **Events**: incident summaries with cumulative risk and severity band, above the structured security event history.
 - **Logs**: read-only inspection of server access and error logs, with campaign-indicator and automated-login scans.
-- **Settings**: custom blocked slugs, the site-policy banned-plugins list, custom MD5/SHA-256 hashes, sign-in protection including XML-RPC and Akismet reporting controls, appearance, and behaviour toggles.
+- **Settings**: custom blocked slugs, the site-policy banned-plugins list, custom MD5/SHA-256 hashes, sign-in protection including XML-RPC and Akismet reporting controls, appearance, and behaviour toggles. Grouped into six sub-tabs (Detection, Sign-in, Posting & accounts, Response, Banned plugins, Appearance) inside one form with a single Save button.
 - **Docs**: the plugin's own documentation rendered inside wp-admin, so this reference, the changelog and the upgrade notes are readable without leaving the site.
 
 ## Logging
@@ -210,7 +230,7 @@ Safe target ever reaches the destructive gate.
 
 ## Version
 
-Current plugin version: `1.4.111`
+Current plugin version: `1.4.118`
 
 Author: [MENJ](https://github.com/menj)
 

@@ -59,6 +59,36 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.118
+
+**Harmless maintenance pages stop being flagged, and a way to hide a backdoor in them is closed.** If your scan report has been listing `maintenance.php`, `db-error.php` or `php-error.php` as "unknown publisher" and they are plain static pages, the finding clears by itself. If a file of that name contains executable code or reads request headers, it is now reported as high even when it carries a hosting tool's label; inspect it, and remove it if you did not write it. Nothing is ever removed automatically for this. Nothing to configure. The drop-in baseline guard no longer raises "appeared" or "modified" alerts when a theme writes or updates such a page, but still does if the page gains code, a script, or a reference to another site.
+
+## 1.4.117
+
+**Settings is reorganised into tabs.** The same options, grouped into six sections (Detection, Sign-in, Posting & accounts, Response, Banned plugins, Appearance) with one Save button that applies changes on every tab. Nothing was renamed and no setting or default changed, so nothing needs reconfiguring. If you have a bookmark to a specific setting, a `#setting-id` link now opens the right tab.
+
+Two small fixes ride along: help text on a few settings is shorter and plainer, and long code snippets in the settings screen no longer push the page sideways on a phone.
+
+## 1.4.116
+
+**Three kinds of malware that were found but left in place are now removed.** A web shell disguised as a plugin's `index.php`, a planted `sso-loader.php` outside `mu-plugins`, and a file manager dropped in `uploads/` were each reported on every scan without being removed. They now are. Nothing to configure.
+
+**If you use "Block unauthenticated sign-in endpoints":** with it on, the host's `mu-plugins/sso-loader.php` is now removed, as the setting's description always said. If you want to keep the host's dashboard login button, leave the setting off, or mark the file Safe.
+
+## 1.4.114
+
+**Removes the thing that keeps bringing the malware back.** If payload folders have kept reappearing after every removal, this is why: a self-healing worm named "WP Link Helper" was re-dropping them and reinstalling itself from a hidden mu-plugins copy. This release finds and removes it wherever it hides, and clears the wp_options entries it uses to resurrect itself.
+
+Removing it from this site is necessary but not sufficient. The worm spreads to other sites on the same hosting account and can create admin accounts in their databases. Change your FTP/SFTP and hosting control-panel passwords, check every other site on the account for a `wp-link-helper.php` file, and review each site's administrator list for accounts you did not create.
+
+## 1.4.113
+
+**A loader that was being reported and left running is now removed.** If a scan has been listing a "Cloaked content injector" inside a plugin folder with a random-looking name every hour without removing it, this release removes it, and the copy of its payload it saved in `wp_options`. Nothing to configure.
+
+## 1.4.112
+
+**Empty re-drop folders are now removed.** If you have seen an empty folder like `advanced-asset-analytics-4ad1-5419` in your plugins directory, the hourly scan now removes it once it is 15 minutes old. If the finding says the family has been seen more than once, change your FTP/SFTP and hosting control-panel passwords: something still has write access. Nothing to configure.
+
 ## 1.4.111
 
 **Detects webshells that build their function names out of constants.** A 24KB file was sitting in your mu-plugins folder, where every legitimate file of that name is a single line. It contained no recognisable dangerous call, because the names were assembled at runtime from defined constants, then used to write a payload to a temporary file, run it, and delete it so nothing remained between requests. It is now detected and removed.

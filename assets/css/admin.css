@@ -1813,6 +1813,20 @@ th.wps-ev-ip { text-align: right; }
 	white-space: nowrap;
 }
 
+/* 1.4.117: nowrap suits a desktop line, but a snippet wider than the screen
+   has nowhere to go on a phone: max-width does not shrink a table cell's
+   minimum width, so it pushed the whole Settings page sideways (435px of
+   content in a 375px viewport, measured). Below the admin's own mobile
+   breakpoint let it wrap in place; it stays selectable and copyable, and
+   desktop is unchanged. */
+@media (max-width: 782px) {
+	.wps-app .description code,
+	.wps-app .wps-field-note code {
+		overflow-wrap: anywhere;
+		white-space: normal;
+	}
+}
+
 @media (prefers-color-scheme: dark) {
 	.wps-app[data-wps-scheme="auto"] .form-table th { color: var(--wps-ink) !important; }
 	.wps-app[data-wps-scheme="auto"] .form-table th label { color: var(--wps-ink); }
@@ -1845,3 +1859,52 @@ th.wps-ev-ip { text-align: right; }
 }
 
 .wps-field-actions .button.wps-btn-sm { flex: 0 0 auto; }
+
+
+/* 1.4.117: Settings sub-tabs. Secondary navigation, deliberately quieter than
+   the pill-style top tabs: an underline strip, so the two levels read as a
+   hierarchy. It sits on a card-token surface rather than the bare admin
+   background: the dark scheme darkens this plugin's own panels only, so a
+   strip drawn straight onto WordPress's light-grey page rendered pale text
+   on pale grey (caught by looking at the dark render, not by the tests).
+   Only tokens are used, so light, dark and auto need no rule of their own. Hidden until JavaScript adds .wps-js,
+   because without it every panel is already showing. */
+.wps-subnav { display: none; }
+.wps-js > .wps-subnav {
+	background: var(--wps-bg-card);
+	position: relative;
+	border: 1px solid var(--wps-line);
+	border-radius: 12px;
+	display: flex;
+	gap: 4px;
+	margin: 0 0 16px;
+	overflow-x: auto;
+	padding: 0 8px;
+	scrollbar-width: thin;
+}
+.wps-subtab {
+	background: transparent;
+	border: 0;
+	border-bottom: 2px solid transparent;
+	border-radius: 0;
+	color: var(--wps-muted);
+	cursor: pointer;
+	flex: 0 0 auto;
+	font: inherit;
+	font-size: 13px;
+	font-weight: 600;
+	margin: 0;
+	padding: 10px 14px;
+	transition: color .15s ease, border-color .15s ease;
+	white-space: nowrap;
+}
+.wps-subtab:hover { color: var(--wps-ink); }
+.wps-subtab[aria-selected="true"] {
+	border-bottom-color: var(--wps-blue-t);
+	color: var(--wps-ink);
+}
+.wps-subtab:focus-visible { outline: 2px solid var(--wps-blue-t); outline-offset: -2px; }
+.wps-subpanel[hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) {
+	.wps-subtab { transition: none; }
+}
