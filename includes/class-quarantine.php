@@ -314,6 +314,33 @@ class WPS_Quarantine {
 	}
 
 	/** Best-effort autoload flag for an option; defaults to 'yes' when unknown. */
+	/**
+	 * 1.4.130: snapshot an option into the quarantine store AND remove it.
+	 *
+	 * quarantine_option() only writes the snapshot; the option stays live. Callers
+	 * that said "quarantined so it cannot re-claim" without deleting it afterwards
+	 * left the stored state in place, which is exactly what lets a surviving copy of
+	 * the WP Link Helper worm (or a payload that re-seeds from an option) come
+	 * back. This takes the snapshot first and only deletes the option if the
+	 * snapshot was written, so a failed snapshot never destroys the only copy.
+	 *
+	 * @return string|null the quarantine id, or null when nothing was removed
+	 */
+	public static function quarantine_and_remove_option( string $name, array $meta = [] ): ?string {
+		$id = self::quarantine_option( $name, $meta );
+		if ( null === $id ) {
+			return null;
+		}
+		if ( function_exists( 'delete_option' ) ) {
+			delete_option( $name );
+		}
+		if ( function_exists( 'get_option' ) && null !== get_option( $name, null ) ) {
+			self::log( 'option_remove_failed', $name . ' snapshot ' . $id . ' written but the option is still present' );
+			return null;
+		}
+		return $id;
+	}
+
 	private static function option_autoload( string $name ): string {
 		if ( isset( $GLOBALS['wpdb'] ) && is_object( $GLOBALS['wpdb'] ) ) {
 			$wpdb = $GLOBALS['wpdb'];

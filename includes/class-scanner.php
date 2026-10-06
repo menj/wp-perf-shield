@@ -901,6 +901,54 @@ class WPS_Scanner {
 	 *
 	 * @param SplFileInfo|DirectoryIterator $file
 	 */
+	/**
+	 * PHP source with its comments removed (strings and code untouched).
+	 *
+	 * The conjunction checks match patterns in the text, so a word that appears only
+	 * in a comment must neither satisfy them (a legitimate file that merely
+	 * documents `function_exists` and `shell_exec` would look like a shell) nor
+	 * suppress them (a `current_user_can` mentioned in a comment would clear an
+	 * installer that never calls it). Falls back to the raw text when the
+	 * tokenizer is unavailable.
+	 */
+	private static function code_without_comments( string $raw ): string {
+		if ( ! function_exists( 'token_get_all' ) || false === strpos( $raw, '<?' ) ) {
+			return $raw;
+		}
+		try {
+			$out = '';
+			foreach ( token_get_all( $raw ) as $tok ) {
+				if ( is_array( $tok ) ) {
+					if ( T_COMMENT === $tok[0] || T_DOC_COMMENT === $tok[0] ) {
+						$out .= str_repeat( "\n", substr_count( $tok[1], "\n" ) );
+						continue;
+					}
+					$out .= $tok[1];
+				} else {
+					$out .= $tok;
+				}
+			}
+			return $out;
+		} catch ( \Throwable $t ) {
+			return $raw;
+		}
+	}
+
+	/**
+	 * Is $real this plugin's own directory, or something inside it?
+	 *
+	 * A bare `strpos( $real, $self_dir ) === 0` also matches a SIBLING whose name
+	 * only starts the same way (`wp-perf-shield-anything`), which exempted that
+	 * folder from about thirty checks: anyone could hide code from the scanner by
+	 * naming a folder after the plugin. The comparison must stop at a path
+	 * boundary.
+	 */
+	public static function is_self_path( string $real, string $self_dir ): bool {
+		$self_dir = rtrim( str_replace( '\\', '/', $self_dir ), '/' );
+		$real     = rtrim( str_replace( '\\', '/', $real ), '/' );
+		return '' !== $self_dir && ( $real === $self_dir || 0 === strpos( $real, $self_dir . '/' ) );
+	}
+
 	private static function is_php_executable( $file ): bool {
 		return in_array( strtolower( $file->getExtension() ), self::PHP_INVENTORY_EXTS, true );
 	}
@@ -3935,7 +3983,7 @@ class WPS_Scanner {
 						continue;
 					}
 					$seen[ $real ] = true;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					if ( $f->getSize() > 1048576 ) {
@@ -4052,7 +4100,7 @@ class WPS_Scanner {
 					}
 					$path = $f->getPathname();
 					$real = realpath( $path ) ?: $path;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 
@@ -4145,7 +4193,7 @@ class WPS_Scanner {
 						continue;
 					}
 					$seen[ $real ] = true;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					// Spelling one thirteen-character function name takes about
@@ -4252,7 +4300,7 @@ class WPS_Scanner {
 						continue;
 					}
 					$seen[ $real ] = true;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					$size = $f->getSize();
@@ -4352,7 +4400,7 @@ class WPS_Scanner {
 						continue;
 					}
 					$seen[ $real ] = true;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					// Fifty hex identifiers fit in roughly seven hundred bytes
@@ -4457,7 +4505,7 @@ class WPS_Scanner {
 						continue;
 					}
 					$seen[ $real ] = true;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					$size = $f->getSize();
@@ -4549,7 +4597,7 @@ class WPS_Scanner {
 					}
 					$path = $f->getPathname();
 					$real = realpath( $path ) ?: $path;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					if ( $f->getSize() > 65536 ) {
@@ -4660,7 +4708,7 @@ class WPS_Scanner {
 						continue;
 					}
 					$seen[ $real ] = true;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					$size = $f->getSize();
@@ -4832,7 +4880,7 @@ class WPS_Scanner {
 						continue;
 					}
 					$seen[ $real ] = true;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
@@ -4963,7 +5011,7 @@ class WPS_Scanner {
 						continue;
 					}
 					$seen[ $real ] = true;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
@@ -5448,7 +5496,7 @@ class WPS_Scanner {
 				}
 				$path = $f->getPathname();
 				$real = realpath( $path ) ?: $path;
-				if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+				if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 					continue;
 				}
 				if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
@@ -5518,14 +5566,15 @@ class WPS_Scanner {
 				}
 
 				$cleaned = [];
-				if ( self::auto_delete_enabled() && class_exists( 'WPS_Quarantine' ) && method_exists( 'WPS_Quarantine', 'quarantine_option' ) ) {
+				if ( self::auto_delete_enabled() && class_exists( 'WPS_Quarantine' ) && method_exists( 'WPS_Quarantine', 'quarantine_and_remove_option' ) ) {
 					foreach ( $opt_list as $o ) {
 						if ( function_exists( 'get_option' ) && get_option( $o, null ) !== null ) {
-							WPS_Quarantine::quarantine_option( $o, [
+							if ( null !== WPS_Quarantine::quarantine_and_remove_option( $o, [
 								'type'   => 'db_option (plugin-seeded payload)',
 								'reason' => 'payload stored in the database by ' . self::display_path( $path ),
-							] );
-							$cleaned[] = $o;
+							] ) ) {
+								$cleaned[] = $o;
+							}
 						}
 					}
 				}
@@ -5802,7 +5851,7 @@ class WPS_Scanner {
 					}
 					$path = $f->getPathname();
 					$real = realpath( $path ) ?: $path;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
@@ -5973,7 +6022,7 @@ class WPS_Scanner {
 					}
 					$path = $f->getPathname();
 					$real = realpath( $path ) ?: $path;
-					if ( isset( $seen[ $real ] ) || ( '' !== $self_dir && 0 === strpos( $real, $self_dir ) ) ) {
+					if ( isset( $seen[ $real ] ) || ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) ) {
 						continue;
 					}
 					$seen[ $real ] = true;
@@ -6014,18 +6063,20 @@ class WPS_Scanner {
 					}
 
 					$cleaned = [];
-					if ( self::auto_delete_enabled() && class_exists( 'WPS_Quarantine' ) && method_exists( 'WPS_Quarantine', 'quarantine_option' ) ) {
+					if ( self::auto_delete_enabled() && class_exists( 'WPS_Quarantine' ) && method_exists( 'WPS_Quarantine', 'quarantine_and_remove_option' ) ) {
 						foreach ( $options as $opt ) {
 							if ( null === get_option( $opt, null ) ) {
 								continue;
 							}
-							WPS_Quarantine::quarantine_option( $opt, [
+							if ( null === WPS_Quarantine::quarantine_and_remove_option( $opt, [
 								'type'   => 'db_option (link-helper worm)',
 								'reason' => 'self-heal/identity state for ' . self::display_path( $path ),
-							] );
+							] ) ) {
+								continue;
+							}
 							$cleaned[] = $opt;
 							if ( class_exists( 'WPS_Logger' ) ) {
-								WPS_Logger::log_event( 'link_helper_option_cleared', $opt . ' quarantined; written by ' . self::display_path( $path ) );
+								WPS_Logger::log_event( 'link_helper_option_cleared', $opt . ' quarantined and removed; written by ' . self::display_path( $path ) );
 							}
 						}
 					}
@@ -6133,7 +6184,7 @@ class WPS_Scanner {
 					}
 					$path = $f->getPathname();
 					$real = realpath( $path ) ?: $path;
-					if ( isset( $seen[ $real ] ) || ( '' !== $self_dir && 0 === strpos( $real, $self_dir ) ) ) {
+					if ( isset( $seen[ $real ] ) || ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) ) {
 						continue;
 					}
 					$seen[ $real ] = true;
@@ -6172,18 +6223,20 @@ class WPS_Scanner {
 					}
 					$stores  = array_keys( $stores );
 					$cleaned = [];
-					if ( $stores && self::auto_delete_enabled() && class_exists( 'WPS_Quarantine' ) && method_exists( 'WPS_Quarantine', 'quarantine_option' ) ) {
+					if ( $stores && self::auto_delete_enabled() && class_exists( 'WPS_Quarantine' ) && method_exists( 'WPS_Quarantine', 'quarantine_and_remove_option' ) ) {
 						foreach ( $stores as $opt ) {
 							if ( null === get_option( $opt, null ) ) {
 								continue;
 							}
-							WPS_Quarantine::quarantine_option( $opt, [
+							if ( null === WPS_Quarantine::quarantine_and_remove_option( $opt, [
 								'type'   => 'db_option (encoded inline-script injector)',
 								'reason' => 'payload copy persisted by ' . self::display_path( $path ),
-							] );
+							] ) ) {
+								continue;
+							}
 							$cleaned[] = $opt;
 							if ( class_exists( 'WPS_Logger' ) ) {
-								WPS_Logger::log_event( 'injector_payload_option_cleared', $opt . ' quarantined; written by ' . self::display_path( $path ) );
+								WPS_Logger::log_event( 'injector_payload_option_cleared', $opt . ' quarantined and removed; written by ' . self::display_path( $path ) );
 							}
 						}
 					}
@@ -6265,6 +6318,7 @@ class WPS_Scanner {
 				}
 				continue;
 			}
+			$raw = self::code_without_comments( $raw );
 			if ( ! preg_match( '/\bregister_rest_route\s*\(|wp_ajax_nopriv_/i', $raw )
 				|| ! preg_match( '/get_file_params\s*\(|\$_FILES\b|->get_body\s*\(|php:\/\/input/i', $raw )
 				|| ! preg_match( '/\bunzip_file\s*\(|->extractTo\s*\(|Plugin_Upgrader|move_uploaded_file\s*\(/i', $raw )
@@ -6391,7 +6445,7 @@ class WPS_Scanner {
 					}
 					$path = $f->getPathname();
 					$real = realpath( $path ) ?: $path;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
@@ -6481,14 +6535,18 @@ class WPS_Scanner {
 						continue;
 					}
 					$seen[ $real ] = true;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
 						continue;
 					}
 					$raw = @file_get_contents( $path );
-					if ( ! is_string( $raw ) || false === stripos( $raw, 'function_exists' ) || ! preg_match( $rx_input, $raw ) || ! preg_match( $rx_dyn, $raw ) ) {
+					if ( ! is_string( $raw ) ) {
+						continue;
+					}
+					$raw = self::code_without_comments( $raw );
+					if ( false === stripos( $raw, 'function_exists' ) || ! preg_match( $rx_input, $raw ) || ! preg_match( $rx_dyn, $raw ) ) {
 						continue;
 					}
 
@@ -6620,7 +6678,7 @@ class WPS_Scanner {
 					}
 					$path = $f->getPathname();
 					$real = realpath( $path ) ?: $path;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					if ( ! self::is_fake_image( $path, $ext, (int) $f->getSize() ) ) {
@@ -6755,7 +6813,7 @@ class WPS_Scanner {
 					}
 					$path = $f->getPathname();
 					$real = realpath( $path ) ?: $path;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
@@ -6874,7 +6932,7 @@ class WPS_Scanner {
 				continue;
 			}
 			$real = realpath( $pdir ) ?: $pdir;
-			if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+			if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 				continue;
 			}
 
@@ -7043,18 +7101,20 @@ class WPS_Scanner {
 			 * no action.
 			 */
 			$cleaned = [];
-			if ( $opt_list && self::auto_delete_enabled() && class_exists( 'WPS_Quarantine' ) && method_exists( 'WPS_Quarantine', 'quarantine_option' ) ) {
+			if ( $opt_list && self::auto_delete_enabled() && class_exists( 'WPS_Quarantine' ) && method_exists( 'WPS_Quarantine', 'quarantine_and_remove_option' ) ) {
 				foreach ( $opt_list as $opt ) {
 					if ( null === get_option( $opt, null ) ) {
 						continue;
 					}
-					WPS_Quarantine::quarantine_option( $opt, [
+					if ( null === WPS_Quarantine::quarantine_and_remove_option( $opt, [
 						'type'   => 'db_option (headless plugin folder)',
 						'reason' => 'declared by ' . $slug . ', a folder with no plugin in it',
-					] );
+					] ) ) {
+						continue;
+					}
 					$cleaned[] = $opt;
 					if ( class_exists( 'WPS_Logger' ) ) {
-						WPS_Logger::log_event( 'headless_folder_option_cleared', $opt . ' quarantined; declared by ' . $slug );
+						WPS_Logger::log_event( 'headless_folder_option_cleared', $opt . ' quarantined and removed; declared by ' . $slug );
 					}
 				}
 			}
@@ -7160,7 +7220,7 @@ class WPS_Scanner {
 				}
 				$path = $f->getPathname();
 				$real = realpath( $path ) ?: $path;
-				if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+				if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 					continue;
 				}
 				if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
@@ -7235,7 +7295,7 @@ class WPS_Scanner {
 					}
 					$path = $f->getPathname();
 					$real = realpath( $path ) ?: $path;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					$size = $f->getSize();
@@ -7334,7 +7394,7 @@ class WPS_Scanner {
 					}
 					$path = $f->getPathname();
 					$real = realpath( $path ) ?: $path;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
@@ -7450,7 +7510,7 @@ class WPS_Scanner {
 					}
 					$path = $f->getPathname();
 					$real = realpath( $path ) ?: $path;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
@@ -7565,7 +7625,7 @@ class WPS_Scanner {
 				continue;
 			}
 			$real = realpath( $pdir ) ?: $pdir;
-			if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+			if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 				continue;
 			}
 
@@ -7669,7 +7729,7 @@ class WPS_Scanner {
 					}
 					$path = $f->getPathname();
 					$real = realpath( $path ) ?: $path;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
@@ -7780,7 +7840,7 @@ class WPS_Scanner {
 				continue;
 			}
 			$real = realpath( $pdir ) ?: $pdir;
-			if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+			if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 				continue;
 			}
 
@@ -7960,7 +8020,7 @@ class WPS_Scanner {
 					}
 					$path = $f->getPathname();
 					$real = realpath( $path ) ?: $path;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
@@ -8111,7 +8171,7 @@ class WPS_Scanner {
 					}
 					$seen[ $real ] = true;
 					// Never flag this plugin's own hardening files.
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
@@ -8269,7 +8329,7 @@ class WPS_Scanner {
 			// Never remove this plugin itself, whatever a denylist says.
 			$self = realpath( WPS_DIR ) ?: '';
 			$real = realpath( $dir ) ?: $dir;
-			if ( '' !== $self && ( $real === $self || strpos( $real, $self ) === 0 ) ) {
+			if ( '' !== $self && self::is_self_path( $real, $self ) ) {
 				continue;
 			}
 
@@ -8548,7 +8608,7 @@ class WPS_Scanner {
 						continue;
 					}
 					$seen[ $real ] = true;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					// No meaningful floor. The cloaking check ignores small
@@ -8818,7 +8878,7 @@ class WPS_Scanner {
 						continue;
 					}
 					$seen[ $real ] = true;
-					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
 						continue;
 					}
 					$size = $f->getSize();
@@ -13304,7 +13364,7 @@ class WPS_Scanner {
 
 		foreach ( $paths_to_scan as $path ) {
 			$real = realpath( $path );
-			if ( $self_dir !== '' && $real && strpos( $real, $self_dir ) === 0 ) {
+			if ( $self_dir !== '' && $real && self::is_self_path( $real, $self_dir ) ) {
 				continue;
 			}
 
@@ -14059,16 +14119,17 @@ class WPS_Scanner {
 		}
 
 		$cleared = [];
-		if ( class_exists( 'WPS_Quarantine' ) && method_exists( 'WPS_Quarantine', 'quarantine_option' ) ) {
+		if ( class_exists( 'WPS_Quarantine' ) && method_exists( 'WPS_Quarantine', 'quarantine_and_remove_option' ) ) {
 			foreach ( $state_options as $opt ) {
 				if ( null === get_option( $opt, null ) ) {
 					continue;
 				}
-				WPS_Quarantine::quarantine_option( $opt, [
+				if ( null !== WPS_Quarantine::quarantine_and_remove_option( $opt, [
 					'type'   => 'db_option (manual removal)',
 					'reason' => 'state stored by ' . self::display_path( $real ),
-				] );
-				$cleared[] = $opt;
+				] ) ) {
+					$cleared[] = $opt;
+				}
 			}
 		}
 		self::record_redrop_baseline( $pre_hashes, [ 'type' => 'manual removal', 'subject' => self::display_path( $real ), 'severity' => 'high' ] );

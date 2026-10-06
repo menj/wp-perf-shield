@@ -7,7 +7,7 @@ It is built for incident response and post-compromise hardening rather than broa
 ## Features
 
 - Real-time activation blocking for known malicious slugs, renamed patterns, and file hashes.
-- Site-policy plugin denylist, separate from malware blocking: ordinary plugins the operator refuses to run (WP File Manager, FileOrganizer, FileBird and Protect Uploads by default) cannot be uploaded or activated, and are deactivated if already present. Recorded as policy decisions, never as malware, and the uploader's address is never added to the hostile-IP list. A banned plugin found installed on disk is quarantined and removed on the next scan (reversible, and gated on both the banned-plugins and auto-delete switches).
+- Site-policy plugin denylist, separate from malware blocking: ordinary plugins the operator refuses to run (WP File Manager, FileOrganizer, FileBird and Protect Uploads by default) cannot be uploaded or activated, and are deactivated if already present. Recorded as policy decisions, never as malware, and the uploader's address is never added to the hostile-IP list. A banned plugin found on disk is removed on the next admin request, or within about a minute on the front end, gated on the banned-plugins switch alone; the scan-time finding is additionally gated on auto-delete. Removal is quarantined and reversible unless quarantine is switched off in Settings, which deletes it outright.
 - Built-in MD5 indicators plus custom MD5/SHA-256 hash support.
 - Normal and multisite network-active plugin scrubbing.
 - Detection for wp-content drop-in persistence loaders that restore `mu-plugins/session-manager.php` from `wp_session_tokens_config`.
@@ -230,7 +230,7 @@ Safe target ever reaches the destructive gate.
 
 WP Perf Shield keeps a policy list of plugins this site has chosen not to run. It is separate from the malware blocklist: removal under it is a policy decision and is never described as malware. `wp-file-manager`, `fileorganizer`, `filebird` and `protect-uploads` are on it by default, along with the folder names `rcromlb` and `hvmosjt` that Protect Uploads has been found under; add more under **Settings, Banned plugins**. The whole policy can be switched off there, which also removes any placeholder files.
 
-A banned plugin is refused when installed, uploaded or activated, and since 1.4.125 it is also removed from the plugins folder on the next request, whoever put it there. The removal is quarantined first, so it can be restored from Diagnostics. A small placeholder file with the folder's name is left behind; a zip extraction cannot create a folder over a file. After three returns the folder is deleted instead of quarantined. `wp-file-manager` and `fileorganizer` are on a hard tier: deleted permanently the first time they are found, with no quarantine copy, and you are emailed at once. WP File Manager is also found by its main file, `file_folder_manager.php`, under any folder name, and the download of a banned plugin's zip is refused for anything that uses the WordPress HTTP API, including WP-CLI and update routines.
+A banned plugin is refused when installed, uploaded or activated, and since 1.4.125 it is also removed from the plugins folder on the next admin request (within about a minute on the front end), whoever put it there. The removal is quarantined first, so it can be restored from Diagnostics, unless you have switched quarantine off in Settings, in which case it is deleted outright. A banned plugin that is already active still runs on the one request that removes it, because the sweep runs after plugins have loaded. A small placeholder file with the folder's name is left behind; a zip extraction cannot create a folder over a file. After three returns the folder is deleted instead of quarantined. `wp-file-manager` and `fileorganizer` are on a hard tier: deleted permanently the first time they are found, with no quarantine copy, and you are emailed at once. WP File Manager is also found by its main file, `file_folder_manager.php`, under any folder name, and the download of a banned plugin's zip is refused for anything that goes through the WordPress HTTP API, including WP-CLI, update routines and other plugins. A direct `curl` or stream download is not seen.
 
 If a banned plugin keeps returning, something is writing it straight to disk, outside the WordPress installer. The Events tab records each removal with the age of its newest file and the account that owns the files. An owner other than the web server's account points to an FTP or SSH login, a deployment, a backup restore or a staging sync; the same owner as the web server points to another plugin, a site-management service or a dropper. You are emailed from the second return. The plugin names the class of cause; finding the cause means checking those logins and jobs. It cannot stop something that has the privilege to delete the placeholder and recreate the folder.
 
@@ -256,7 +256,7 @@ Each exits non-zero on failure. They do not replace running the plugin on a stag
 
 ## Version
 
-Current plugin version: `1.4.129`
+Current plugin version: `1.4.130`
 
 Author: [MENJ](https://github.com/menj)
 

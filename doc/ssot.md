@@ -99,7 +99,7 @@ Decisions, recorded so they are not reversed by accident:
 - **Returns are evidence.** Each return is counted in `wps_ban_redrops` and logged with the newest file's age and the files' owner against the web server's account. From the second return the event `policy_ban_redrop` is critical and the administrator is emailed (second return, then every tenth). The log names the class of cause (an account other than the web server's means FTP, SSH, a deploy or a restore); it does not name the cause.
 - **A banned plugin is also found by its main file (1.4.128).** Banning a folder name is whack-a-mole when the same plugin returns under a fresh random name (`rcromlb`, `hvmosjt`, ...). The sweep also removes any folder whose top-level PHP file is named exactly a banned slug (`protect-uploads.php`) and carries a `Plugin Name:` header. The match is deliberately strict because it removes a whole folder on one file name: a file that only contains the word, or has the right name and no plugin header, is left alone. The activation, upload and active-list guards already match the slug as a substring of the plugin file path, so they refuse its main file under any folder name.
 - **Hard tier (1.4.129): `wp-file-manager` and `fileorganizer`.** Deleted permanently the first time they are found: no quarantine copy of code whose own hazard is the reason for the ban, and no restore control for whoever holds an admin session. The administrator is emailed on the first appearance, not the second. Both are public plugins, so the decision is reversible by downloading them again. Other banned entries stay quarantine-first. `WPS_Blocker::HARD_BAN_SLUGS` and `BAN_MAIN_FILES` carry the lists; the main-file match for `file_folder_manager.php` also needs a `Plugin Name: WP File Manager` header.
-- **The download is refused too (1.4.129).** A `pre_http_request` filter refuses any request for a `.zip` whose name contains a banned slug, so a fetch by WP-CLI, an update routine or another plugin never leaves the server. The installer guard alone only sees WordPress's own upgrader.
+- **The download is refused too (1.4.129).** A `pre_http_request` filter refuses any request for a `.zip` whose name contains a banned slug, so a fetch through the WordPress HTTP API (WP-CLI, an update routine, another plugin) never leaves the server. The installer guard alone only sees WordPress's own upgrader. It cannot see a direct `curl` or stream download, which bypass the HTTP API entirely.
 - **The plugin never removes itself**, even if its own folder name is added to the list.
 - **Limit, stated plainly.** Anything with the privilege to delete the tombstone and recreate the folder defeats this. The point is to make the return visible and attributable.
 
@@ -169,13 +169,14 @@ It runs the parser fallback on every PHP and admin JS file, asserts version-mark
 Development tests are plain PHP scripts in:
 
 ```text
-tests/test-plugin-malware-detection.php   headless/payload/installer/dropper/fake-image/loader/web-shell checks (39 cases)
-tests/test-manual-removal.php             the "Delete this path" removal routine (12 cases)
-tests/test-policy-ban.php                 the on-disk policy ban (36 cases)
+tests/test-plugin-malware-detection.php   headless/payload/installer/dropper/fake-image/loader/web-shell checks (43 cases)
+tests/test-manual-removal.php             the "Delete this path" removal routine (16 cases)
+tests/test-policy-ban.php                 the on-disk policy ban (43 cases)
+tests/test-forensics-sql.php              the Forensics media-trace query: placeholders equal arguments (5 cases)
 tests/test-docs-sync.php                  version markers, changelog entries, and Appendix F against the code
 ```
 
-Each runs from the command line with `php tests/<file>`, exits non-zero on failure, builds synthetic fixtures in a temporary directory (random bytes stand in for payloads, so no real malware is stored) and runs the real plugin code against small in-memory stand-ins for WordPress. They do not need the rebuilt harness described in `doc/remediation-roadmap.md`. `tests/` carries an `index.php` and an `.htaccess` that denies access, like `tools/`, and every test file exits unless run from the command line.
+Each runs from the command line with `php tests/<file>` and exits non-zero on failure. All but `test-docs-sync.php`, which only reads the repository's own files and compares text, build synthetic fixtures in a temporary directory (random bytes stand in for payloads, so no real malware is stored) and run the real plugin code against small in-memory stand-ins for WordPress. They do not need the rebuilt harness described in `doc/remediation-roadmap.md`. `tests/` carries an `index.php` and an `.htaccess` that denies access, like `tools/`, and every test file exits unless run from the command line.
 
 ## Asset Layout
 
@@ -588,11 +589,11 @@ Versions 1.3.58 and 1.3.59 are not formal protocol re-audits; they are increment
 
 **1.4.124 - the "Delete this path" button** quarantines, clears the options the target's own files identify, deactivates a removed plugin and records the redrop baseline, through `WPS_Scanner::remediate_manually()`. The remediation policy is deliberately not consulted: this is the control for findings the policy declined to remove, after an explicit confirmation.
 
-**1.4.129 - the ban made hard** (see Policy Ban Enforcement on Disk above): `wp-file-manager` and `fileorganizer` deleted without quarantine, found by their real main file, downloads refused; the mu-plugins dropper's loader found on its own because, orphaned, it is a fatal error on every request that nothing else could see.
-
 **1.4.125 - the policy ban on disk** (see Policy Ban Enforcement on Disk above) and a documentation sync.
 
 **1.4.126 - a web shell no check reported.** Two one-file command-execution shells produced zero findings from all 94 checks: no `eval`, not a file manager, function names hex-encoded. `check_command_exec_shell` reports a file that reads request input, names three or more distinct process-execution functions after decoding hex literals, probes with `function_exists` and calls a function held in a variable. Decision: conclusive and auto-removable, because the conjunction has no legitimate counterpart; removal scope follows what the shell sits in (whole folder only when it is the folder's only PHP file). It was run against about 2,900 genuine files before it shipped, and against three near-miss shapes in the tests. Also recorded: a defect in the blocker's hash lists (two MD5 values inside the SHA-256 list since 1.4.121) found while editing it, fixed; `tests/test-docs-sync.php` is what keeps the catalogue honest about the hash lists.
+
+**1.4.129 - the ban made hard** (see Policy Ban Enforcement on Disk above): `wp-file-manager` and `fileorganizer` deleted without quarantine, found by their real main file, downloads refused; the mu-plugins dropper's loader found on its own because, orphaned, it is a fatal error on every request that nothing else could see.
 
 ## Product Roadmap - EDR Programme (adopted 2026-07-03)
 

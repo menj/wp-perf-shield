@@ -52,6 +52,7 @@ class WPS_Quarantine {
 		return $id;
 	}
 	public static function quarantine_option( string $name, array $meta = [] ): ?string { return 'o'; }
+	public static function quarantine_and_remove_option( string $name, array $meta = [] ): ?string { unset( $GLOBALS['opts'][ $name ] ); return 'o'; }
 }
 
 require dirname( __DIR__ ) . '/includes/class-wps-utils.php';
@@ -125,6 +126,19 @@ check( 'the same plugin under an unlisted folder name is removed by its main fil
 check( 'tombstones sit where all three were', is_file( $P . '/rcromlb' ) && is_file( $P . '/hvmosjt' ) && is_file( $P . '/zzqq-random-77' ) );
 check( 'the activation guard refuses its main file under any folder', WPS_Blocker::is_policy_banned( 'rcromlb/protect-uploads.php' ) && WPS_Blocker::is_policy_banned( 'anything-at-all/protect-uploads.php' ) );
 
+// A tombstone written for a folder banned by its main file (an arbitrary name) must SURVIVE the
+// next sweep; it used to be deleted because that folder name is not itself banned.
+WPS_Blocker::enforce_policy_ban();
+check( 'a main-file tombstone survives the next sweep', is_file( $P . '/zzqq-random-77' ) && false !== strpos( (string) file_get_contents( $P . '/zzqq-random-77' ), 'slug: protect-uploads' ), (string) @file_get_contents( $P . '/zzqq-random-77' ) );
+
+// A folder padded with hundreds of harmless files must not hide its main file.
+put( $P . '/padded-zzz/protect-uploads.php', $pu );
+for ( $i = 0; $i < 600; $i++ ) {
+	put( $P . '/padded-zzz/assets/f' . $i . '.txt', 'x' );
+}
+$removed = WPS_Blocker::enforce_policy_ban();
+check( 'a folder padded with 600 files is still found by its main file', in_array( 'padded-zzz', $removed, true ), json_encode( $removed ) );
+
 // Near misses stay.
 put( $P . '/compat-bridge/protect-uploads-compat.php', "<?php\n/* Plugin Name: Compat Bridge */\n" );
 put( $P . '/notaplugin/protect-uploads.php', "<?php\n// a file with the name but no plugin header\n" );
@@ -157,6 +171,13 @@ put( $P . '/different/file_folder_manager.php', "<?php\n/* Plugin Name: Some Oth
 $removed = WPS_Blocker::enforce_policy_ban();
 check( 'a file_folder_manager.php with a different plugin header is left alone', is_file( $P . '/different/file_folder_manager.php' ) && ! in_array( 'different', $removed, true ), json_encode( $removed ) );
 
+put( $P . '/fm-addon/file_folder_manager.php', "<?php\n/**\n  Plugin Name: WP File Manager Compatible Add-on\n **/\n" );
+$removed = WPS_Blocker::enforce_policy_ban();
+check( 'a plugin whose header only STARTS with WP File Manager is not deleted', is_file( $P . '/fm-addon/file_folder_manager.php' ) && ! in_array( 'fm-addon', $removed, true ), json_encode( $removed ) );
+put( $P . '/zz-fm-inline/file_folder_manager.php', "<?php\n/* Plugin Name: WP File Manager */\n" );
+$removed = WPS_Blocker::enforce_policy_ban();
+check( 'the exact header is still found when it closes on the same line as a comment', in_array( 'zz-fm-inline', $removed, true ), json_encode( $removed ) );
+
 // The download guard.
 $err = WPS_Blocker::block_banned_download( false, [], 'https://downloads.wordpress.org/plugin/wp-file-manager.8.0.5.zip' );
 check( 'the download of wp-file-manager.zip is refused', $err instanceof WP_Error && 'wps_policy_banned' === $err->code );
@@ -175,6 +196,12 @@ if ( class_exists( 'ZipArchive' ) ) {
 	$m = new ReflectionMethod( 'WPS_Blocker', 'policy_upload_match' );
 	$m->setAccessible( true );
 	check( 'a zip with a neutral name holding file_folder_manager.php is refused on upload', '' !== $m->invoke( null, 'neutral.zip', [ 'tmp_name' => $zp ] ) );
+	$zp3 = $tmp . '/renamed.zip';
+	$za3 = new ZipArchive();
+	$za3->open( $zp3, ZipArchive::CREATE );
+	$za3->addFromString( 'random/protect-uploads.php', "<?php\n" );
+	$za3->close();
+	check( 'a renamed zip holding random/protect-uploads.php is refused on upload', '' !== $m->invoke( null, 'renamed.zip', [ 'tmp_name' => $zp3 ] ) );
 	$zp2 = $tmp . '/fine.zip';
 	$za2 = new ZipArchive();
 	$za2->open( $zp2, ZipArchive::CREATE );
@@ -185,11 +212,21 @@ if ( class_exists( 'ZipArchive' ) ) {
 	echo "SKIP upload-guard cases (ZipArchive not available)\n";
 }
 
+// A banned folder whose name merely starts with this plugin's own folder name is NOT exempt.
+put( $P . '/wp-perf-shield-self-filebird/x.php', "<?php\n" );
+$removed = WPS_Blocker::enforce_policy_ban();
+check( 'a banned folder sharing a name prefix with this plugin is still removed', in_array( 'wp-perf-shield-self-filebird', $removed, true ), json_encode( $removed ) );
+
 // Our own directory is never touched even if the policy list names it.
 $GLOBALS['opts'][ WPS_OPTION ] = [ 'policy_banned_slugs' => "wp-perf-shield-self\n" ];
 WPS_Blocker::enforce_policy_ban();
 check( 'the plugin never removes itself', is_dir( WPS_DIR ) );
 unset( $GLOBALS['opts'][ WPS_OPTION ] );
+
+// A file whose first line merely STARTS with the marker is not a tombstone and is never deleted.
+put( $P . '/filebird-decoy', "WP-PERF-SHIELD-BAN-TOMBSTONE but this line has more text on it\n" );
+WPS_Blocker::enforce_policy_ban();
+check( 'a file that only begins with the marker is left alone', is_file( $P . '/filebird-decoy' ) );
 
 // Ban switched off: nothing removed, tombstones cleaned up.
 $GLOBALS['opts'][ WPS_OPTION ] = [ 'policy_ban_enabled' => '0' ];

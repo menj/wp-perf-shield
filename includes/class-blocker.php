@@ -309,7 +309,14 @@ class WPS_Blocker {
             $path = $root . '/' . $entry;
 
             if ( is_file( $path ) && ! is_link( $path ) && self::is_ban_tombstone( $path ) ) {
-                if ( ! $enabled || ! self::is_policy_banned( $entry ) ) {
+                // Keep it while the ban is on and the reason it was written still stands:
+                // the slug it recorded (a folder banned by its main file under an arbitrary
+                // name) or, for an older tombstone, the folder name itself.
+                $slug = self::tombstone_slug( $path );
+                $keep = $enabled && ( '' !== $slug
+                    ? in_array( $slug, array_map( 'strtolower', self::get_policy_banned_slugs() ), true )
+                    : self::is_policy_banned( $entry ) );
+                if ( ! $keep ) {
                     @unlink( $path );
                 }
                 continue;
@@ -321,11 +328,13 @@ class WPS_Blocker {
             // main file under a folder name nobody has listed. Without this the same
             // plugin returns under a fresh random folder name each time.
             $held = '';
+            $tomb_slug = '';
             if ( ! self::is_policy_banned( $entry ) ) {
                 $held = self::folder_holds_banned_plugin( $path );
                 if ( '' === $held ) {
                     continue;
                 }
+                $tomb_slug = $held;
             }
             $hard = false;
             if ( '' !== $held ) {
@@ -339,7 +348,7 @@ class WPS_Blocker {
                 }
             }
             $real = realpath( $path ) ?: $path;
-            if ( '' !== $self && ( $real === $self || 0 === strpos( $real, $self ) ) ) {
+            if ( '' !== $self && class_exists( 'WPS_Scanner' ) && WPS_Scanner::is_self_path( $real, $self ) ) {
                 continue;
             }
             if ( ! class_exists( 'WPS_Scanner' ) || ! method_exists( 'WPS_Scanner', 'remediate_manually' ) ) {
@@ -366,7 +375,22 @@ class WPS_Blocker {
             } catch ( \Throwable $t ) {
                 $newest = 0;
             }
-            $uid = @fileowner( $path );
+            // The owner of what is INSIDE the folder: a directory is often created by one
+            // account and filled by another, and the directory's owner would blame the wrong one.
+            $uid = false;
+            try {
+                foreach ( new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $path, FilesystemIterator::SKIP_DOTS ), RecursiveIteratorIterator::LEAVES_ONLY ) as $of ) {
+                    if ( $of instanceof SplFileInfo && $of->isFile() ) {
+                        $uid = @fileowner( $of->getPathname() );
+                        break;
+                    }
+                }
+            } catch ( \Throwable $t ) {
+                $uid = false;
+            }
+            if ( false === $uid ) {
+                $uid = @fileowner( $path );
+            }
             if ( false !== $uid && function_exists( 'posix_getpwuid' ) ) {
                 $pw    = @posix_getpwuid( (int) $uid );
                 $owner = is_array( $pw ) ? (string) $pw['name'] : (string) $uid;
@@ -382,7 +406,13 @@ class WPS_Blocker {
 
             // After three returns stop quarantining copies: a re-dropper must not
             // be able to fill the quarantine store with the same plugin.
+            if ( ! file_exists( $path ) ) {
+                continue; // another request got there first
+            }
             $result = WPS_Scanner::remediate_manually( $path, $hard || $count >= 3 );
+            if ( ! empty( $result['ok'] ) && 'Already gone.' === ( $result['message'] ?? '' ) ) {
+                continue; // removed between the listing and now: not a new return
+            }
             if ( empty( $result['ok'] ) ) {
                 WPS_Logger::log_event( 'policy_ban_enforce_failed', $entry . ': ' . (string) ( $result['message'] ?? '' ) );
                 continue;
@@ -427,7 +457,7 @@ class WPS_Blocker {
             // A file where the folder was: extraction cannot create a directory over it.
             clearstatcache( true, $path );
             if ( ! file_exists( $path ) ) {
-                @file_put_contents( $path, self::BAN_TOMBSTONE . "\nThis name is banned by WP Perf Shield site policy. Remove the plugin from Settings > Banned plugins and this file is deleted automatically.\n" );
+                @file_put_contents( $path, self::BAN_TOMBSTONE . "\n" . ( '' !== $tomb_slug ? 'slug: ' . $tomb_slug . "\n" : '' ) . "This name is banned by WP Perf Shield site policy. Remove the plugin from Settings > Banned plugins and this file is deleted automatically.\n" );
             }
         }
         return $removed;
@@ -446,10 +476,14 @@ class WPS_Blocker {
      * @return string the banned slug the folder holds, or '' for none
      */
     private static function folder_holds_banned_plugin( string $dir ): string {
-        $files = @scandir( $dir );
-        if ( ! is_array( $files ) || count( $files ) > 400 ) {
+        // Only the top-level PHP files matter, so list those and nothing else: a folder
+        // padded with thousands of harmless files must not be able to push the main
+        // file out of view (an earlier entry-count cap skipped such folders entirely).
+        $paths = glob( rtrim( $dir, '/\\' ) . '/*.php', GLOB_NOSORT );
+        if ( ! is_array( $paths ) ) {
             return '';
         }
+        $files = array_map( 'basename', array_slice( $paths, 0, 2000 ) );
         $slugs = array_map( 'strtolower', self::get_policy_banned_slugs() );
         foreach ( $files as $f ) {
             if ( '.php' !== strtolower( substr( $f, -4 ) ) ) {
@@ -466,7 +500,11 @@ class WPS_Blocker {
                 continue;
             }
             $head = @file_get_contents( $dir . '/' . $f, false, null, 0, 8192 );
-            if ( ! is_string( $head ) || ! preg_match( '/^[ \t\/*#@]*Plugin Name\s*:\s*' . ( '' !== $header ? preg_quote( $header, '/' ) : '' ) . '/mi', $head ) ) {
+            // The header must be the plugin's name and nothing more: a prefix match would
+            // also take "WP File Manager Compatible" or "WP File Manager Add-on", and a
+            // hard ban deletes without a copy to restore.
+            $tail = '' !== $header ? preg_quote( $header, '/' ) . '[ \t]*(?:\*\/)?[ \t]*\r?$' : '';
+            if ( ! is_string( $head ) || ! preg_match( '/^[ \t\/*#@]*Plugin Name\s*:\s*' . $tail . '/mi', $head ) ) {
                 continue;
             }
             return $slug;
@@ -477,13 +515,27 @@ class WPS_Blocker {
     /** First line of the file left where a banned plugin folder was. */
     const BAN_TOMBSTONE = 'WP-PERF-SHIELD-BAN-TOMBSTONE';
 
+    /** A tombstone is a small file whose FIRST LINE is exactly the marker, nothing more on that line. */
     private static function is_ban_tombstone( string $path ): bool {
         $size = @filesize( $path );
         if ( false === $size || $size > 600 ) {
             return false;
         }
-        $head = @file_get_contents( $path, false, null, 0, 64 );
-        return is_string( $head ) && 0 === strpos( $head, self::BAN_TOMBSTONE );
+        $head = @file_get_contents( $path, false, null, 0, 600 );
+        if ( ! is_string( $head ) ) {
+            return false;
+        }
+        $first = strtok( str_replace( "\r", '', $head ), "\n" );
+        return self::BAN_TOMBSTONE === $first;
+    }
+
+    /** The banned slug a tombstone records on its second line (`slug: ...`), or ''. */
+    private static function tombstone_slug( string $path ): string {
+        $head = @file_get_contents( $path, false, null, 0, 600 );
+        if ( is_string( $head ) && preg_match( '/^slug:\s*([a-z0-9._-]+)\s*$/mi', $head, $m ) ) {
+            return strtolower( $m[1] );
+        }
+        return '';
     }
 
     /** Request hook: sweep on every admin request, at most once a minute on the front end. */
@@ -558,6 +610,11 @@ class WPS_Blocker {
                 $entry = strtolower( str_replace( '\\', '/', (string) ( $stat['name'] ?? '' ) ) );
                 if ( $entry === '' ) {
                     continue;
+                }
+                // 1.4.130: an entry whose PHP file name is exactly a banned slug
+                // (`random/protect-uploads.php`), whatever the zip or folder is called.
+                if ( '.php' === substr( $entry, -4 ) && in_array( substr( basename( $entry ), 0, -4 ), $slugs, true ) ) {
+                    return 'entry=' . self::short_log_value( $entry );
                 }
                 // 1.4.129: a banned plugin's main file, whatever its folder is called.
                 if ( isset( self::BAN_MAIN_FILES[ basename( $entry ) ] ) && in_array( self::BAN_MAIN_FILES[ basename( $entry ) ]['slug'], $slugs, true ) ) {
@@ -668,22 +725,6 @@ class WPS_Blocker {
             '06b7dc4813bdd9575bab106451b015de', // total-render-profiler-3753.php
             '0e34f31fac8662886303225484dd648a', // total-render-toolkit-adae.php
             '99c53e189239269f0197802306af236a', // pro-font-optimizer-c88b.php
-            '04862e5820ea350b8579668a1ddbf337', // auto-speed-insights-3f8f/resources/cache.dat (1.4.120)
-            'dcc1d76e1572d52301b6cb2482021be6', // auto-speed-insights-3f8f/resources/manifest.cache (1.4.120)
-            '0de721dc40fac6749657d693b2725374', // starter-seo-toolkit-52cf/data.cache (1.4.121)
-            '054a5283e77a249934ebb2db8ac90b87', // starter-seo-toolkit-52cf/manifest.idx (1.4.121)
-            '1c0b56625bf27e0ab0ee024574fb0da6', // total-security-enhancer-488a/cache.dat (1.4.121)
-            'f07a7e783b069648593907e37e9266c1', // total-security-enhancer-488a/cache.pkg (1.4.121)
-            '16cd830983e239ecf1aeaafcc6f5b5f9', // ultra-render-helper-c8d3/index.bin (1.4.121)
-            '5453a332c98dd7c84759c97318529c74', // ultra-render-helper-c8d3/state.cache (1.4.121)
-            '86321e46a27b5da2d5898f59ac8a5c15', // native-seo-optimizer-e929/data/config.cache (1.4.126)
-            '981552c20a1e2ee4a37594dcd285dd85', // native-seo-optimizer-e929/data/state.bin (1.4.126)
-            '4b6cc3982a1623a9dc87337b2b8410e7', // native-seo-guard-ddbc/resources/index.cache (1.4.126)
-            '49076052ee519d3c8929fd5c3b6e0e48', // native-seo-guard-ddbc/resources/metadata.cache (1.4.126)
-            'cbbb5a0c4bfbce595f86019c9615c44e', // essential-font-enhancer-93d1/assets/settings.cache (1.4.126)
-            '3ddbdcbacb674826bd9f21d5550b7be2', // essential-font-enhancer-93d1/assets/state.cache (1.4.126)
-            'e5aecbd43dbd8ffc6e84aacd6821ed3e', // smart-seo-scanner-43c3/static/settings.bin (1.4.127)
-            '6082c5d317f5cd3e7dd0b79d10e05380', // smart-seo-scanner-43c3/static/settings.cache (1.4.127)
             '6f6b4854cb0d71f81796ead56132c89a', // site-speed-insights-d6e7.php
             '7dbc51fa960a74a79bd2cb475a2dfd04', // advanced-asset-insights-ec06.php (1.3.37)
             'a23f9c0fb1eb85247d0f4a8264bd9c18', // page-seo-toolkit-a937.php (1.3.39)
@@ -710,22 +751,6 @@ class WPS_Blocker {
             'c403d603a0345e904d8c6bc27565905817f602647a86eab205713e0cb849a37c', // SHA-256 total-render-profiler-3753.php
             'c22bbb5144d71de9ece4c8cf52db0e9f79b70f7e77f0064fa9e06753b340f541', // SHA-256 total-render-toolkit-adae.php
             '751b9848b645f5e7ab72eab015ea6743284657cfdcfc844a9c06081400ded3b6', // SHA-256 pro-font-optimizer-c88b.php
-            '5b0bfdcecf305a2143b6264603aa6f7528df4a7a5d56cb44f392b9a7c27b5f38', // SHA-256 auto-speed-insights-3f8f cache.dat (1.4.120)
-            'af1a7006c4eb2f90b03d3022ad999c411b56d8cfd75f1abc5df20d2e860b2193', // SHA-256 auto-speed-insights-3f8f manifest.cache (1.4.120)
-            '20f70020156fb76127c860485185762f8425bf4f95a7550f7e10297ff9bdebce', // SHA-256 starter-seo-toolkit-52cf/data.cache (1.4.121)
-            '2df96c44592be464d321b2ff515a8f6cfedd5607cab4e0bda907848274620b7a', // SHA-256 starter-seo-toolkit-52cf/manifest.idx (1.4.121)
-            '83dd2548d3bae845d337be0fb0a6e26664c36330faab623163f361d584f581d0', // SHA-256 total-security-enhancer-488a/cache.dat (1.4.121)
-            '5afe630f1da5d922b3b6b912e875b5d0ee362c6228aa7a2842a95e794afc2db9', // SHA-256 total-security-enhancer-488a/cache.pkg (1.4.121)
-            '5128d485cbaf61aba7cb1ec1fa9e9ec3d2b7e05ef2ca629b4dba18dfb7754960', // SHA-256 ultra-render-helper-c8d3/index.bin (1.4.121)
-            '788c2df949c84f93815d94b75732807044362875ff9640283ab803b12363e853', // SHA-256 ultra-render-helper-c8d3/state.cache (1.4.121)
-            'b4aeb40aaf70c2132a51ec7816db4def72b0a07f61742a400880a15efe8592cd', // SHA-256 native-seo-optimizer-e929/data/config.cache (1.4.126)
-            'ee36da3f75e1bd58d6bdeaebde24246045979746307411cac1c6483f216c9092', // SHA-256 native-seo-optimizer-e929/data/state.bin (1.4.126)
-            '5e196414e787add39f238d81894c0ab3dc804fc22aad155470e019c9ae7807ca', // SHA-256 native-seo-guard-ddbc/resources/index.cache (1.4.126)
-            'c476d5622d39e361abd640ea4d8c9b1161671a1413c845ea2dc9f8de260d1eec', // SHA-256 native-seo-guard-ddbc/resources/metadata.cache (1.4.126)
-            '7d0af093134fe83fac4136506302df8fb55e800e1f0e42a7c521e7c9ecd3b9aa', // SHA-256 essential-font-enhancer-93d1/assets/settings.cache (1.4.126)
-            '74960d8f99d98962e6b2b8862801f398af87890900536c410ff9d13d4fec2631', // SHA-256 essential-font-enhancer-93d1/assets/state.cache (1.4.126)
-            '33f7347fa8c82c8940696c735e292444d3d48e1591089d2a988027cec3fd91ec', // SHA-256 smart-seo-scanner-43c3/static/settings.bin (1.4.127)
-            '1da61bed247860e3b2bb9f687bc0e170e7a03fdbcbec21ca462823f180fd3672', // SHA-256 smart-seo-scanner-43c3/static/settings.cache (1.4.127)
             '9b5cc2de2e2cd968c5f69a0a6d561b37d31424f3f8c814d11a7404cc4a5bcaa8', // SHA-256 site-speed-insights-d6e7.php
             'ff96b828b345755c728cebbf3fc041290f14f12a535f693d06b520d89d106e3b', // SHA-256 advanced-asset-insights-ec06.php (1.3.37)
             'ee4b899d93655e4fc15b6ed8692a25e3b4052a005f85c5460d22a444e4245b9e', // SHA-256 page-seo-toolkit-a937.php (1.3.39)

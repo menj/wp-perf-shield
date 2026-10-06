@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.129
+Stable tag: 1.4.130
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -50,7 +50,7 @@ It combines real-time plugin activation blocking, hourly malware scanning, behav
 * Detects a compressed script printed as inline JavaScript only to visitors who are neither logged-in editors nor known crawlers.
 * Detects and removes payloads packaged to survive removal: a plugin-shaped folder with no plugin header carrying an encrypted payload, and the empty suffixed folders left as landing pads for the next drop - each removed together with the wp_options entries it declares.
 * Detects and removes the self-propagating worm behind the campaign (WP Link Helper): it re-drops payload folders, reinstalls itself from mu-plugins copies, and spreads to other sites on the same hosting account by creating temporary admins in their databases. Removed together with the wp_options state it uses to re-claim.
-* Detects and removes command-execution web shells: a file that takes a command from the request and runs it through a chain of process-execution functions, even when the function names are hex-encoded, removing the whole folder when the shell is its only PHP file and only the file when it was planted inside a real plugin.
+* Detects and removes command-execution web shells: a file that takes a command from the request and runs it through a chain of process-execution functions, even when the function names are hex-encoded, removing the whole folder when the shell is the only PHP file in a plugin folder, and only the file when it was planted inside a larger plugin or sits in mu-plugins.
 * Detects payload split into chunks and disguised as image files (a .png that is really base64 text), staged payload folders with opaque data files under changing names, an installer endpoint guarded only by a hard-coded token, and plugins that plant bundled folders into mu-plugins.
 * The Delete this path button quarantines instead of deleting permanently, clears the stored options of the worm or payload folder it removes and deactivates a removed plugin, so one click does what automatic remediation does.
 * Normalises split-literal obfuscation before matching, so identifiers written as glued fragments are found and every existing indicator keeps working.
@@ -125,6 +125,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 
 == Changelog ==
 
+= 1.4.130 =
+Fixes from a code review. Removal of the WP Link Helper worm, staged payload folders and encoded injectors now really deletes the options it stored (before, it only copied them into quarantine and left them live; check wp_options for leftover wlh_ keys if you removed one under 1.4.114 to 1.4.129). A folder named like this plugin's own folder is no longer skipped by the scanner. The Forensics media-upload trace is restored, the hard ban no longer deletes a plugin whose header merely starts with WP File Manager, and ban tombstones, padded folders and renamed zips are handled correctly. Documentation corrected.
+
 = 1.4.129 =
 WP File Manager and FileOrganizer are hard-banned: deleted permanently the first time they are found, with no quarantine copy, and you are emailed at once. WP File Manager is also found by its real main file under any folder name, and the download of a banned plugin's zip is refused for anything that uses WordPress's HTTP API, including WP-CLI and update routines. The loader file written by the mu-plugins installer dropper is now reported and removed on its own.
 
@@ -144,7 +147,7 @@ A banned plugin (WP File Manager, FileOrganizer, FileBird or anything you add) i
 The "Delete this path" button now quarantines instead of deleting permanently, clears the stored options of the worm or payload folder it removes, and deactivates a removed plugin, so one click does what automatic remediation does. A removal can be restored from Diagnostics.
 
 = 1.4.123 =
-Removing the WP Link Helper worm now also quarantines three more options its newest build stores (hiding flags and crawl counters), so nothing of its state is left behind.
+Removing the WP Link Helper worm now also quarantines three more options its newest build stores (hiding flags and crawl counters), when removal runs (automatic remediation, or the Delete this path button), so none of its state is left behind. With auto-remediation off the scan only reports it.
 
 = 1.4.122 =
 Fixes a false positive in the externalized-payload loader check. It could report a genuine large plugin (WP File Manager 8.0.5, verified against the published checksums) as a fake one and remove it, because three unrelated files each satisfied one of its three conditions. The loader, its decoding and the obfuscation must now be in one file, and that file must name an opaque blob. Real fake plugins of that shape are still reported.
@@ -623,6 +626,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.130 =
+Important: removal now actually deletes the options a removed worm or payload stored, and a folder named like this plugin is no longer exempt from scanning. Recommended for everyone.
 
 = 1.4.129 =
 WP File Manager and FileOrganizer are deleted permanently, with no quarantine copy, and their downloads are refused. Recommended; nothing to restore if you ever lift the ban.
