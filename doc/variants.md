@@ -65,7 +65,7 @@ A family marked *detect only* is found by scanning after it is already installed
 ---
 ## 1. ClickFix render hijacker
 
-The family WP Perf Shield was originally written against, and still the largest. Eighteen catalogued members.
+The family WP Perf Shield was originally written against, and still the largest. Nineteen catalogued samples under fourteen plugin names, plus five slugs covered by the XOR-build hashes.
 
 **Classification.** Visitor-facing JavaScript injection. The site's own pages are used to serve a lure to ordinary visitors while the owner sees nothing wrong.
 
@@ -525,11 +525,33 @@ The effect is that a compromised site looks clean from inside. An administrator 
 | `wp-cache-profiler-3a4a-e5b4` | none | none | An empty folder only |
 | `site-tools-389ee0ff2a166cbe` | none | none | An empty folder only; ends in a bare 16-character hex run, the style of family 20's folders (1.4.126) |
 
-SHA-256 values are in Appendix F. The smaller file begins with a four-byte header that differs per sample, so no signature was written on it. No loader was recovered for any of these. **Inference, not established:** the two-blob shape and the sizes match the data files of the loader-bearing ClickFix member `total-render-toolkit-c58d` ([family 1](#1-clickfix-render-hijacker)), so these may be what is left after its loader is removed, or the staging step before it arrives. The empty folders are landing pads: a dropper that finds its name taken makes a fresh suffixed one.
+The SHA-256 values are in the evidence table under Blocking below. The smaller file begins with a four-byte header that differs per sample, so no signature was written on it. No loader was recovered for any of these. **Inference, not established:** the two-blob shape and the sizes match the data files of the loader-bearing ClickFix member `total-render-toolkit-c58d` ([family 1](#1-clickfix-render-hijacker)), so these may be what is left after its loader is removed, or the staging step before it arrives. The empty folders are landing pads: a dropper that finds its name taken makes a fresh suffixed one.
 
 **Detection.** `check_headless_plugin_folder`: no `Plugin Name` header, an opaque file, options declared by `uninstall.php`; critical and auto-removable, with the options quarantined alongside. It also covers subfolders of `mu-plugins` (1.4.120) and treats a fake image as an opaque file (1.4.121). An empty folder that matches the family's name shape (three words and 4-character hex groups, or, since 1.4.126, one or two words and a single 12 to 16 character hex run) and is older than fifteen minutes is reported as a re-drop slot. `check_opaque_payload_loader` finds the loader if one is present.
 
-**Blocking.** The slugs `auto-speed-insights`, `starter-seo-toolkit`, `total-security-enhancer`, `ultra-render-helper`, `native-seo-optimizer`, `native-seo-guard` and `essential-font-enhancer` and `smart-seo-scanner` are on the activation lists, with folder patterns and the sixteen file hashes. The slug and hash entries only help if a later sample reuses these exact names and bytes; the headless check does the general work.
+**Blocking.** The slugs `auto-speed-insights`, `starter-seo-toolkit`, `total-security-enhancer`, `ultra-render-helper`, `native-seo-optimizer`, `native-seo-guard`, `essential-font-enhancer` and `smart-seo-scanner` are on the activation lists, with folder patterns. **No file fingerprints are carried for this family.** Through 1.4.129 the code carried 32 of them (16 MD5 and 16 SHA-256) for the opaque data files, and they could never match anything: fingerprints are only consulted for a plugin's main file at activation and for PHP entries inside an uploaded zip, and these are not PHP. They were removed in 1.4.130 and are recorded below as evidence instead. The slug entries only help against a later sample that reuses these names; the headless-folder check does the general work and has caught every member without any of them.
+
+**Recorded as evidence, not carried in `includes/class-blocker.php`:**
+
+| Folder | File | MD5 | SHA-256 |
+| --- | --- | --- | --- |
+| `auto-speed-insights-3f8f` | `cache.dat` | `04862e5820ea350b8579668a1ddbf337` | `5b0bfdcecf305a2143b6264603aa6f7528df4a7a5d56cb44f392b9a7c27b5f38` |
+| `auto-speed-insights-3f8f` | `manifest.cache` | `dcc1d76e1572d52301b6cb2482021be6` | `af1a7006c4eb2f90b03d3022ad999c411b56d8cfd75f1abc5df20d2e860b2193` |
+| `essential-font-enhancer-93d1` | `settings.cache` | `cbbb5a0c4bfbce595f86019c9615c44e` | `7d0af093134fe83fac4136506302df8fb55e800e1f0e42a7c521e7c9ecd3b9aa` |
+| `essential-font-enhancer-93d1` | `state.cache` | `3ddbdcbacb674826bd9f21d5550b7be2` | `74960d8f99d98962e6b2b8862801f398af87890900536c410ff9d13d4fec2631` |
+| `native-seo-guard-ddbc` | `index.cache` | `4b6cc3982a1623a9dc87337b2b8410e7` | `5e196414e787add39f238d81894c0ab3dc804fc22aad155470e019c9ae7807ca` |
+| `native-seo-guard-ddbc` | `metadata.cache` | `49076052ee519d3c8929fd5c3b6e0e48` | `c476d5622d39e361abd640ea4d8c9b1161671a1413c845ea2dc9f8de260d1eec` |
+| `native-seo-optimizer-e929` | `config.cache` | `86321e46a27b5da2d5898f59ac8a5c15` | `b4aeb40aaf70c2132a51ec7816db4def72b0a07f61742a400880a15efe8592cd` |
+| `native-seo-optimizer-e929` | `state.bin` | `981552c20a1e2ee4a37594dcd285dd85` | `ee36da3f75e1bd58d6bdeaebde24246045979746307411cac1c6483f216c9092` |
+| `smart-seo-scanner-43c3` | `settings.bin` | `e5aecbd43dbd8ffc6e84aacd6821ed3e` | `33f7347fa8c82c8940696c735e292444d3d48e1591089d2a988027cec3fd91ec` |
+| `smart-seo-scanner-43c3` | `settings.cache` | `6082c5d317f5cd3e7dd0b79d10e05380` | `1da61bed247860e3b2bb9f687bc0e170e7a03fdbcbec21ca462823f180fd3672` |
+| `starter-seo-toolkit-52cf` | `data.cache` | `0de721dc40fac6749657d693b2725374` | `20f70020156fb76127c860485185762f8425bf4f95a7550f7e10297ff9bdebce` |
+| `starter-seo-toolkit-52cf` | `manifest.idx` | `054a5283e77a249934ebb2db8ac90b87` | `2df96c44592be464d321b2ff515a8f6cfedd5607cab4e0bda907848274620b7a` |
+| `total-security-enhancer-488a` | `cache.dat` | `1c0b56625bf27e0ab0ee024574fb0da6` | `83dd2548d3bae845d337be0fb0a6e26664c36330faab623163f361d584f581d0` |
+| `total-security-enhancer-488a` | `cache.pkg` | `f07a7e783b069648593907e37e9266c1` | `5afe630f1da5d922b3b6b912e875b5d0ee362c6228aa7a2842a95e794afc2db9` |
+| `ultra-render-helper-c8d3` | `index.bin` | `16cd830983e239ecf1aeaafcc6f5b5f9` | `5128d485cbaf61aba7cb1ec1fa9e9ec3d2b7e05ef2ca629b4dba18dfb7754960` |
+| `ultra-render-helper-c8d3` | `state.cache` | `5453a332c98dd7c84759c97318529c74` | `788c2df949c84f93815d94b75732807044362875ff9640283ab803b12363e853` |
+
 
 **Remediation.** Remove the folder, which quarantines the two options with it, then find how it arrived: the plugin roster reports a plugin that appeared without an installation recorded.
 
@@ -791,22 +813,6 @@ Every fingerprint WP Perf Shield carries, with the attribution recorded alongsid
 | `50c02424e0e723c019b4d2bf849f2a9b` | wp-security-helper.php |
 | `b466fa4c2fac736d65b343d47fd0e1d1` | Stained_Heart_Red-600x500.png (416-line) |
 | `09a86e4696b21391d3911b0b64a50c48` | Stained_Heart_Red-600x500.png (63-line, live) |
-| `04862e5820ea350b8579668a1ddbf337` | auto-speed-insights-3f8f/resources/cache.dat, added 1.4.120 |
-| `dcc1d76e1572d52301b6cb2482021be6` | auto-speed-insights-3f8f/resources/manifest.cache, added 1.4.120 |
-| `0de721dc40fac6749657d693b2725374` | starter-seo-toolkit-52cf/data.cache, added 1.4.121 |
-| `054a5283e77a249934ebb2db8ac90b87` | starter-seo-toolkit-52cf/manifest.idx, added 1.4.121 |
-| `1c0b56625bf27e0ab0ee024574fb0da6` | total-security-enhancer-488a/cache.dat, added 1.4.121 |
-| `f07a7e783b069648593907e37e9266c1` | total-security-enhancer-488a/cache.pkg, added 1.4.121 |
-| `16cd830983e239ecf1aeaafcc6f5b5f9` | ultra-render-helper-c8d3/index.bin, added 1.4.121 |
-| `5453a332c98dd7c84759c97318529c74` | ultra-render-helper-c8d3/state.cache, added 1.4.121 |
-| `86321e46a27b5da2d5898f59ac8a5c15` | native-seo-optimizer-e929/data/config.cache, added 1.4.126 |
-| `981552c20a1e2ee4a37594dcd285dd85` | native-seo-optimizer-e929/data/state.bin, added 1.4.126 |
-| `4b6cc3982a1623a9dc87337b2b8410e7` | native-seo-guard-ddbc/resources/index.cache, added 1.4.126 |
-| `49076052ee519d3c8929fd5c3b6e0e48` | native-seo-guard-ddbc/resources/metadata.cache, added 1.4.126 |
-| `cbbb5a0c4bfbce595f86019c9615c44e` | essential-font-enhancer-93d1/assets/settings.cache, added 1.4.126 |
-| `3ddbdcbacb674826bd9f21d5550b7be2` | essential-font-enhancer-93d1/assets/state.cache, added 1.4.126 |
-| `e5aecbd43dbd8ffc6e84aacd6821ed3e` | smart-seo-scanner-43c3/static/settings.bin, added 1.4.127 |
-| `6082c5d317f5cd3e7dd0b79d10e05380` | smart-seo-scanner-43c3/static/settings.cache, added 1.4.127 |
 
 ### SHA-256
 
@@ -845,25 +851,9 @@ Every fingerprint WP Perf Shield carries, with the attribution recorded alongsid
 | `bae6d2e4f396b9610c11a839a9ffc9740033c7d7a482d5310af63cc45351979b` | SHA-256 |
 | `1d2699149bbb1f523cd914cbe2025de77e00dd58dedd11eaded9a04b01246d50` | SHA-256 |
 | `0a26e477951896659dbc5b0b18929995303a9ab4e071288b40691e0b366b96a1` | SHA-256 |
-| `5b0bfdcecf305a2143b6264603aa6f7528df4a7a5d56cb44f392b9a7c27b5f38` | SHA-256 auto-speed-insights-3f8f cache.dat, added 1.4.120 |
-| `af1a7006c4eb2f90b03d3022ad999c411b56d8cfd75f1abc5df20d2e860b2193` | SHA-256 auto-speed-insights-3f8f manifest.cache, added 1.4.120 |
-| `20f70020156fb76127c860485185762f8425bf4f95a7550f7e10297ff9bdebce` | SHA-256 starter-seo-toolkit-52cf/data.cache, added 1.4.121 |
-| `2df96c44592be464d321b2ff515a8f6cfedd5607cab4e0bda907848274620b7a` | SHA-256 starter-seo-toolkit-52cf/manifest.idx, added 1.4.121 |
-| `83dd2548d3bae845d337be0fb0a6e26664c36330faab623163f361d584f581d0` | SHA-256 total-security-enhancer-488a/cache.dat, added 1.4.121 |
-| `5afe630f1da5d922b3b6b912e875b5d0ee362c6228aa7a2842a95e794afc2db9` | SHA-256 total-security-enhancer-488a/cache.pkg, added 1.4.121 |
-| `5128d485cbaf61aba7cb1ec1fa9e9ec3d2b7e05ef2ca629b4dba18dfb7754960` | SHA-256 ultra-render-helper-c8d3/index.bin, added 1.4.121 |
-| `788c2df949c84f93815d94b75732807044362875ff9640283ab803b12363e853` | SHA-256 ultra-render-helper-c8d3/state.cache, added 1.4.121 |
-| `b4aeb40aaf70c2132a51ec7816db4def72b0a07f61742a400880a15efe8592cd` | SHA-256 native-seo-optimizer-e929/data/config.cache, added 1.4.126 |
-| `ee36da3f75e1bd58d6bdeaebde24246045979746307411cac1c6483f216c9092` | SHA-256 native-seo-optimizer-e929/data/state.bin, added 1.4.126 |
-| `5e196414e787add39f238d81894c0ab3dc804fc22aad155470e019c9ae7807ca` | SHA-256 native-seo-guard-ddbc/resources/index.cache, added 1.4.126 |
-| `c476d5622d39e361abd640ea4d8c9b1161671a1413c845ea2dc9f8de260d1eec` | SHA-256 native-seo-guard-ddbc/resources/metadata.cache, added 1.4.126 |
-| `7d0af093134fe83fac4136506302df8fb55e800e1f0e42a7c521e7c9ecd3b9aa` | SHA-256 essential-font-enhancer-93d1/assets/settings.cache, added 1.4.126 |
-| `74960d8f99d98962e6b2b8862801f398af87890900536c410ff9d13d4fec2631` | SHA-256 essential-font-enhancer-93d1/assets/state.cache, added 1.4.126 |
-| `33f7347fa8c82c8940696c735e292444d3d48e1591089d2a988027cec3fd91ec` | SHA-256 smart-seo-scanner-43c3/static/settings.bin, added 1.4.127 |
-| `1da61bed247860e3b2bb9f687bc0e170e7a03fdbcbec21ca462823f180fd3672` | SHA-256 smart-seo-scanner-43c3/static/settings.cache, added 1.4.127 |
 
 
-59 MD5 and 49 SHA-256 entries, verified well-formed: every value is exactly 32 or 64 hexadecimal characters.
+43 MD5 and 33 SHA-256 entries, verified well-formed: every value is exactly 32 or 64 hexadecimal characters.
 
 ---
 ## Appendix G — Where the fingerprint coverage is thin
@@ -872,7 +862,7 @@ Published because a catalogue that only shows what is known invites the reader t
 
 ### Carried with an MD5 but no SHA-256
 
-17 of 42 fingerprinted samples. These were catalogued from analysis notes before SHA-256 was recorded alongside, and the files have not since been re-examined.
+17 of 34 fingerprinted samples. These were catalogued from analysis notes before SHA-256 was recorded alongside, and the files have not since been re-examined.
 
 | Sample | MD5 |
 | --- | --- |

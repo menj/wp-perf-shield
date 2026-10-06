@@ -392,7 +392,7 @@ class WPS_Admin_Settings {
 								<th><label for="policy_banned_slugs">Additional banned slugs</label></th>
 								<td>
 									<textarea id="policy_banned_slugs" name="policy_banned_slugs" rows="3" class="wps-mono wps-sm"><?php echo esc_textarea( (string) ( $settings['policy_banned_slugs'] ?? '' ) ); ?></textarea>
-									<p class="description">One plugin folder slug per line, added to the two built-in bans above. Any plugin whose folder name contains one of these is refused. Leave this empty to ban only the two defaults.</p>
+									<p class="description">One plugin folder slug per line, added to the built-in bans listed above. Any plugin whose folder name contains one of these is refused. Leave this empty to ban only the built-in entries.</p>
 								</td>
 							</tr>
 						</table>

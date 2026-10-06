@@ -120,27 +120,11 @@ class WPS_Forensics {
     private static function trace_media_uploads(): array {
         global $wpdb;
 
-        $results = $wpdb->get_results( $wpdb->prepare(
-            "SELECT ID, post_title, post_date, post_date_gmt, guid
-             FROM {$wpdb->posts}
-             WHERE post_type = 'attachment'
-               AND (
-                 post_title LIKE %s
-                 OR post_title LIKE %s
-                 OR post_title LIKE %s
-                 OR post_title LIKE %s
-                 OR post_title LIKE %s
-                 OR post_title LIKE %s
-                 OR post_title LIKE %s
-                 OR post_title LIKE %s
-                 OR post_title LIKE %s
-                 OR post_title LIKE %s
-                 OR post_title LIKE %s
-                 OR post_title LIKE %s
-                 OR guid LIKE %s
-               )
-             ORDER BY post_date_gmt DESC
-             LIMIT 50",
+        // 1.4.130: the placeholders are generated from the pattern list. The query
+        // used to hard-code thirteen `LIKE %s` slots, so every slug added to the list
+        // after the slots were written shifted the arguments: the guid slot received a
+        // slug pattern and the `.zip` patterns were silently dropped.
+        $slug_patterns = [
             '%wp-perf-analytics%',
             '%wp-perf%',
             '%native-render-toolkit%',
@@ -156,8 +140,26 @@ class WPS_Forensics {
             '%page-seo-toolkit%',
             '%starter-image-guard%',
             '%wp-locale-handler%',
-            '%.zip%',
-            '%.zip%'
+        ];
+        $clauses = [];
+        $args    = [];
+        foreach ( $slug_patterns as $pat ) {
+            $clauses[] = 'post_title LIKE %s';
+            $args[]    = $pat;
+        }
+        $clauses[] = 'post_title LIKE %s';
+        $args[]    = '%.zip%';
+        $clauses[] = 'guid LIKE %s';
+        $args[]    = '%.zip%';
+
+        $results = $wpdb->get_results( $wpdb->prepare(
+            "SELECT ID, post_title, post_date, post_date_gmt, guid
+             FROM {$wpdb->posts}
+             WHERE post_type = 'attachment'
+               AND ( " . implode( ' OR ', $clauses ) . " )
+             ORDER BY post_date_gmt DESC
+             LIMIT 50",
+            ...$args
         ), ARRAY_A );
 
         $found = [];

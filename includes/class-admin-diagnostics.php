@@ -732,6 +732,7 @@ class WPS_Admin_Diagnostics {
 			'session-manager',
 			'wp_session_tokens_config',
 		];
+		$static_terms = count( $terms );
 
 		foreach ( $items as $item ) {
 			$ip = (string) ( $item['ip'] ?? '' );
@@ -753,7 +754,9 @@ class WPS_Admin_Diagnostics {
 		$terms = array_values( array_unique( array_filter( $terms, static function ( string $term ): bool {
 			return ! in_array( $term, [ 'unknown', 'filesystem', 'attempts', 'media', 'library', 'upload', 'record' ], true );
 		} ) ) );
-		$terms = array_slice( $terms, 0, 28 );
+		// The cap leaves room for fifteen extracted filenames however long the built-in
+		// list grows; a fixed 28 shrank that room each time a name was added to the list.
+		$terms = array_slice( $terms, 0, $static_terms + 15 );
 		$pattern = implode( '|', array_map( static fn( string $term ): string => preg_quote( $term, '/' ), $terms ) );
 
 		$commands = [];

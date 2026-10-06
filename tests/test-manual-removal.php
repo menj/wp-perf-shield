@@ -52,10 +52,22 @@ class WPS_Quarantine {
 		rename( $path, ABSPATH . 'q/' . $id );
 		return $id;
 	}
+	/** Like the real class: writes a snapshot and leaves the option where it is. */
 	public static function quarantine_option( string $name, array $meta = [] ): ?string {
+		if ( ! empty( $GLOBALS['snapshot_fail'] ) ) {
+			return null;
+		}
 		$GLOBALS['qopts'][] = $name;
-		unset( $GLOBALS['opts'][ $name ] );
 		return 'o' . count( $GLOBALS['qopts'] );
+	}
+	/** Like the real class: snapshot first, remove only if the snapshot was written. */
+	public static function quarantine_and_remove_option( string $name, array $meta = [] ): ?string {
+		$id = self::quarantine_option( $name, $meta );
+		if ( null === $id ) {
+			return null;
+		}
+		unset( $GLOBALS['opts'][ $name ] );
+		return $id;
 	}
 }
 
@@ -91,6 +103,7 @@ $r = WPS_Scanner::remediate_manually( WP_PLUGIN_DIR . '/wp-link-helper' );
 check( 'worm folder removal succeeds', $r['ok'], $r['message'] );
 check( 'worm folder is quarantined, not just deleted', null !== $r['quarantined'] && ! is_dir( WP_PLUGIN_DIR . '/wp-link-helper' ) && is_dir( ABSPATH . 'q/' . $r['quarantined'] ) );
 check( 'worm options are quarantined with it', 5 === count( array_intersect( $GLOBALS['qopts'], [ 'wlh_key', 'wlh_cdn', 'wlh_origin', 'wlh_hide_self', 'wlh_bot_hits' ] ) ), implode( ',', $GLOBALS['qopts'] ) );
+check( 'worm options are REMOVED from the options table, not just snapshotted', ! array_intersect( array_keys( $GLOBALS['opts'] ), [ 'wlh_key', 'wlh_cdn', 'wlh_origin', 'wlh_hide_self', 'wlh_bot_hits' ] ), implode( ',', array_keys( $GLOBALS['opts'] ) ) );
 check( 'an unrelated option is left alone', 'x' === get_option( 'unrelated_opt' ) );
 check( 'removed plugin is deactivated, others kept', [ 'keep/keep.php' ] === get_option( 'active_plugins' ), json_encode( get_option( 'active_plugins' ) ) );
 check( 'message says restorable and names the options', false !== strpos( $r['message'], 'restorable' ) && false !== strpos( $r['message'], 'option' ), $r['message'] );
@@ -103,6 +116,7 @@ $GLOBALS['opts']['blobby_cfg']         = 1;
 $GLOBALS['qopts']                      = [];
 $r = WPS_Scanner::remediate_manually( WP_PLUGIN_DIR . '/blobby-3f8f' );
 check( 'header-less folder: uninstall.php options quarantined', 2 === count( $GLOBALS['qopts'] ) && ! is_dir( WP_PLUGIN_DIR . '/blobby-3f8f' ), implode( ',', $GLOBALS['qopts'] ) . ' ' . $r['message'] );
+check( 'header-less folder: those options are removed too', ! isset( $GLOBALS['opts']['blobby_initialized'] ) && ! isset( $GLOBALS['opts']['blobby_cfg'] ) );
 
 // Fixture C: a real plugin with a header and an uninstall.php must NOT lose its options.
 put( WP_PLUGIN_DIR . '/real/real.php', "<?php\n/* Plugin Name: Real */\n" );
@@ -111,6 +125,16 @@ $GLOBALS['opts']['real_settings'] = 'keepme';
 $GLOBALS['qopts']                 = [];
 $r = WPS_Scanner::remediate_manually( WP_PLUGIN_DIR . '/real' );
 check( 'plugin with a header: its options are not touched', 'keepme' === get_option( 'real_settings' ) && [] === $GLOBALS['qopts'], implode( ',', $GLOBALS['qopts'] ) );
+
+// Fixture C2: if the snapshot cannot be written, the option is NOT deleted and is not reported as cleared.
+put( WP_PLUGIN_DIR . '/worm2/worm2.php', "<?php\n/* Plugin Name: Worm2 */\nget_option( 'wlh_key' );\nget_option( 'wlh_cdn' );\nget_option( 'wlh_origin' );\n" );
+$GLOBALS['opts']['wlh_key'] = $GLOBALS['opts']['wlh_cdn'] = $GLOBALS['opts']['wlh_origin'] = 'v';
+$GLOBALS['snapshot_fail']   = true;
+$r = WPS_Scanner::remediate_manually( WP_PLUGIN_DIR . '/worm2' );
+$GLOBALS['snapshot_fail']   = false;
+check( 'a failed snapshot never destroys the only copy of an option', 'v' === ( $GLOBALS['opts']['wlh_key'] ?? null ) && 'v' === ( $GLOBALS['opts']['wlh_cdn'] ?? null ), json_encode( $GLOBALS['opts'] ) );
+check( 'and it is not reported as cleared', false === strpos( $r['message'], 'cleared' ), $r['message'] );
+unset( $GLOBALS['opts']['wlh_key'], $GLOBALS['opts']['wlh_cdn'], $GLOBALS['opts']['wlh_origin'] );
 
 // Fixture D: a loose mu-plugins file.
 put( WPMU_PLUGIN_DIR . '/loader.php', "<?php\nrequire_once __DIR__ . '/x/x.php';\n" );
