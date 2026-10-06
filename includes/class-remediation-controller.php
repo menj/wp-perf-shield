@@ -1320,34 +1320,11 @@ class WPS_Remediation_Controller {
 				return;
 			}
 
-			$deleted = 0;
-			$errors  = 0;
-			try {
-				$iter = new RecursiveIteratorIterator(
-					new RecursiveDirectoryIterator( $real, FilesystemIterator::SKIP_DOTS ),
-					RecursiveIteratorIterator::CHILD_FIRST
-				);
-				foreach ( $iter as $item ) {
-					$ok = $item->isDir() ? @rmdir( $item->getPathname() ) : @unlink( $item->getPathname() );
-					$ok ? $deleted++ : $errors++;
-				}
-			} catch ( \Exception $e ) {
-				wp_send_json_error( [ 'error' => 'Directory walk failed: ' . $e->getMessage() ] );
-				return;
-			}
-			if ( @rmdir( $real ) ) {
-				$deleted++;
+			$result = WPS_Scanner::remediate_manually( $real );
+			if ( $result['ok'] ) {
+				wp_send_json_success( [ 'message' => $result['message'] ] );
 			} else {
-				$errors++;
-			}
-
-			delete_transient( 'wps_scan_results' );
-			WPS_Logger::log_event( 'directory_deleted', $real . ' (' . $deleted . ' items)' );
-
-			if ( $errors === 0 ) {
-				wp_send_json_success( [ 'message' => 'Deleted directory: ' . basename( $real ) . ' (' . $deleted . ' items)' ] );
-			} else {
-				wp_send_json_error( [ 'error' => $deleted . ' items deleted, ' . $errors . ' failed  check file permissions for: ' . $real ] );
+				wp_send_json_error( [ 'error' => $result['message'] ] );
 			}
 			return;
 		}
@@ -1357,12 +1334,11 @@ class WPS_Remediation_Controller {
 			return;
 		}
 
-		if ( @unlink( $real ) ) {
-			WPS_Logger::log_event( 'file_deleted', $real );
-			delete_transient( 'wps_scan_results' );
-			wp_send_json_success( [ 'message' => 'Deleted: ' . basename( $real ) ] );
+		$result = WPS_Scanner::remediate_manually( $real );
+		if ( $result['ok'] ) {
+			wp_send_json_success( [ 'message' => $result['message'] ] );
 		} else {
-			wp_send_json_error( [ 'error' => 'unlink() failed check file permissions for: ' . $real ] );
+			wp_send_json_error( [ 'error' => $result['message'] ] );
 		}
 	}
 

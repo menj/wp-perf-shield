@@ -1,5 +1,23 @@
 # WP Perf Shield changelog
 
+## 1.4.124
+
+The "Delete this path" button now removes things the way automatic remediation does.
+
+### The gap
+Automatic remediation moves a threat into the recoverable quarantine store, quarantines the options the threat stored (for the WP Link Helper worm, its `wlh_*` family), deactivates a removed plugin and records a redrop baseline. The button did none of that: it unlinked the target permanently. Nothing to restore, and the worm's options stayed in the database, which is what lets a surviving mu-plugins self-heal copy re-claim. The finding's own text told the operator to enable auto-remediation and scan again to finish the job.
+
+### What changed
+- New `WPS_Scanner::remediate_manually()`, used by the button for both files and folders. It quarantines first (reversible, evidence kept), clears the options the target's own files identify, deactivates a plugin that was removed, records the redrop baseline and reports what it did ("Quarantined: wp-link-helper (restorable from Diagnostics); also cleared 14 stored option(s): ...").
+- State options come from the files, never from a list applied blindly: the worm's family when three or more of its option names are quoted in one PHP file, and `uninstall.php`'s options only for a folder with no plugin header. A genuine plugin that has a header and an `uninstall.php` keeps its options.
+- If quarantine is enabled but fails, nothing is deleted and the message says why (the CRIT-002 rule automatic remediation already follows). If quarantine is switched off the target is deleted outright, as configured.
+- The remediation policy is deliberately not consulted: this is the control offered for findings the policy declined to remove, and the operator has just confirmed. The button's own path-safety checks (inside ABSPATH, protected files, structural directories, this plugin's own folder, active theme critical files) are unchanged.
+- The confirmation prompt no longer says "cannot be undone" when quarantine is on.
+- The worm's option family is now one constant, `LINK_HELPER_OPTIONS`, shared by detection and removal.
+- New `tests/test-manual-removal.php` (11 cases): worm folder quarantined with its options and deactivated, unrelated options untouched, header-less folder's `uninstall.php` options cleared, a headed plugin's options left alone, a single file, quarantine failure, quarantine disabled, and an already-gone path.
+
+Version markers move to 1.4.124.
+
 ## 1.4.123
 
 WP Link Helper 0.10.15 (re-recovered) and a second copy of the token-gated installer.

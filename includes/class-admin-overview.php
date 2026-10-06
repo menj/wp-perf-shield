@@ -166,7 +166,9 @@ class WPS_Admin_Overview {
 							// side from the outages. The only case still hidden is a
 							// finding already remediated.
 							if ( ! empty( $f['delete_path'] ) && empty( $f['remediated'] ) ) :
-								$confirm_msg = 'Delete this path? This cannot be undone.' . "\n\n" . ( $f['delete_path'] ?? '' );
+								$confirm_msg = ( class_exists( 'WPS_Scanner' ) && WPS_Scanner::quarantine_enabled()
+									? 'Remove this path? It is moved to quarantine and can be restored from Diagnostics; any stored options it identifies are quarantined with it.'
+									: 'Delete this path? Quarantine is switched off, so this cannot be undone.' ) . "\n\n" . ( $f['delete_path'] ?? '' );
 								?>
 								<button type="button" class="button wps-finding-delete-btn"
 									data-wps-action="wps_delete_file"
