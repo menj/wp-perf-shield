@@ -113,7 +113,7 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 == Changelog ==
 
 = 1.4.120 =
-Adds the Auto Speed Insights (auto-speed-insights-xxxx) disguised-plugin family to the slug, folder-pattern and hash lists. No other detection changes.
+Adds the Auto Speed Insights (auto-speed-insights-xxxx) disguised-plugin family to the slug, folder-pattern and hash lists. The headless-folder check now covers mu-plugins, and a new review-only check reports plugin code that decodes an encrypted data file from its own folder and runs it. No other detection changes.
 
 = 1.4.119 =
 Repair release. Unresolved merge-conflict markers left in three PHP files stopped the plugin from loading; they are resolved, keeping everything from 1.4.118. Inline styles on the admin screens moved into admin.css and now follow the dark colour scheme. No settings or detection changes.

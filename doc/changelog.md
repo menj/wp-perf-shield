@@ -10,7 +10,10 @@ A plugin archive with a generic caching readme, an `uninstall.php` that deletes 
 ### What changed
 - Slug `auto-speed-insights` added to the banned-slug, scanner, quarantine, forensics and diagnostics lists, and the `auto-speed-insights-xxxx/` folder and `.php` patterns to the variant-slug rules, matching the other disguised-plugin families.
 - MD5 and SHA-256 of both blobs added to the known-malware hash lists.
-- No detection logic changed.
+- **mu-plugins:** `check_headless_plugin_folder` now also scans subfolders of `mu-plugins`. WordPress loads only the PHP files directly inside that directory, so a subfolder that holds opaque data and no PHP at all is a payload waiting for a loader. Any PHP file in the subfolder counts as an entry point there, so ordinary libraries are not reported. Empty folders are not reported in mu-plugins.
+- **New check `check_opaque_payload_loader`:** finds the loader while it is still in place, which the headless-folder check cannot do because a `Plugin Name` header ends it. One PHP file must (1) read a non-text file by literal name (`.dat`, `.cache`, `.bin`, `.data`, `.db`, `.blob`, `.key`, `.enc`), (2) pass data through a decoder or decryptor, and (3) have a dynamic execution sink, and the named file must exist in the same plugin folder and be opaque (over a quarter non-printable bytes in its first 2 KB). High severity and review-only: it is a judgement about behaviour, so nothing is removed automatically.
+- **Regression test:** `tests/test-plugin-malware-detection.php` (CLI only) builds synthetic fixtures with random bytes, so no real malware is stored, and runs both checks against them: the headless plugin folder, the mu-plugins payload, the loader, and four cases that must stay quiet.
+- Registered checks: 91 (was 90). Earlier entries below quote the count at their time.
 
 Version markers move to 1.4.120.
 
