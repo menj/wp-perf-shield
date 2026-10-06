@@ -35,6 +35,9 @@ function add_action() {}
 function add_filter() {}
 function sanitize_title( $s ) { return strtolower( trim( preg_replace( '/[^a-z0-9_-]+/i', '-', $s ), '-' ) ); }
 
+class WP_Error { public $code; public $message; public function __construct( $c = '', $m = '' ) { $this->code = $c; $this->message = $m; } }
+function esc_html( $s ) { return $s; }
+
 class WPS_Logger {
 	public static function log_event( $t, $s, $ip = '' ) { $GLOBALS['events'][] = [ $t, $s ]; }
 	public static function write( $m ) {}
@@ -71,33 +74,33 @@ function check( string $name, bool $ok, string $detail = '' ): void {
 	}
 }
 $P = WP_PLUGIN_DIR;
-function drop(): void {
-	put( WP_PLUGIN_DIR . '/wp-file-manager/file_folder_manager.php', "<?php\n/* Plugin Name: WP File Manager */\n" );
-	put( WP_PLUGIN_DIR . '/wp-file-manager/lib/php/connector.minimal.php', "<?php\n" );
+function drop( string $slug = 'filebird' ): void {
+	put( WP_PLUGIN_DIR . '/' . $slug . '/' . $slug . '.php', "<?php\n/* Plugin Name: " . $slug . " */\n" );
+	put( WP_PLUGIN_DIR . '/' . $slug . '/lib/x.php', "<?php\n" );
 }
 
 put( $P . '/fine/fine.php', "<?php\n/* Plugin Name: Fine */\n" );
 drop();
 $removed = WPS_Blocker::enforce_policy_ban();
-check( 'banned folder is removed', [ 'wp-file-manager' ] === $removed, json_encode( $removed ) );
+check( 'banned folder is removed', [ 'filebird' ] === $removed, json_encode( $removed ) );
 check( 'it is quarantined, so restorable', 1 === count( glob( $tmp . '/q/*' ) ) );
-check( 'a tombstone FILE now sits where the folder was', is_file( $P . '/wp-file-manager' ) && ! is_dir( $P . '/wp-file-manager' ) );
-check( 'a plain re-extract cannot create the directory over it', false === @mkdir( $P . '/wp-file-manager' ) );
+check( 'a tombstone FILE now sits where the folder was', is_file( $P . '/filebird' ) && ! is_dir( $P . '/filebird' ) );
+check( 'a plain re-extract cannot create the directory over it', false === @mkdir( $P . '/filebird' ) );
 check( 'an unrelated plugin is untouched', is_file( $P . '/fine/fine.php' ) );
 check( 'the removal is logged with its provenance', 1 === events( 'policy_ban_enforced' ) && false !== strpos( end( $GLOBALS['events'] )[1], 'seen 1x' ), json_encode( $GLOBALS['events'] ) );
 
 // Something removes the tombstone and drops the plugin again (second return).
-unlink( $P . '/wp-file-manager' );
+unlink( $P . '/filebird' );
 drop();
 WPS_Blocker::enforce_policy_ban();
-check( 'second return is counted and raised as a re-drop', 2 === $GLOBALS['opts']['wps_ban_redrops']['wp-file-manager']['count'] && 1 === events( 'policy_ban_redrop' ) && 1 === $GLOBALS['mails'], json_encode( $GLOBALS['opts']['wps_ban_redrops'] ?? null ) . ' mails=' . $GLOBALS['mails'] );
+check( 'second return is counted and raised as a re-drop', 2 === $GLOBALS['opts']['wps_ban_redrops']['filebird']['count'] && 1 === events( 'policy_ban_redrop' ) && 1 === $GLOBALS['mails'], json_encode( $GLOBALS['opts']['wps_ban_redrops'] ?? null ) . ' mails=' . $GLOBALS['mails'] );
 
 // Third and fourth returns: the first three are quarantined; after that nothing more is stored.
-unlink( $P . '/wp-file-manager' ); drop(); WPS_Blocker::enforce_policy_ban();
+unlink( $P . '/filebird' ); drop(); WPS_Blocker::enforce_policy_ban();
 $after3 = count( glob( $tmp . '/q/*' ) );
-unlink( $P . '/wp-file-manager' ); drop(); WPS_Blocker::enforce_policy_ban();
+unlink( $P . '/filebird' ); drop(); WPS_Blocker::enforce_policy_ban();
 check( 'after repeated returns the quarantine store stops growing', 3 === $after3 && 3 === count( glob( $tmp . '/q/*' ) ), $after3 . ' / ' . count( glob( $tmp . '/q/*' ) ) );
-check( 'the folder is still removed once quarantining stops', ! is_dir( $P . '/wp-file-manager' ) && is_file( $P . '/wp-file-manager' ) );
+check( 'the folder is still removed once quarantining stops', ! is_dir( $P . '/filebird' ) && is_file( $P . '/filebird' ) );
 
 // Substring rule, the same one the installer ban uses.
 put( $P . '/wp-file-manager-pro/x.php', "<?php\n" );
@@ -131,6 +134,57 @@ check( 'a plugin that only has a file with the word in its name is left alone', 
 check( 'a file with the exact name but no plugin header is left alone', is_file( $P . '/notaplugin/protect-uploads.php' ) && ! in_array( 'notaplugin', $removed, true ), json_encode( $removed ) );
 check( 'a similar but different plugin name is left alone', is_file( $P . '/wp-protect-me/wp-protect-me.php' ) );
 
+// Hard ban (1.4.129): wp-file-manager and fileorganizer are deleted outright, never quarantined.
+$qbefore = count( glob( $tmp . '/q/*' ) );
+$mails0  = $GLOBALS['mails'];
+drop( 'wp-file-manager' );
+$removed = WPS_Blocker::enforce_policy_ban();
+check( 'wp-file-manager is removed on first sight', in_array( 'wp-file-manager', $removed, true ), json_encode( $removed ) );
+check( 'hard ban: nothing is quarantined, so nothing can be restored', count( glob( $tmp . '/q/*' ) ) === $qbefore, $qbefore . ' -> ' . count( glob( $tmp . '/q/*' ) ) );
+check( 'hard ban: a tombstone still sits where it was', is_file( $P . '/wp-file-manager' ) && ! is_dir( $P . '/wp-file-manager' ) );
+check( 'hard ban: the administrator is emailed on the FIRST appearance', $GLOBALS['mails'] === $mails0 + 1, 'mails ' . $mails0 . ' -> ' . $GLOBALS['mails'] );
+$last = array_values( array_filter( $GLOBALS['events'], static fn( $e ) => 'policy_ban_enforced' === $e[0] && false !== strpos( $e[1], 'wp-file-manager' ) ) );
+check( 'hard ban: the log says so', $last && false !== strpos( end( $last )[1], 'hard ban' ), json_encode( $last ) );
+drop( 'fileorganizer' );
+$removed = WPS_Blocker::enforce_policy_ban();
+check( 'fileorganizer is hard-banned too', in_array( 'fileorganizer', $removed, true ) && count( glob( $tmp . '/q/*' ) ) === $qbefore );
+
+// WP File Manager's real main file, under a folder name nobody listed.
+put( $P . '/zz-fm-123/file_folder_manager.php', "<?php\n/**\n  Plugin Name: WP File Manager\n  Version: 8.0.4\n **/\n" );
+$removed = WPS_Blocker::enforce_policy_ban();
+check( 'WP File Manager is found by its main file under an unlisted folder name, and deleted outright', in_array( 'zz-fm-123', $removed, true ) && count( glob( $tmp . '/q/*' ) ) === $qbefore, json_encode( $removed ) );
+put( $P . '/different/file_folder_manager.php', "<?php\n/* Plugin Name: Some Other Plugin */\n" );
+$removed = WPS_Blocker::enforce_policy_ban();
+check( 'a file_folder_manager.php with a different plugin header is left alone', is_file( $P . '/different/file_folder_manager.php' ) && ! in_array( 'different', $removed, true ), json_encode( $removed ) );
+
+// The download guard.
+$err = WPS_Blocker::block_banned_download( false, [], 'https://downloads.wordpress.org/plugin/wp-file-manager.8.0.5.zip' );
+check( 'the download of wp-file-manager.zip is refused', $err instanceof WP_Error && 'wps_policy_banned' === $err->code );
+check( 'a renamed copy of the zip is refused too', WPS_Blocker::block_banned_download( false, [], 'https://example.com/dl/wp-file-manager-pro-9.zip?x=1' ) instanceof WP_Error );
+check( 'an unrelated zip is not touched', false === WPS_Blocker::block_banned_download( false, [], 'https://downloads.wordpress.org/plugin/akismet.5.3.zip' ) );
+check( 'a non-zip URL that mentions the slug is not touched', false === WPS_Blocker::block_banned_download( false, [], 'https://wordpress.org/plugins/wp-file-manager/' ) );
+check( 'an earlier filter that already answered is respected', [ 'x' ] === WPS_Blocker::block_banned_download( [ 'x' ], [], 'https://downloads.wordpress.org/plugin/wp-file-manager.zip' ) );
+
+// The upload guard sees the main file inside a zip with a neutral name.
+if ( class_exists( 'ZipArchive' ) ) {
+	$zp = $tmp . '/neutral.zip';
+	$za = new ZipArchive();
+	$za->open( $zp, ZipArchive::CREATE );
+	$za->addFromString( 'harmless-name/file_folder_manager.php', "<?php\n" );
+	$za->close();
+	$m = new ReflectionMethod( 'WPS_Blocker', 'policy_upload_match' );
+	$m->setAccessible( true );
+	check( 'a zip with a neutral name holding file_folder_manager.php is refused on upload', '' !== $m->invoke( null, 'neutral.zip', [ 'tmp_name' => $zp ] ) );
+	$zp2 = $tmp . '/fine.zip';
+	$za2 = new ZipArchive();
+	$za2->open( $zp2, ZipArchive::CREATE );
+	$za2->addFromString( 'fine/fine.php', "<?php\n" );
+	$za2->close();
+	check( 'an ordinary zip passes the upload guard', '' === $m->invoke( null, 'fine.zip', [ 'tmp_name' => $zp2 ] ) );
+} else {
+	echo "SKIP upload-guard cases (ZipArchive not available)\n";
+}
+
 // Our own directory is never touched even if the policy list names it.
 $GLOBALS['opts'][ WPS_OPTION ] = [ 'policy_banned_slugs' => "wp-perf-shield-self\n" ];
 WPS_Blocker::enforce_policy_ban();
@@ -139,10 +193,10 @@ unset( $GLOBALS['opts'][ WPS_OPTION ] );
 
 // Ban switched off: nothing removed, tombstones cleaned up.
 $GLOBALS['opts'][ WPS_OPTION ] = [ 'policy_ban_enabled' => '0' ];
-unlink( $P . '/wp-file-manager' );
+unlink( $P . '/filebird' );
 drop();
 $removed = WPS_Blocker::enforce_policy_ban();
-check( 'ban off: a banned folder is left alone', [] === $removed && is_dir( $P . '/wp-file-manager' ), json_encode( $removed ) );
+check( 'ban off: a banned folder is left alone', [] === $removed && is_dir( $P . '/filebird' ), json_encode( $removed ) );
 check( 'ban off: leftover tombstones are deleted', ! file_exists( $P . '/wp-file-manager-pro' ), 'tombstone still present' );
 unset( $GLOBALS['opts'][ WPS_OPTION ] );
 

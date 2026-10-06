@@ -447,6 +447,7 @@ class WPS_Utils {
 			// plugin the site has chosen not to run is notable, not an incident.
 			'policy_banned_plugin_found'    => 'warning',
 			'policy_ban_enforced'            => 'warning',
+			'policy_download_blocked'        => 'warning',
 			'policy_ban_redrop'              => 'critical',
 			'policy_ban_enforce_failed'      => 'critical',
 			'htaccess_php_allowlist_found'  => 'critical',

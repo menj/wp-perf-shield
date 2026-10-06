@@ -200,6 +200,31 @@ class WPS_Blocker {
      * nothing until they have already tried. Marking the entry where they are
      * choosing costs one line and prevents the attempt.
      */
+    /**
+     * 1.4.129: refuse the download of a banned plugin's zip, whoever asks.
+     *
+     * The installer guard only sees WordPress's own upgrader. WP-CLI, an
+     * auto-update routine or another plugin fetching a zip with the HTTP API
+     * never reaches it. This stops the request itself: any request whose URL
+     * ends in a .zip whose name contains a banned slug is refused before it
+     * leaves the server.
+     *
+     * @param false|array|\WP_Error $pre
+     * @return false|array|\WP_Error
+     */
+    public static function block_banned_download( $pre, $args, $url ) {
+        if ( false !== $pre || ! is_string( $url ) || ! self::policy_ban_enabled() ) {
+            return $pre;
+        }
+        $path = (string) parse_url( $url, PHP_URL_PATH );
+        $base = strtolower( basename( $path ) );
+        if ( '.zip' !== substr( $base, -4 ) || ! self::is_policy_banned( $base ) ) {
+            return $pre;
+        }
+        WPS_Logger::log_event( 'policy_download_blocked', $base . ' download refused by site policy' );
+        return new WP_Error( 'wps_policy_banned', 'WP Perf Shield refused to download ' . esc_html( $base ) . ': it is on this site\'s banned-plugin list.' );
+    }
+
     public static function mark_banned_in_search( $res, $action, $args ) {
         if ( ! self::policy_ban_enabled() || empty( $res->plugins ) || ! is_array( $res->plugins ) ) {
             return $res;
@@ -217,6 +242,29 @@ class WPS_Blocker {
             }
         }
         return $res;
+    }
+
+    /**
+     * 1.4.129: the banned entries that get no mercy. A hard-banned plugin is
+     * removed permanently the first time it is found, with no quarantine copy:
+     * these are plugins whose own code is the hazard (a full-filesystem file
+     * manager with a history of unauthenticated remote code execution), so
+     * keeping a restorable copy of them on disk, and a "restore" button for
+     * whoever has the admin session, is the wrong trade. The administrator is
+     * emailed the first time one appears. Both are public plugins and can be
+     * downloaded again if the decision is ever reversed.
+     */
+    const HARD_BAN_SLUGS = [ 'wp-file-manager', 'fileorganizer' ];
+
+    /**
+     * Main files that identify a banned plugin whose main file does not carry its
+     * slug: WP File Manager's is file_folder_manager.php. Matched by exact name
+     * plus a Plugin Name header, so the plugin is found under any folder name.
+     */
+    const BAN_MAIN_FILES = [ 'file_folder_manager.php' => [ 'slug' => 'wp-file-manager', 'header' => 'WP File Manager' ] ];
+
+    public static function is_hard_banned( string $slug ): bool {
+        return in_array( strtolower( $slug ), self::HARD_BAN_SLUGS, true );
     }
 
     /**
@@ -272,8 +320,23 @@ class WPS_Blocker {
             // Banned by folder name, or by what the folder holds: a banned plugin's
             // main file under a folder name nobody has listed. Without this the same
             // plugin returns under a fresh random folder name each time.
-            if ( ! self::is_policy_banned( $entry ) && '' === self::folder_holds_banned_plugin( $path ) ) {
-                continue;
+            $held = '';
+            if ( ! self::is_policy_banned( $entry ) ) {
+                $held = self::folder_holds_banned_plugin( $path );
+                if ( '' === $held ) {
+                    continue;
+                }
+            }
+            $hard = false;
+            if ( '' !== $held ) {
+                $hard = self::is_hard_banned( $held );
+            } else {
+                foreach ( self::HARD_BAN_SLUGS as $hs ) {
+                    if ( false !== strpos( strtolower( $entry ), $hs ) ) {
+                        $hard = true;
+                        break;
+                    }
+                }
             }
             $real = realpath( $path ) ?: $path;
             if ( '' !== $self && ( $real === $self || 0 === strpos( $real, $self ) ) ) {
@@ -319,7 +382,7 @@ class WPS_Blocker {
 
             // After three returns stop quarantining copies: a re-dropper must not
             // be able to fill the quarantine store with the same plugin.
-            $result = WPS_Scanner::remediate_manually( $path, $count >= 3 );
+            $result = WPS_Scanner::remediate_manually( $path, $hard || $count >= 3 );
             if ( empty( $result['ok'] ) ) {
                 WPS_Logger::log_event( 'policy_ban_enforce_failed', $entry . ': ' . (string) ( $result['message'] ?? '' ) );
                 continue;
@@ -332,11 +395,19 @@ class WPS_Blocker {
             $age = $newest > 0 ? max( 0, time() - $newest ) : -1;
             WPS_Logger::log_event(
                 'policy_ban_enforced',
-                $entry . ' removed from disk by site policy (seen ' . $count . 'x'
+                $entry . ' removed from disk by site policy' . ( $hard ? ' (hard ban: deleted without quarantine)' : '' ) . ' (seen ' . $count . 'x'
                     . ( $age >= 0 ? '; newest file ' . (int) round( $age / 60 ) . ' min old' : '' )
                     . ( '' !== $owner ? '; owner ' . $owner . ( '' !== $web && $web !== $owner ? ' vs web user ' . $web : '' ) : '' )
                     . ')'
             );
+            if ( $hard && 1 === $count ) {
+                WPS_Logger::notify_admin(
+                    'Hard-banned plugin appeared and was deleted',
+                    "{$entry} is on this site's hard-ban list and was found in the plugins folder. It has been deleted permanently, with no quarantine copy.\n\n"
+                    . ( '' !== $owner ? "Its files were owned by: {$owner}" . ( '' !== $web ? " (web server user: {$web})" : '' ) . "\n" : '' )
+                    . "\nSomething put it there. If WordPress's own installer was used, a refusal is logged separately; if the owner above is not the web server's account, look at FTP/SSH logins, deployments and restores."
+                );
+            }
             if ( $count >= 2 ) {
                 WPS_Logger::log_event(
                     'policy_ban_redrop',
@@ -372,7 +443,7 @@ class WPS_Blocker {
      * word somewhere in its name is not matched, and neither is a file with the
      * right name and no plugin header.
      *
-     * @return string the matching file name, or '' for none
+     * @return string the banned slug the folder holds, or '' for none
      */
     private static function folder_holds_banned_plugin( string $dir ): string {
         $files = @scandir( $dir );
@@ -384,13 +455,21 @@ class WPS_Blocker {
             if ( '.php' !== strtolower( substr( $f, -4 ) ) ) {
                 continue;
             }
-            if ( ! in_array( strtolower( substr( $f, 0, -4 ) ), $slugs, true ) ) {
+            $stem   = strtolower( substr( $f, 0, -4 ) );
+            $slug   = in_array( $stem, $slugs, true ) ? $stem : '';
+            $header = '';
+            if ( '' === $slug && isset( self::BAN_MAIN_FILES[ strtolower( $f ) ] ) ) {
+                $slug   = self::BAN_MAIN_FILES[ strtolower( $f ) ]['slug'];
+                $header = self::BAN_MAIN_FILES[ strtolower( $f ) ]['header'];
+            }
+            if ( '' === $slug || ! in_array( $slug, $slugs, true ) ) {
                 continue;
             }
             $head = @file_get_contents( $dir . '/' . $f, false, null, 0, 8192 );
-            if ( is_string( $head ) && preg_match( '/^[ \t\/*#@]*Plugin Name\s*:/mi', $head ) ) {
-                return $f;
+            if ( ! is_string( $head ) || ! preg_match( '/^[ \t\/*#@]*Plugin Name\s*:\s*' . ( '' !== $header ? preg_quote( $header, '/' ) : '' ) . '/mi', $head ) ) {
+                continue;
             }
+            return $slug;
         }
         return '';
     }
@@ -479,6 +558,10 @@ class WPS_Blocker {
                 $entry = strtolower( str_replace( '\\', '/', (string) ( $stat['name'] ?? '' ) ) );
                 if ( $entry === '' ) {
                     continue;
+                }
+                // 1.4.129: a banned plugin's main file, whatever its folder is called.
+                if ( isset( self::BAN_MAIN_FILES[ basename( $entry ) ] ) && in_array( self::BAN_MAIN_FILES[ basename( $entry ) ]['slug'], $slugs, true ) ) {
+                    return 'entry=' . self::short_log_value( $entry );
                 }
                 foreach ( $slugs as $slug ) {
                     if ( $slug === '' ) {
@@ -822,6 +905,7 @@ class WPS_Blocker {
          * refusing here means the files never land.
          */
         add_filter( 'upgrader_package_options', [ __CLASS__, 'block_banned_install' ], 1 );
+        add_filter( 'pre_http_request', [ __CLASS__, 'block_banned_download' ], 1, 3 );
         add_filter( 'plugins_api_result', [ __CLASS__, 'mark_banned_in_search' ], 10, 3 );
         add_filter( 'plugin_action_links',              [ self::class, 'remove_activate_link'  ], 10, 2 );
         add_action( 'activate_plugin',                  [ self::class, 'block_on_activate'     ], 1,  1 );

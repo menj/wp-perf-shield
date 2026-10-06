@@ -98,6 +98,8 @@ Decisions, recorded so they are not reversed by accident:
 - **A tombstone file is left in place.** A plain file with the folder's exact name; a zip extraction cannot create a directory over it. Only files whose first line is `WP-PERF-SHIELD-BAN-TOMBSTONE` are ever treated as tombstones, and they are deleted automatically when the ban is switched off or the slug leaves the list. A file that is merely named like a banned plugin is never touched.
 - **Returns are evidence.** Each return is counted in `wps_ban_redrops` and logged with the newest file's age and the files' owner against the web server's account. From the second return the event `policy_ban_redrop` is critical and the administrator is emailed (second return, then every tenth). The log names the class of cause (an account other than the web server's means FTP, SSH, a deploy or a restore); it does not name the cause.
 - **A banned plugin is also found by its main file (1.4.128).** Banning a folder name is whack-a-mole when the same plugin returns under a fresh random name (`rcromlb`, `hvmosjt`, ...). The sweep also removes any folder whose top-level PHP file is named exactly a banned slug (`protect-uploads.php`) and carries a `Plugin Name:` header. The match is deliberately strict because it removes a whole folder on one file name: a file that only contains the word, or has the right name and no plugin header, is left alone. The activation, upload and active-list guards already match the slug as a substring of the plugin file path, so they refuse its main file under any folder name.
+- **Hard tier (1.4.129): `wp-file-manager` and `fileorganizer`.** Deleted permanently the first time they are found: no quarantine copy of code whose own hazard is the reason for the ban, and no restore control for whoever holds an admin session. The administrator is emailed on the first appearance, not the second. Both are public plugins, so the decision is reversible by downloading them again. Other banned entries stay quarantine-first. `WPS_Blocker::HARD_BAN_SLUGS` and `BAN_MAIN_FILES` carry the lists; the main-file match for `file_folder_manager.php` also needs a `Plugin Name: WP File Manager` header.
+- **The download is refused too (1.4.129).** A `pre_http_request` filter refuses any request for a `.zip` whose name contains a banned slug, so a fetch by WP-CLI, an update routine or another plugin never leaves the server. The installer guard alone only sees WordPress's own upgrader.
 - **The plugin never removes itself**, even if its own folder name is added to the list.
 - **Limit, stated plainly.** Anything with the privilege to delete the tombstone and recreate the folder defeats this. The point is to make the return visible and attributable.
 
@@ -167,9 +169,9 @@ It runs the parser fallback on every PHP and admin JS file, asserts version-mark
 Development tests are plain PHP scripts in:
 
 ```text
-tests/test-plugin-malware-detection.php   headless/payload/installer/dropper/fake-image/loader/web-shell checks (36 cases)
+tests/test-plugin-malware-detection.php   headless/payload/installer/dropper/fake-image/loader/web-shell checks (39 cases)
 tests/test-manual-removal.php             the "Delete this path" removal routine (12 cases)
-tests/test-policy-ban.php                 the on-disk policy ban (21 cases)
+tests/test-policy-ban.php                 the on-disk policy ban (36 cases)
 tests/test-docs-sync.php                  version markers, changelog entries, and Appendix F against the code
 ```
 
@@ -585,6 +587,8 @@ Versions 1.3.58 and 1.3.59 are not formal protocol re-audits; they are increment
 **1.4.122 - a false positive that removed a genuine plugin.** `check_external_payload_loader` judged its three cues across a whole plugin folder; in a 916-file plugin (WP File Manager 8.0.5, verified against wordpress.org's checksums) they coincided by accident. Rule recorded: when a check needs several cues, they must come from one file, and the file must tie them together (here, by naming the blob). Verification against the official checksums for a genuine plugin is now part of triaging a surprising finding.
 
 **1.4.124 - the "Delete this path" button** quarantines, clears the options the target's own files identify, deactivates a removed plugin and records the redrop baseline, through `WPS_Scanner::remediate_manually()`. The remediation policy is deliberately not consulted: this is the control for findings the policy declined to remove, after an explicit confirmation.
+
+**1.4.129 - the ban made hard** (see Policy Ban Enforcement on Disk above): `wp-file-manager` and `fileorganizer` deleted without quarantine, found by their real main file, downloads refused; the mu-plugins dropper's loader found on its own because, orphaned, it is a fatal error on every request that nothing else could see.
 
 **1.4.125 - the policy ban on disk** (see Policy Ban Enforcement on Disk above) and a documentation sync.
 
