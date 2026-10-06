@@ -36,6 +36,7 @@ class WPS_Scanner {
 		'total-render-toolkit',
 		'pro-font-optimizer',
 		'site-speed-insights',
+		'auto-speed-insights',  // 1.4.120: Auto Speed Insights (-3f8f) sample, loader-less
 		'advanced-asset-insights', // 1.3.37: ClickFix variant slug
 		'page-seo-toolkit',        // 1.3.39: ClickFix variant slug
 		'starter-image-guard',     // 1.3.39: ClickFix variant slug
@@ -597,6 +598,9 @@ class WPS_Scanner {
 			'check_link_helper_worm' => [ __CLASS__, 'check_link_helper_worm' ], // 1.4.114: WP Link Helper self-propagating worm - the campaign's foothold; removes file + heal-state options
 			'check_encoded_inline_script_injector' => [ __CLASS__, 'check_encoded_inline_script_injector' ], // 1.4.113: gz+base64 blob printed as inline script, hidden from editors and crawlers
 			'check_headless_plugin_folder' => [ __CLASS__, 'check_headless_plugin_folder' ], // 1.4.105: plugin-shaped folder with no entry point, holding a staged or orphaned payload
+			'check_opaque_payload_loader' => [ __CLASS__, 'check_opaque_payload_loader' ], // 1.4.120: plugin PHP that reads an encrypted data file from its own folder, decodes it and runs the result
+			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
+			'check_mu_plugin_dropper' => [ __CLASS__, 'check_mu_plugin_dropper' ], // 1.4.120: plugin that copies bundled folders into mu-plugins and writes require loaders for them
 			'check_constant_assembled_calls' => [ __CLASS__, 'check_constant_assembled_calls' ], // 1.4.111: function names built from define() constants to defeat searching
 			'check_unattributed_plugins' => [ __CLASS__, 'check_unattributed_plugins' ], // 1.4.83: a plugin folder that appeared with no install ever recorded - the tool an intruder brought
 			'check_db_resident_payload' => [ __CLASS__, 'check_db_resident_payload' ], // 1.4.86: plugin that stores its payload in wp_options and re-seeds it, so deleting the folder leaves it behind
@@ -1582,6 +1586,7 @@ class WPS_Scanner {
 			'total-render-toolkit',
 			'pro-font-optimizer',
 			'site-speed-insights',
+			'auto-speed-insights',  // 1.4.120: Auto Speed Insights (-3f8f) sample, loader-less
 			'advanced-asset-insights', // 1.3.37
 			'page-seo-toolkit',        // 1.3.39
 			'starter-image-guard',     // 1.3.39
@@ -6195,12 +6200,342 @@ class WPS_Scanner {
 		return $found;
 	}
 
+	/**
+	 * 1.4.120: an endpoint that lets anyone holding a fixed secret install code.
+	 *
+	 * Recovered shape (backdoor.zip, mu-plugin/plugins/plugins.php): a REST
+	 * route that unzips an uploaded archive into mu-plugins, replacing any
+	 * folder of the same name, guarded only by a token compiled into the file.
+	 * Whoever has the token, which is every copy of the plugin, runs arbitrary
+	 * PHP on every site that has it, and mu-plugins load on every request
+	 * before anything can object.
+	 *
+	 * All six facts must hold in one PHP file: it registers a REST route or a
+	 * logged-out AJAX action; it takes an uploaded file or raw body; it unpacks
+	 * an archive; it names a directory WordPress executes code from; it
+	 * compares a hard-coded hex secret; and it never checks a capability, a
+	 * login or a nonce. Software that installs code on request checks who is
+	 * asking. A reported file is quarantined with its folder, and with the tiny
+	 * loader that requires it, because deleting only the folder would make that
+	 * loader fatal on every request.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_remote_code_installer(): array {
+		$found = [];
+		foreach ( self::plugin_php_files() as [ $path, $root, $is_mu ] ) {
+			$raw = @file_get_contents( $path );
+			if ( ! is_string( $raw ) ) {
+				continue;
+			}
+			if ( ! preg_match( '/\bregister_rest_route\s*\(|wp_ajax_nopriv_/i', $raw )
+				|| ! preg_match( '/get_file_params\s*\(|\$_FILES\b|->get_body\s*\(|php:\/\/input/i', $raw )
+				|| ! preg_match( '/\bunzip_file\s*\(|->extractTo\s*\(|Plugin_Upgrader|move_uploaded_file\s*\(/i', $raw )
+				|| ! preg_match( '/WPMU_PLUGIN_DIR|WP_PLUGIN_DIR|get_theme_root|ABSPATH/', $raw )
+				|| ! preg_match( '/hash_equals\s*\(\s*(?:[A-Z_][A-Z0-9_]{3,}|[\'"][0-9a-f]{24,}[\'"])\s*,|(?:const\s+[A-Z_][A-Z0-9_]*\s*=|define\s*\(\s*[\'"][A-Z_][A-Z0-9_]*[\'"]\s*,)\s*[\'"][0-9a-f]{32,}[\'"]/i', $raw )
+				|| preg_match( '/current_user_can\s*\(|is_user_logged_in\s*\(|wp_verify_nonce\s*\(|check_ajax_referer\s*\(/i', $raw ) ) {
+				continue;
+			}
+
+			$top    = self::top_folder_under( $path, $root );
+			$delete = ( '' !== $top ) ? $root . '/' . $top : $path;
+
+			// The loader that requires this folder, if any, goes first so the
+			// folder is never removed while something still requires it.
+			if ( $is_mu && '' !== $top ) {
+				$loader = $root . '/' . $top . '.php';
+				if ( is_file( $loader ) ) {
+					$lc = @file_get_contents( $loader, false, null, 0, 2048 );
+					if ( is_string( $lc ) && strlen( $lc ) < 700 && false !== stripos( $lc, $top . '/' ) && preg_match( '/\b(?:require|include)(?:_once)?\b/i', $lc ) ) {
+						$found[] = [
+							'severity'    => 'critical',
+							'type'        => 'Endpoint that installs uploaded code behind a fixed token (loader)',
+							'subject'     => self::display_path( $loader ) . ' loads ' . $top . '/, which installs uploaded code',
+							'path'        => $loader,
+							'action'      => 'This stub only requires the folder reported next. It is removed together with it, because the folder cannot be deleted while something still requires it.',
+							'auto_delete' => true,
+							'delete_path' => $loader,
+						];
+					}
+				}
+			}
+
+			$found[] = [
+				'severity'    => 'critical',
+				'type'        => 'Endpoint that installs uploaded code behind a fixed token',
+				'subject'     => self::display_path( $path ) . ' unpacks an uploaded archive into a code directory, guarded only by a hard-coded token',
+				'path'        => $path,
+				'action'      => 'This file registers a web endpoint that unzips an uploaded archive into a directory WordPress runs code from, and its only protection is a secret compiled into the file. Anyone who knows that secret, which is everyone with a copy of this code, can run any PHP they like on this site. '
+					. 'No legitimate software installs code on request without checking a capability, a login or a nonce. Remove it, treat the site as compromised, rotate every credential, and look in the plugin and mu-plugins folders for anything else it may already have installed.',
+				'auto_delete' => true,
+				'delete_path' => $delete,
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'remote_code_installer_found', self::display_path( $path ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.120: a plugin that plants bundled folders into mu-plugins.
+	 *
+	 * The dropper half of the same sample: on activation it copies folders from
+	 * its own directory into mu-plugins and writes a one-line loader for each,
+	 * which gives the payload persistence that outlives the plugin. Some
+	 * legitimate plugins install a single mu-plugin, so this is review-only: it
+	 * needs the copy, the loader write and the activation hook together, and it
+	 * is judged by a person.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_mu_plugin_dropper(): array {
+		$found = [];
+		foreach ( self::plugin_php_files( false ) as [ $path, $root ] ) {
+			$raw = @file_get_contents( $path );
+			if ( ! is_string( $raw )
+				|| ! preg_match( '/register_activation_hook\s*\(/i', $raw )
+				|| ! preg_match( '/WPMU_PLUGIN_DIR/', $raw )
+				|| ! preg_match( '/\bcopy\s*\(|\brename\s*\(/i', $raw )
+				|| ! preg_match( '/file_put_contents\s*\([^;]*;/is', $raw )
+				|| ! preg_match( '/[\'"][^\'"]*(?:[^A-Za-z0-9_]|\\\\[nrt])(?:require|include)(?:_once)?\b[^\'"]*[\'"]/i', $raw ) ) {
+				continue;
+			}
+			$top     = self::top_folder_under( $path, $root );
+			$found[] = [
+				'severity' => 'high',
+				'type'     => 'Plugin that installs bundled code into mu-plugins',
+				'subject'  => self::display_path( $path ) . ' copies folders into mu-plugins on activation and writes loaders for them',
+				'path'     => '' !== $top ? $root . '/' . $top : $path,
+				'action'   => 'On activation this plugin copies folders from its own directory into mu-plugins and writes a loader that requires each one. Code placed there loads on every request, cannot be deactivated from the Plugins screen, and survives deleting this plugin. A few legitimate plugins install one helper this way; a plugin that does it for whatever folders it contains is a persistence mechanism. '
+					. 'Check what it has already placed in mu-plugins, and remove both if you did not install it for that purpose. Nothing is removed automatically.',
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'mu_plugin_dropper_found', self::display_path( $path ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * PHP files under plugins (and optionally mu-plugins), bounded in time,
+	 * count and size, skipping this plugin and quarantine.
+	 *
+	 * @return \Generator<int, array{0:string,1:string,2:bool}> path, root, is-mu
+	 */
+	private static function plugin_php_files( bool $with_mu = true ): \Generator {
+		$roots = [];
+		if ( defined( 'WP_PLUGIN_DIR' ) && is_dir( WP_PLUGIN_DIR ) ) {
+			$roots[] = [ rtrim( WP_PLUGIN_DIR, '/\\' ), false ];
+		}
+		if ( $with_mu && defined( 'WPMU_PLUGIN_DIR' ) && is_dir( WPMU_PLUGIN_DIR ) ) {
+			$roots[] = [ rtrim( WPMU_PLUGIN_DIR, '/\\' ), true ];
+		}
+		$self_dir = realpath( WPS_DIR ) ?: '';
+		$examined = 0;
+		foreach ( $roots as [ $root, $is_mu ] ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( self::PAYLOAD_MAX_DEPTH );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() || self::scan_budget_exceeded() || ++$examined > 8000 ) {
+						return;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( false === $size || $size < 80 || $size > 400000 ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+						continue;
+					}
+					yield [ $path, $root, $is_mu ];
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+	}
+
+	/** First path segment of $path below $root, or '' for a file directly in it. */
+	private static function top_folder_under( string $path, string $root ): string {
+		$rr  = str_replace( '\\', '/', realpath( $root ) ?: $root );
+		$rp  = str_replace( '\\', '/', realpath( $path ) ?: $path );
+		$rel = ltrim( substr( $rp, strlen( $rr ) ), '/' );
+		$top = strtok( $rel, '/' );
+		return ( false !== $top && $top !== basename( $rel ) ) ? $top : '';
+	}
+
+	/**
+	 * 1.4.120: a plugin whose code decodes an encrypted file shipped beside it
+	 * and runs the result.
+	 *
+	 * Recovered shape (auto-speed-insights-3f8f): a generic caching readme, two
+	 * opaque files under resources/ (cache.dat, manifest.cache) and, in the
+	 * full package, a loader that reads them. The headless-folder check finds
+	 * the folder once the loader is gone; this finds the loader while it is
+	 * still there, which that check deliberately cannot do because a Plugin
+	 * Name header ends it.
+	 *
+	 * Three facts must hold in ONE PHP file, so one incidental match never
+	 * reports: it reads a non-text file by literal name, it passes data through
+	 * a decoder or decryptor, and it has a dynamic execution sink. The named
+	 * file must also exist in the same plugin folder and be genuinely opaque
+	 * (more than a quarter non-printable in its first 2 KB). Review-only: this
+	 * is judged on behaviour, so nothing is removed automatically.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_opaque_payload_loader(): array {
+		$found = [];
+		$roots = [];
+		if ( defined( 'WP_PLUGIN_DIR' ) && is_dir( WP_PLUGIN_DIR ) ) {
+			$roots[] = rtrim( WP_PLUGIN_DIR, '/\\' );
+		}
+		if ( defined( 'WPMU_PLUGIN_DIR' ) && is_dir( WPMU_PLUGIN_DIR ) ) {
+			$roots[] = rtrim( WPMU_PLUGIN_DIR, '/\\' );
+		}
+		$self_dir = realpath( WPS_DIR ) ?: '';
+		$examined = 0;
+		$reader   = '/\b(?:file_get_contents|fopen|readfile|file)\s*\(/i';
+		$literal  = '/[\'"]([^\'"]*\.(?:dat|cache|bin|data|db|blob|key|enc))[\'"]/i';
+		$decoder  = '/\b(?:openssl_decrypt|gzinflate|gzuncompress|gzdecode|base64_decode|sodium_crypto_[a-z_]*open|mcrypt_decrypt|convert_uudecode)\s*\(/i';
+		$sink     = '/\b(?:eval|assert|create_function)\s*\(|\b(?:include|require)(?:_once)?\s*\(?\s*\$|\bcall_user_func(?:_array)?\s*\(\s*\$/i';
+
+		foreach ( $roots as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( self::PAYLOAD_MAX_DEPTH );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() || self::scan_budget_exceeded() || ++$examined > 8000 ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( false === $size || $size < 80 || $size > 400000 ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+						continue;
+					}
+					$raw = @file_get_contents( $path );
+					if ( ! is_string( $raw ) || ! preg_match( $reader, $raw ) || ! preg_match( $decoder, $raw ) || ! preg_match( $sink, $raw ) ) {
+						continue;
+					}
+					if ( ! preg_match_all( $literal, $raw, $lm ) ) {
+						continue;
+					}
+
+					// The folder this file belongs to: the plugin directory under the root.
+					$rel = ltrim( substr( str_replace( '\\', '/', $real ), strlen( str_replace( '\\', '/', realpath( $root ) ?: $root ) ) ), '/' );
+					$top = strtok( $rel, '/' );
+					$dir = ( false !== $top && $top !== basename( $rel ) ) ? $root . '/' . $top : dirname( $path );
+
+					$names  = array_flip( array_map( static fn( $n ) => strtolower( basename( str_replace( '\\', '/', $n ) ) ), $lm[1] ) );
+					$opaque = [];
+					try {
+						$sub = new RecursiveIteratorIterator(
+							new RecursiveDirectoryIterator( $dir, FilesystemIterator::SKIP_DOTS ),
+							RecursiveIteratorIterator::LEAVES_ONLY
+						);
+						$sub->setMaxDepth( 4 );
+						$n = 0;
+						foreach ( $sub as $b ) {
+							if ( ++$n > 1500 ) {
+								break;
+							}
+							if ( ! ( $b instanceof SplFileInfo ) || ! $b->isFile() || ! isset( $names[ strtolower( $b->getFilename() ) ] ) ) {
+								continue;
+							}
+							$bsize = $b->getSize();
+							if ( false === $bsize || $bsize < 512 ) {
+								continue;
+							}
+							$head = @file_get_contents( $b->getPathname(), false, null, 0, 2048 );
+							if ( ! is_string( $head ) || '' === $head ) {
+								continue;
+							}
+							$np  = 0;
+							$len = strlen( $head );
+							for ( $i = 0; $i < $len; $i++ ) {
+								$o = ord( $head[ $i ] );
+								if ( $o < 9 || ( $o > 13 && $o < 32 ) || $o > 126 ) {
+									++$np;
+								}
+							}
+							if ( ( $np / $len ) > 0.25 ) {
+								$opaque[] = $b->getFilename();
+							}
+						}
+					} catch ( \Throwable $t ) {
+						continue;
+					}
+					if ( ! $opaque ) {
+						continue;
+					}
+
+					$found[] = [
+						'severity' => 'high',
+						'type'     => 'Plugin code that decodes and runs an encrypted data file',
+						'subject'  => self::display_path( $path ) . ' reads ' . implode( ', ', array_slice( array_unique( $opaque ), 0, 3 ) ) . ', decodes it and executes the result',
+						'path'     => $path,
+						'action'   => 'This file reads an encrypted data file from its own plugin folder, passes it through a decoder or decryptor, and has a dynamic execution call. Legitimate plugins ship their code as readable PHP; a payload kept as opaque data beside a small loader is how malware hides what it does from anyone who opens the plugin. '
+							. 'Nothing is removed automatically, since this is a judgement about behaviour. Check who installed the plugin and whether it is on the plugin roster; if you did not install it deliberately, deactivate and delete the whole folder, then look for how it arrived. '
+							. 'If it is legitimate, mark it Safe so later scans stop asking.',
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'opaque_payload_loader_found', self::display_path( $path ) . ' (' . implode( ',', array_slice( $opaque, 0, 3 ) ) . ')' );
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		return $found;
+	}
+
 	private static function check_headless_plugin_folder(): array {
 		$found = [];
-		if ( ! defined( 'WP_PLUGIN_DIR' ) || ! is_dir( WP_PLUGIN_DIR ) ) {
-			return $found;
+		if ( defined( 'WP_PLUGIN_DIR' ) && is_dir( WP_PLUGIN_DIR ) ) {
+			$found = self::scan_headless_root( rtrim( WP_PLUGIN_DIR, '/\\' ), false );
 		}
-		$root     = rtrim( WP_PLUGIN_DIR, '/\\' );
+		// 1.4.120: the same staged-payload shape in mu-plugins. WordPress loads
+		// only the PHP files directly inside mu-plugins, so a subfolder there
+		// that holds opaque data and no PHP at all is a payload waiting for a
+		// loader, and nothing legitimate looks like that.
+		if ( defined( 'WPMU_PLUGIN_DIR' ) && is_dir( WPMU_PLUGIN_DIR ) ) {
+			$found = array_merge( $found, self::scan_headless_root( rtrim( WPMU_PLUGIN_DIR, '/\\' ), true ) );
+		}
+		return $found;
+	}
+
+	/**
+	 * @param bool $mu True for mu-plugins: any PHP file in a subfolder counts as
+	 *                 its entry point, since mu-plugins have no header rule.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function scan_headless_root( string $root, bool $mu ): array {
+		$found    = [];
 		$self_dir = realpath( WPS_DIR ) ?: '';
 		$dirs     = @scandir( $root );
 		if ( ! is_array( $dirs ) ) {
@@ -6245,6 +6580,10 @@ class WPS_Scanner {
 					if ( 'php' === $ext ) {
 						$raw = @file_get_contents( $fp, false, null, 0, 8192 );
 						if ( is_string( $raw ) && preg_match( '/^[ \t\/*#@]*Plugin Name\s*:/mi', $raw ) ) {
+							$has_header = true;
+							break;
+						}
+						if ( $mu && 'uninstall.php' !== strtolower( $f->getFilename() ) ) {
 							$has_header = true;
 							break;
 						}
@@ -6315,6 +6654,9 @@ class WPS_Scanner {
 			 * that shape and no directory plugin uses it.
 			 */
 			if ( 0 === $files_seen ) {
+				if ( $mu ) {
+					continue;
+				}
 				$age   = time() - (int) @filemtime( $pdir );
 				$known = self::headless_slug_parent( $slug );
 				$shape = (bool) preg_match( '/^[a-z]+-[a-z]+-[a-z]+(?:-[0-9a-f]{4})+$/', $slug );

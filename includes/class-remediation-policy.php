@@ -146,6 +146,12 @@ final class WPS_Remediation_Policy {
 	private const CONCLUSIVE_TYPES = [
 		'Hidden administrator account backdoor',
 		'Plugin folder with no plugin in it',
+		// 1.4.120: an endpoint that unpacks uploaded archives into a code directory,
+		// guarded only by a secret compiled into the file. Six conditions at once
+		// (route, upload, unpack, code directory, hard-coded secret, no capability
+		// check); nothing legitimate installs code on request without asking who.
+		'Endpoint that installs uploaded code behind a fixed token',
+		'Endpoint that installs uploaded code behind a fixed token (loader)',
 		// 1.4.111: a nest of constants resolving to a dangerous call whose
 		// plain name is absent from the file. Three conditions that only
 		// coincide when someone is hiding what the code calls.

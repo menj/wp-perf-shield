@@ -148,6 +148,7 @@ class WPS_Forensics {
             '%total-render-toolkit%',
             '%pro-font-optimizer%',
             '%site-speed-insights%',
+            '%auto-speed-insights%',
             '%advanced-asset-insights%',
             '%page-seo-toolkit%',
             '%starter-image-guard%',
@@ -219,6 +220,7 @@ class WPS_Forensics {
         $suspicious_slugs[] = 'total-render-toolkit';
         $suspicious_slugs[] = 'pro-font-optimizer';
         $suspicious_slugs[] = 'site-speed-insights';
+        $suspicious_slugs[] = 'auto-speed-insights'; // 1.4.120
         $suspicious_slugs[] = 'advanced-asset-insights'; // 1.3.39: gap-fill from 1.3.37
         $suspicious_slugs[] = 'page-seo-toolkit';        // 1.3.39
         $suspicious_slugs[] = 'starter-image-guard';     // 1.3.39
@@ -560,7 +562,7 @@ class WPS_Forensics {
         foreach ( $active as $p ) {
             if ( ! is_string( $p ) ) continue;
             // WP-antymalwary-bot family names
-            foreach ( [ 'antymalwary', 'wpconsole', 'wp-performance-booster', 'native-render-toolkit', 'total-render-profiler', 'total-render-toolkit', 'pro-font-optimizer', 'site-speed-insights', 'advanced-asset-insights', 'page-seo-toolkit', 'starter-image-guard', 'wp-locale-handler' ] as $slug ) {
+            foreach ( [ 'antymalwary', 'wpconsole', 'wp-performance-booster', 'native-render-toolkit', 'total-render-profiler', 'total-render-toolkit', 'pro-font-optimizer', 'site-speed-insights', 'auto-speed-insights', 'advanced-asset-insights', 'page-seo-toolkit', 'starter-image-guard', 'wp-locale-handler' ] as $slug ) {
                 if ( strpos( strtolower( $p ), $slug ) !== false ) {
                     $findings[] = [
                         'type'    => 'suspicious_active_plugin',
@@ -1568,17 +1570,17 @@ class WPS_Forensics {
             ) );
             $cfg_keys = implode( '|', $keys );
         }
-        $slugs        = 'native-render-toolkit|total-render-profiler|total-render-toolkit|pro-font-optimizer|site-speed-insights|advanced-asset-insights|page-seo-toolkit|starter-image-guard|wp-locale-handler';
+        $slugs        = 'native-render-toolkit|total-render-profiler|total-render-toolkit|pro-font-optimizer|site-speed-insights|auto-speed-insights|advanced-asset-insights|page-seo-toolkit|starter-image-guard|wp-locale-handler';
         $hijacker_pat = $slugs . ( $cfg_keys !== '' ? '|' . $cfg_keys : '' );
 
         return [
             [
                 'label'   => 'Find the IP that uploaded known malware ZIPs (Apache)',
-                'command' => "grep -E \"POST.*(wp-file-manager|elFinder|elfinder|connector|upload|admin-ajax|async-upload|update.php)\" /var/log/apache2/access.log | grep -Ei \"wp-perf-analytics|native-render-toolkit|total-render-profiler|total-render-toolkit|pro-font-optimizer|site-speed-insights|advanced-asset-insights|page-seo-toolkit|starter-image-guard|wp-locale-handler|session-manager|zip|plugin\" | tail -150",
+                'command' => "grep -E \"POST.*(wp-file-manager|elFinder|elfinder|connector|upload|admin-ajax|async-upload|update.php)\" /var/log/apache2/access.log | grep -Ei \"wp-perf-analytics|native-render-toolkit|total-render-profiler|total-render-toolkit|pro-font-optimizer|site-speed-insights|auto-speed-insights|advanced-asset-insights|page-seo-toolkit|starter-image-guard|wp-locale-handler|session-manager|zip|plugin\" | tail -150",
             ],
             [
                 'label'   => 'Find the IP that uploaded known malware ZIPs (nginx)',
-                'command' => "grep -E \"POST.*(wp-file-manager|elFinder|elfinder|connector|upload|admin-ajax|async-upload|update.php)\" /var/log/nginx/access.log | grep -Ei \"wp-perf-analytics|native-render-toolkit|total-render-profiler|total-render-toolkit|pro-font-optimizer|site-speed-insights|advanced-asset-insights|page-seo-toolkit|starter-image-guard|wp-locale-handler|session-manager|zip|plugin\" | tail -150",
+                'command' => "grep -E \"POST.*(wp-file-manager|elFinder|elfinder|connector|upload|admin-ajax|async-upload|update.php)\" /var/log/nginx/access.log | grep -Ei \"wp-perf-analytics|native-render-toolkit|total-render-profiler|total-render-toolkit|pro-font-optimizer|site-speed-insights|auto-speed-insights|advanced-asset-insights|page-seo-toolkit|starter-image-guard|wp-locale-handler|session-manager|zip|plugin\" | tail -150",
             ],
             [
                 'label'   => 'Find render-hijacker plugin requests in Apache logs',

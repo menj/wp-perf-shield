@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.118
+Stable tag: 1.4.120
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -111,6 +111,12 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.120 =
+Adds the Auto Speed Insights (auto-speed-insights-xxxx) disguised-plugin family to the slug, folder-pattern and hash lists. The headless-folder check now covers mu-plugins, a new review-only check reports plugin code that decodes an encrypted data file from its own folder and runs it, a new check reports and removes endpoints that install uploaded code behind a fixed token (together with the loader that requires them), and a review-only check reports plugins that plant bundled folders into mu-plugins. No other detection changes.
+
+= 1.4.119 =
+Repair release. Unresolved merge-conflict markers left in three PHP files stopped the plugin from loading; they are resolved, keeping everything from 1.4.118. Inline styles on the admin screens moved into admin.css and now follow the dark colour scheme. No settings or detection changes.
 
 = 1.4.118 =
 Error-page drop-ins (maintenance.php, db-error.php, php-error.php). A theme's harmless static copies were being reported as "unknown publisher" on every scan; a page that provably runs nothing (comments and header calls only, no script, form, refresh or external reference) is now recognised on its content. Testing that also showed a publisher label in a comment was enough to hide a backdoor in these files from all 90 checks; for these three files a label no longer excuses executable code, request-header reading or outbound calls, which are now reported as high, review-only. The drop-in baseline guard, which raised a high alert every time a theme wrote or rewrote such a page, uses the same verdict. Other drop-ins are unchanged.

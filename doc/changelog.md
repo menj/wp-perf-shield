@@ -1,5 +1,38 @@
 # WP Perf Shield changelog
 
+## 1.4.120
+
+New sample: Auto Speed Insights (`auto-speed-insights-3f8f`, contributor `autoio`, "2.7.60").
+
+### The sample
+A plugin archive with a generic caching readme, an `uninstall.php` that deletes two `_initialized` / `_cfg` options, an empty `includes/` folder and no main plugin file, so WordPress cannot activate it as received. Its payload is two opaque files in `resources/`: `cache.dat` (about 9.8 KB, entropy 7.5, no recognisable header) and `manifest.cache` (3.8 KB, entropy 7.9, header `57 56 4C 52 01 00 04`, "WVLR"). Neither decompresses as zlib. They were not decoded; the loader that reads them was not in the archive.
+
+### What changed
+- Slug `auto-speed-insights` added to the banned-slug, scanner, quarantine, forensics and diagnostics lists, and the `auto-speed-insights-xxxx/` folder and `.php` patterns to the variant-slug rules, matching the other disguised-plugin families.
+- MD5 and SHA-256 of both blobs added to the known-malware hash lists.
+- **mu-plugins:** `check_headless_plugin_folder` now also scans subfolders of `mu-plugins`. WordPress loads only the PHP files directly inside that directory, so a subfolder that holds opaque data and no PHP at all is a payload waiting for a loader. Any PHP file in the subfolder counts as an entry point there, so ordinary libraries are not reported. Empty folders are not reported in mu-plugins.
+- **New check `check_opaque_payload_loader`:** finds the loader while it is still in place, which the headless-folder check cannot do because a `Plugin Name` header ends it. One PHP file must (1) read a non-text file by literal name (`.dat`, `.cache`, `.bin`, `.data`, `.db`, `.blob`, `.key`, `.enc`), (2) pass data through a decoder or decryptor, and (3) have a dynamic execution sink, and the named file must exist in the same plugin folder and be opaque (over a quarter non-printable bytes in its first 2 KB). High severity and review-only: it is a judgement about behaviour, so nothing is removed automatically.
+- **Regression test:** `tests/test-plugin-malware-detection.php` (CLI only) builds synthetic fixtures with random bytes, so no real malware is stored, and runs both checks against them: the headless plugin folder, the mu-plugins payload, the loader, and four cases that must stay quiet.
+- **New check `check_remote_code_installer` (backdoor.zip):** a mu-plugin whose REST route unzips an uploaded archive into `mu-plugins`, replacing any folder of the same name, guarded only by a token compiled into the file. All six must hold in one PHP file: a REST route or logged-out AJAX action, an uploaded file or raw body, an archive unpack, a code directory, a hard-coded hex secret compared with `hash_equals` or a constant, and no `current_user_can`, login or nonce check anywhere in the file. Critical, conclusive and auto-removable: both the file's folder and the one-line loader that requires it are reported, and the loader goes first, because deleting only the folder would make that loader fatal on every request. Added to the remediation policy's conclusive types.
+- **New check `check_mu_plugin_dropper`:** the dropper half of that sample. A plugin with an activation hook that copies folders into `WPMU_PLUGIN_DIR` and writes a loader string that requires them. High and review-only, since a few legitimate plugins install one helper this way. The loader-string pattern also recognises code written as `"<?php\nrequire_once ..."`, where an escape sequence runs straight into `require` and defeats a plain word-boundary match.
+- **Empty re-drop slot (wp-cache-profiler-3a4a-e5b4):** already detected by 1.4.112's shape rule (three words plus hex groups, empty, older than 15 minutes), so no code change; it is now a regression case. A younger folder stays quiet by design.
+- **False-positive checks:** all 93 checks over the genuine wordpress.org Protect Uploads plugin: 0 findings. The five checks added in this release over a copy of this plugin's own source: 0 findings. (The older signature checks do flag the copy, because its detection tables contain the strings they look for; that is why the live plugin exempts its own directory.)
+- Registered checks: 93 (was 90). Earlier entries below quote the count at their time. Earlier entries below quote the count at their time.
+
+Version markers move to 1.4.120.
+
+## 1.4.119
+
+Repair release: the plugin could not load, and the admin screens carried hard-coded colours.
+
+### Unresolved merge conflicts
+A bad merge left `<<<<<<<` / `=======` / `>>>>>>>` markers in `wp-perf-shield.php`, `includes/class-scanner.php`, `includes/class-remediation-policy.php`, `readme.txt` and three files under `doc/`. The three PHP files failed to parse, so the plugin could not activate. The 1.4.118 side was kept everywhere, which restores the version marker and the 1.4.114 `check_link_helper_worm` check and its policy entry. A docblock that the merge had left above the wrong function in `class-scanner.php` was moved back above `check_encoded_inline_script_injector`.
+
+### Inline styles
+22 inline `style` attributes in the admin classes and in `class-blocker.php` were replaced with utility classes at the end of `assets/css/admin.css` (`wps-w-*`, `wps-hidden`, `wps-callout-ok`, `wps-code-chip` and similar). The hard-coded colours (`#eaf3de`, `#f5f5f5` and others) now use the `--wps-*` tokens, so they follow the dark scheme. The one remaining attribute is the data-driven bar width in `class-admin-diagnostics.php`.
+
+No settings, defaults or detection behaviour changed. Version markers move to 1.4.119.
+
 ## 1.4.118
 
 Error-page drop-ins: a false positive on a real theme's files, and a blind spot found while fixing it.
