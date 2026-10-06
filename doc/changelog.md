@@ -1,5 +1,19 @@
 # WP Perf Shield changelog
 
+## 1.4.120
+
+New sample: Auto Speed Insights (`auto-speed-insights-3f8f`, contributor `autoio`, "2.7.60").
+
+### The sample
+A plugin archive with a generic caching readme, an `uninstall.php` that deletes two `_initialized` / `_cfg` options, an empty `includes/` folder and no main plugin file, so WordPress cannot activate it as received. Its payload is two opaque files in `resources/`: `cache.dat` (about 9.8 KB, entropy 7.5, no recognisable header) and `manifest.cache` (3.8 KB, entropy 7.9, header `57 56 4C 52 01 00 04`, "WVLR"). Neither decompresses as zlib. They were not decoded; the loader that reads them was not in the archive.
+
+### What changed
+- Slug `auto-speed-insights` added to the banned-slug, scanner, quarantine, forensics and diagnostics lists, and the `auto-speed-insights-xxxx/` folder and `.php` patterns to the variant-slug rules, matching the other disguised-plugin families.
+- MD5 and SHA-256 of both blobs added to the known-malware hash lists.
+- No detection logic changed.
+
+Version markers move to 1.4.120.
+
 ## 1.4.119
 
 Repair release: the plugin could not load, and the admin screens carried hard-coded colours.

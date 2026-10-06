@@ -36,6 +36,7 @@ class WPS_Scanner {
 		'total-render-toolkit',
 		'pro-font-optimizer',
 		'site-speed-insights',
+		'auto-speed-insights',  // 1.4.120: Auto Speed Insights (-3f8f) sample, loader-less
 		'advanced-asset-insights', // 1.3.37: ClickFix variant slug
 		'page-seo-toolkit',        // 1.3.39: ClickFix variant slug
 		'starter-image-guard',     // 1.3.39: ClickFix variant slug
@@ -1582,6 +1583,7 @@ class WPS_Scanner {
 			'total-render-toolkit',
 			'pro-font-optimizer',
 			'site-speed-insights',
+			'auto-speed-insights',  // 1.4.120: Auto Speed Insights (-3f8f) sample, loader-less
 			'advanced-asset-insights', // 1.3.37
 			'page-seo-toolkit',        // 1.3.39
 			'starter-image-guard',     // 1.3.39

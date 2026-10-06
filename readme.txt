@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.119
+Stable tag: 1.4.120
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -112,7 +112,7 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 
 == Changelog ==
 
-= 1.4.119 =
+= 1.4.120 =
 Repair release. Unresolved merge-conflict markers left in three PHP files stopped the plugin from loading; they are resolved, keeping everything from 1.4.118. Inline styles on the admin screens moved into admin.css and now follow the dark colour scheme. No settings or detection changes.
 
 = 1.4.118 =
