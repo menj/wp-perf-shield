@@ -602,6 +602,10 @@ class WPS_Scanner {
 			'check_encoded_inline_script_injector' => [ __CLASS__, 'check_encoded_inline_script_injector' ], // 1.4.113: gz+base64 blob printed as inline script, hidden from editors and crawlers
 			'check_headless_plugin_folder' => [ __CLASS__, 'check_headless_plugin_folder' ], // 1.4.105: plugin-shaped folder with no entry point, holding a staged or orphaned payload
 			'check_opaque_payload_loader' => [ __CLASS__, 'check_opaque_payload_loader' ], // 1.4.120: plugin PHP that reads an encrypted data file from its own folder, decodes it and runs the result
+			'check_embedded_php_dropper' => [ __CLASS__, 'check_embedded_php_dropper' ], // 1.4.132: plugin that carries a whole PHP file as a base64 literal and writes it to disk
+			'check_remote_admin_endpoint' => [ __CLASS__, 'check_remote_admin_endpoint' ], // 1.4.132: standalone PHP endpoint in wp-content that creates administrators or application passwords
+			'check_card_harvester_kit' => [ __CLASS__, 'check_card_harvester_kit' ], // 1.4.132: phishing kit PHP that sends card details to a Telegram bot
+			'check_redirect_doorway' => [ __CLASS__, 'check_redirect_doorway' ], // 1.4.132: tiny uploads page that only forwards the visitor (and URL fragment) to another site, or a blanked one
 			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
 			'check_mu_plugin_dropper' => [ __CLASS__, 'check_mu_plugin_dropper' ], // 1.4.120: plugin that copies bundled folders into mu-plugins and writes require loaders for them
 			'check_fake_image_payload' => [ __CLASS__, 'check_fake_image_payload' ], // 1.4.121: image-named files that are really encoded text, inside plugins that do have a header, mu-plugins and themes
@@ -6891,6 +6895,322 @@ class WPS_Scanner {
 			} catch ( \Throwable $t ) {
 				continue;
 			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.132: a plugin that carries a complete PHP file as a base64 literal and
+	 * writes it to disk.
+	 *
+	 * Recovered shape (site-tools-e01f...): a plugin header, a 180 KB base64
+	 * string, a SHA-256 check of the decoded bytes, and a write to
+	 * wp-content/easypost/easypost.php on activation and on every
+	 * plugins_loaded. The payload never exists as readable PHP in the package,
+	 * so signature checks on the plugin saw nothing. The decoded bytes are
+	 * checked here: a very long literal that decodes to text starting with the
+	 * PHP open tag, in a file that also writes files, is a dropper.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_embedded_php_dropper(): array {
+		$found = [];
+		foreach ( self::plugin_php_files() as [ $path, $root ] ) {
+			$raw = @file_get_contents( $path );
+			if ( ! is_string( $raw ) || ! preg_match( '/file_put_contents\s*\(/i', $raw ) ) {
+				continue;
+			}
+			if ( ! preg_match_all( '/base64_decode\s*\(\s*[\'"]([A-Za-z0-9+\/=\s]{2000,})[\'"]/', $raw, $m ) ) {
+				continue;
+			}
+			$hit = '';
+			foreach ( $m[1] as $lit ) {
+				$dec = base64_decode( preg_replace( '/\s+/', '', $lit ), true );
+				if ( is_string( $dec ) && 0 === strpos( ltrim( $dec ), '<?php' ) ) {
+					$hit = $dec;
+					break;
+				}
+			}
+			if ( '' === $hit ) {
+				continue;
+			}
+			$top     = self::top_folder_under( $path, $root );
+			$delete  = '' !== $top ? $root . '/' . $top : $path;
+			$found[] = [
+				'severity'    => 'critical',
+				'type'        => 'Plugin that carries a hidden PHP file and writes it to disk',
+				'subject'     => self::display_path( $path ) . ' holds ' . strlen( $hit ) . ' bytes of PHP as a base64 string and writes it out',
+				'path'        => $path,
+				'action'      => 'This plugin keeps a complete PHP program as an encoded string, so the code is invisible to anyone reading the package, and writes it to the site. Legitimate plugins ship readable PHP. The plugin is removed; also check wp-content for a folder it created and for administrator accounts you do not recognise.',
+				'auto_delete' => true,
+				'delete_path' => $delete,
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'embedded_php_dropper_found', self::display_path( $path ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.132: a standalone PHP endpoint in a non-standard wp-content folder that
+	 * can create administrators or application passwords.
+	 *
+	 * Recovered shape (wp-content/easypost/easypost.php, 180 KB): loads
+	 * wp-load.php, verifies a signed request, then creates users with the
+	 * administrator role, marks them concealed and manages application
+	 * passwords. Plugin-folder checks never look at wp-content/<name>/.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_remote_admin_endpoint(): array {
+		$found = [];
+		if ( ! defined( 'WP_CONTENT_DIR' ) || ! is_dir( WP_CONTENT_DIR ) ) {
+			return $found;
+		}
+		$standard = array_flip( [ 'plugins', 'themes', 'uploads', 'mu-plugins', 'languages', 'upgrade', 'upgrade-temp-backup', 'cache', 'fonts', 'wflogs', 'backups', 'ai1wm-backups' ] );
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		$examined = 0;
+		try {
+			foreach ( new DirectoryIterator( WP_CONTENT_DIR ) as $d ) {
+				if ( $d->isDot() || ! $d->isDir() || isset( $standard[ strtolower( $d->getFilename() ) ] ) ) {
+					continue;
+				}
+				$dir_real = realpath( $d->getPathname() ) ?: $d->getPathname();
+				if ( '' !== $self_dir && self::is_self_path( $dir_real, $self_dir ) ) {
+					continue;
+				}
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $d->getPathname(), FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 2 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() || ++$examined > 400 ) {
+						return $found;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( false === $size || $size < 200 || $size > 600000 ) {
+						continue;
+					}
+					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $f->getPathname() ) ) {
+						continue;
+					}
+					$raw = @file_get_contents( $f->getPathname() );
+					if ( ! is_string( $raw ) ) {
+						continue;
+					}
+					$code   = self::code_without_comments( $raw );
+					$marker = false !== strpos( $raw, 'EASYPOST_ENDPOINT_CONFIG' );
+					$admin  = preg_match( '/wp_create_user\s*\(/i', $code ) && preg_match( '/set_role\s*\(\s*[\'"]administrator[\'"]/i', $code );
+					$gate   = preg_match( '/openssl_verify\s*\(|hash_hmac\s*\(|hash_equals\s*\(/i', $code ) && preg_match( '/wp-load\.php|wp_load/i', $code );
+					$appw   = preg_match( '/WP_Application_Passwords|application_password/i', $code );
+					if ( ! $marker && ! ( $admin && $gate && $appw ) ) {
+						continue;
+					}
+					$found[] = [
+						'severity'    => 'critical',
+						'type'        => 'Remote-controlled endpoint that creates administrators (outside plugins)',
+						'subject'     => self::display_path( $f->getPathname() ) . ' creates administrator accounts and application passwords on signed requests',
+						'path'        => $f->getPathname(),
+						'action'      => 'A standalone PHP file in wp-content loads WordPress, accepts signed requests from a remote operator and creates or hides administrator accounts and application passwords. It gives the sender full control of the site. The folder is removed. Then delete administrator users and application passwords you did not create, reset all passwords and salts, and find what installed it (often a plugin that re-drops it).',
+						'auto_delete' => true,
+						'delete_path' => dirname( $f->getPathname() ) === rtrim( $d->getPathname(), '/\\' ) ? $d->getPathname() : $f->getPathname(),
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'remote_admin_endpoint_found', self::display_path( $f->getPathname() ) );
+					}
+				}
+			}
+		} catch ( \Throwable $t ) {
+			return $found;
+		}
+		return $found;
+	}
+
+	/**
+	 * Candidate roots for kit-style files: wp-content and the first level of
+	 * the web root (minus core and wp-content).
+	 *
+	 * @return array<int, string>
+	 */
+	private static function kit_roots(): array {
+		$roots = [];
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
+			$roots[] = rtrim( WP_CONTENT_DIR, '/\\' );
+		}
+		if ( defined( 'ABSPATH' ) && is_dir( ABSPATH ) ) {
+			try {
+				foreach ( new DirectoryIterator( ABSPATH ) as $d ) {
+					if ( $d->isDot() || ! $d->isDir() || in_array( $d->getFilename(), [ 'wp-admin', 'wp-includes', 'wp-content', 'cgi-bin' ], true ) ) {
+						continue;
+					}
+					$roots[] = $d->getPathname();
+				}
+			} catch ( \Throwable $t ) {} // phpcs:ignore
+		}
+		return $roots;
+	}
+
+	/**
+	 * 1.4.132: a phishing kit that harvests card details and posts them to a
+	 * Telegram bot.
+	 *
+	 * Recovered shape ("en", an Avast-branded refund page): send.php validates
+	 * cardNumber, cvv and expiry fields and posts them to
+	 * api.telegram.org/bot<token>/sendMessage; config.php holds the bot token and
+	 * chat id. Matched on behaviour: a PHP file that calls the bot API and
+	 * handles card fields, or a tiny file that only defines both bot
+	 * credentials. Telegram notifications alone do not match.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_card_harvester_kit(): array {
+		$found    = [];
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		$examined = 0;
+		foreach ( self::kit_roots() as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 4 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() || ++$examined > 6000 ) {
+						return $found;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( false === $size || $size < 60 || $size > 200000 ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
+						continue;
+					}
+					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+						continue;
+					}
+					$raw = @file_get_contents( $path );
+					if ( ! is_string( $raw ) ) {
+						continue;
+					}
+					$code = self::code_without_comments( $raw );
+					$exfil = preg_match( '#api\.telegram\.org/bot#i', $code )
+						&& preg_match( '/(?:card[_ ]?number|cardnumber|\bcvv\b|\bcvc\b|expiry[_ ]?date)/i', $code )
+						&& preg_match( '/php:\/\/input|\$_(?:POST|REQUEST)/', $code );
+					$creds = $size < 1500 && preg_match( '/\$bot_?token\s*=\s*[\'"]\d{6,}:[A-Za-z0-9_-]{30,}[\'"]/i', $code ) && preg_match( '/\$chat_?id\s*=\s*[\'"]-?\d{5,}[\'"]/i', $code );
+					if ( ! $exfil && ! $creds ) {
+						continue;
+					}
+					$found[] = [
+						'severity'    => 'critical',
+						'type'        => $exfil ? 'Phishing kit that sends card details to a Telegram bot' : 'Phishing kit credentials (Telegram bot token and chat id)',
+						'subject'     => self::display_path( $path ) . ( $exfil ? ' collects card data and posts it to api.telegram.org' : ' holds the bot token the kit reports to' ),
+						'path'        => $path,
+						'action'      => 'This file belongs to a phishing kit hosted on your site: visitors are shown a fake brand page, and what they type (card number, expiry, CVV, address) is sent to the operator through a Telegram bot. The file is removed. Find the rest of the kit (HTML pages, a rewrite .htaccess) and how it was uploaded, and treat the site as compromised. Report the page to the impersonated brand and your host.',
+						'auto_delete' => true,
+						'delete_path' => $path,
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'card_harvester_kit_found', self::display_path( $path ) );
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.132: a tiny page in uploads that only forwards the visitor, with the
+	 * URL fragment, to another site; or the same page with its script blanked.
+	 *
+	 * Recovered shape (ten random-named folders, each with one index.php):
+	 * `window.location.href = "https://other-site/..." + window.location.hash`,
+	 * used to send victims of a phishing mail to a credential-harvesting page
+	 * while the link itself points at a trusted domain. Some copies had the
+	 * redirect replaced by hundreds of spaces. Uploads never hold pages like
+	 * this.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_redirect_doorway(): array {
+		$found = [];
+		$up    = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
+		$base  = is_array( $up ) && empty( $up['error'] ) && ! empty( $up['basedir'] ) ? $up['basedir'] : '';
+		if ( '' === $base || ! is_dir( $base ) ) {
+			return $found;
+		}
+		$examined = 0;
+		try {
+			$iter = new RecursiveIteratorIterator(
+				new RecursiveDirectoryIterator( $base, FilesystemIterator::SKIP_DOTS ),
+				RecursiveIteratorIterator::LEAVES_ONLY
+			);
+			$iter->setMaxDepth( 5 );
+			foreach ( $iter as $f ) {
+				if ( self::out_of_time() || ++$examined > 8000 ) {
+					break;
+				}
+				if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
+					continue;
+				}
+				$ext = strtolower( $f->getExtension() );
+				if ( ! in_array( $ext, [ 'php', 'phtml', 'html', 'htm' ], true ) ) {
+					continue;
+				}
+				$size = $f->getSize();
+				if ( false === $size || $size < 40 || $size > 2500 ) {
+					continue;
+				}
+				$path = $f->getPathname();
+				if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+					continue;
+				}
+				$raw = @file_get_contents( $path );
+				if ( ! is_string( $raw ) ) {
+					continue;
+				}
+				$why = '';
+				if ( preg_match( '/location(?:\.href)?\s*=\s*[\'"]https?:\/\/[^\'"]+[\'"]\s*\+\s*\w/i', $raw ) && preg_match( '/location\.hash|[?&]state=|atob\s*\(/i', $raw ) && ! preg_match( '/<(?:p|div|h1|img|form|a)\b/i', $raw ) ) {
+					$why = 'forwards the visitor, with data taken from the link, to another site';
+				} elseif ( preg_match( '/<script[^>]*>\s{300,}<\/script>/i', $raw ) && ! preg_match( '/<(?:p|div|h1|img|form|a)\b/i', $raw ) ) {
+					$why = 'is an empty page whose script was blanked with spaces (a neutralised redirect doorway)';
+				}
+				if ( '' === $why ) {
+					continue;
+				}
+				$dir     = dirname( $path );
+				$count   = 0;
+				foreach ( new DirectoryIterator( $dir ) as $sib ) {
+					if ( ! $sib->isDot() ) {
+						++$count;
+					}
+				}
+				$found[] = [
+					'severity'    => 'critical',
+					'type'        => 'Phishing redirect page in uploads',
+					'subject'     => self::display_path( $path ) . ' ' . $why,
+					'path'        => $path,
+					'action'      => 'Uploads never hold pages like this. It lets a phishing mail use a link on your trusted domain that bounces the victim to a credential-harvesting site. The page (and its folder when it holds nothing else) is removed. Look for more folders with random names, and find how files were written to uploads.',
+					'auto_delete' => true,
+					'delete_path' => 1 === $count && realpath( $dir ) !== realpath( $base ) ? $dir : $path,
+				];
+				if ( class_exists( 'WPS_Logger' ) ) {
+					WPS_Logger::log_event( 'redirect_doorway_found', self::display_path( $path ) );
+				}
+			}
+		} catch ( \Throwable $t ) {
+			return $found;
 		}
 		return $found;
 	}
