@@ -112,6 +112,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 
 == Changelog ==
 
+= 1.4.121 =
+Image files that are really encoded text (a payload split into chunks and named .png/.gif) are now treated as hidden data. A header-less plugin folder holding them is reported and quarantined; inside a real plugin, mu-plugins or a theme they are reported for review. A plugin with genuine images is unaffected.
+
 = 1.4.120 =
 Adds the Auto Speed Insights (auto-speed-insights-xxxx) disguised-plugin family to the slug, folder-pattern and hash lists. The headless-folder check now covers mu-plugins, a new review-only check reports plugin code that decodes an encrypted data file from its own folder and runs it, a new check reports and removes endpoints that install uploaded code behind a fixed token (together with the loader that requires them), and a review-only check reports plugins that plant bundled folders into mu-plugins. No other detection changes.
 
