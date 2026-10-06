@@ -1261,7 +1261,7 @@ class WPS_Admin_Diagnostics {
 		}
 
 		echo '<div class="wps-scroll-x">';
-		echo '<table class="wps-sm wps-table" style="min-width:760px">';
+		echo '<table class="wps-sm wps-table wps-minw-760">';
 		echo '<thead><tr>';
 		foreach ( [ 'IP', 'Attempts', 'Last file', 'Last pathway', 'User', 'Last seen', 'Expires', 'Report' ] as $header ) {
 			echo '<th>' . esc_html( $header ) . '</th>';

@@ -658,13 +658,13 @@ class WPS_Blocker {
         $settings_url = admin_url( 'tools.php?page=wp-perf-shield&tab=settings' );
         ?>
         <div class="notice notice-error" id="wps-self-block-notice">
-            <p style="margin:.5em 0">
+            <p class="wps-notice-p">
                 <strong>WP Perf Shield:</strong> your IP <code><?php echo esc_html( $ip ); ?></code> is in the hostile-IP auto-block list. You are signed in as an administrator so this request was allowed through, but unauthenticated requests from this IP are still being rejected.
             </p>
-            <p style="margin:.5em 0">
+            <p class="wps-notice-p">
                 <button type="button" class="button button-primary" id="wps-self-block-clear-btn">Clear hostile IP blocks now</button>
                 <a class="button" href="<?php echo esc_url( $settings_url ); ?>">Open Settings</a>
-                <span id="wps-self-block-status" style="margin-left:8px"></span>
+                <span id="wps-self-block-status" class="wps-ml8"></span>
             </p>
         </div>
         <?php
@@ -673,10 +673,10 @@ class WPS_Blocker {
     public static function remove_activate_link( array $actions, string $plugin_file ): array {
         if ( self::is_blocked( $plugin_file ) ) {
             unset( $actions['activate'] );
-            $actions['wps'] = '<span style="color:#a00;font-weight:500">&#9940; Blocked by Perf Shield</span>';
+            $actions['wps'] = '<span class="wps-blocked-label">&#9940; Blocked by Perf Shield</span>';
         } elseif ( self::is_policy_banned( $plugin_file ) ) {
             unset( $actions['activate'] );
-            $actions['wps'] = '<span style="color:#a00;font-weight:500">&#9940; Banned by site policy</span>';
+            $actions['wps'] = '<span class="wps-blocked-label">&#9940; Banned by site policy</span>';
         }
         return $actions;
     }

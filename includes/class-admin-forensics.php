@@ -225,7 +225,7 @@ class WPS_Admin_Forensics {
 		self::forensic_card( '<span class="wps-icon dashicons dashicons-clock" aria-hidden="true"></span>wp-cron.php integrity', $tampered );
 		if ( $cron ) {
 			echo '<table class="wps-sm wps-table">';
-			echo '<tr><td class="wps-dim" style="width:90px">Status</td><td class="wps-strong ' . esc_attr( $cron_status_class ) . '">' . esc_html( $cron_status ) . '</td></tr>';
+			echo '<tr><td class="wps-dim wps-w-90">Status</td><td class="wps-strong ' . esc_attr( $cron_status_class ) . '">' . esc_html( $cron_status ) . '</td></tr>';
 			echo '<tr><td class="wps-dim">WP version</td><td>' . esc_html( $cron['version'] ?? 'unknown' ) . '</td></tr>';
 			echo '<tr><td class="wps-dim">Modified</td><td>' . esc_html( $cron['modified'] ?? 'unknown' ) . '</td></tr>';
 			echo '<tr><td class="wps-dim">MD5</td><td class="wps-mono wps-xs">' . esc_html( $cron['md5'] ?? '' ) . '</td></tr>';
@@ -453,7 +453,7 @@ class WPS_Admin_Forensics {
 		} elseif ( $core_modified ) {
 			echo '<p class="wps-sm wps-bad-t wps-p"> ' . count( $core_modified ) . ' core file(s) do not match the official WordPress ' . esc_html( $core_version ) . ' checksums. Modified core files are a high-confidence indicator of a backdoor injected directly into WordPress internals.</p>';
 			echo '<div class="wps-scroll-x"><table class="wps-table wps-table--w400">';
-			echo '<thead><tr><th>File</th><th style="width:90px">Status</th></tr></thead><tbody>';
+			echo '<thead><tr><th>File</th><th class="wps-w-90">Status</th></tr></thead><tbody>';
 			foreach ( array_slice( $core_modified, 0, 30 ) as $cm ) {
 				$st_class = $cm['status'] === 'missing' ? 'wps-warn-t' : 'wps-bad-t';
 				echo '<tr>';
@@ -485,7 +485,7 @@ class WPS_Admin_Forensics {
 			echo '<p class="wps-sm wps-good-t wps-p0">No executable files found in those directories.</p>';
 		} else {
 			echo '<div class="wps-scroll-x"><table class="wps-table wps-table--w400">';
-			echo '<thead><tr><th style="width:160px">Modified (UTC)</th><th>File</th></tr></thead><tbody>';
+			echo '<thead><tr><th class="wps-w-160">Modified (UTC)</th><th>File</th></tr></thead><tbody>';
 			$abs = rtrim( ABSPATH, '/\\' ) . '/';
 			foreach ( array_slice( $recent_files, 0, 30 ) as $rf ) {
 				$rel = strpos( $rf['path'], $abs ) === 0 ? substr( $rf['path'], strlen( $abs ) ) : $rf['path'];

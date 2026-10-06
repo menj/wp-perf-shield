@@ -85,7 +85,7 @@ class WPS_Admin_Remediation {
 			<!-- Manual instructions for items the plugin cannot touch -->
 			<div class="wps-card wps-card--flush">
 				<div class="wps-card-head">Manual steps (SSH required)</div>
-				<div style="padding:14px 16px">
+				<div class="wps-pad-14-16">
 					<p class="wps-p wps-muted">Some actions require SSH because they involve WP core files outside wp-content or WP-CLI. Copy these commands as needed:</p>
 					<table class="wps-table">
 						<?php
@@ -98,8 +98,8 @@ class WPS_Admin_Remediation {
 						foreach ( $manual as [ $label, $cmd ] ) :
 						?>
 						<tr>
-							<td class="wps-muted" style="width:280px"><?php echo esc_html( $label ); ?></td>
-							<td><code class="wps-break" style="background:#f5f5f5;padding:4px 7px;border-radius:3px;border:1px solid #ddd;display:inline-block"><?php echo esc_html( $cmd ); ?></code></td>
+							<td class="wps-muted wps-w-280"><?php echo esc_html( $label ); ?></td>
+							<td><code class="wps-break wps-code-chip"><?php echo esc_html( $cmd ); ?></code></td>
 						</tr>
 						<?php endforeach; ?>
 					</table>

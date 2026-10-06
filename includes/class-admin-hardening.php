@@ -44,7 +44,7 @@ class WPS_Admin_Hardening {
 				</div>
 				<table class="wps-table wps-table--md">
 					<tr>
-						<td class="wps-muted" style="width:200px">Malware plugin scan</td>
+						<td class="wps-muted wps-w-200">Malware plugin scan</td>
 						<td><?php echo $hs['wps_scanner'] ? '<span class="wps-good-t wps-sm">Scanner active</span>' : '<span class="wps-bad-t wps-sm">Scanner not loaded</span>'; ?></td>
 						<td class="wps-right"><a href="<?php echo esc_url( admin_url( 'tools.php?page=wp-perf-shield&tab=overview' ) ); ?>" class="button wps-sm">Open Overview</a></td>
 					</tr>
@@ -89,7 +89,7 @@ class WPS_Admin_Hardening {
 						$is_on = $hs[ $key ];
 						?>
 					<tr>
-						<td class="wps-mono wps-sm" style="width:210px"><?php echo esc_html( $meta['label'] ); ?></td>
+						<td class="wps-mono wps-sm wps-w-210"><?php echo esc_html( $meta['label'] ); ?></td>
 						<td><?php echo self::badge( $is_on ); ?></td>
 						<td class="wps-sm wps-muted"><?php echo esc_html( $meta['desc'] ); ?></td>
 						<td class="wps-right wps-nowrap">
@@ -168,7 +168,7 @@ class WPS_Admin_Hardening {
 						$is_on = $hs[ $key ];
 						?>
 					<tr>
-						<td style="width:260px"><?php echo esc_html( $item['label'] ); ?></td>
+						<td class="wps-w-260"><?php echo esc_html( $item['label'] ); ?></td>
 						<td><?php echo self::badge( $is_on ); ?></td>
 						<td class="wps-sm wps-muted"><?php echo esc_html( $item['desc'] ); ?></td>
 						<td class="wps-right wps-nowrap">
@@ -222,7 +222,7 @@ class WPS_Admin_Hardening {
 					<label><input type="radio" name="wps-csp-mode" value="enforce" <?php checked( $csp_mode, 'enforce' ); ?>> Enforce <span class="wps-bad-t">(can break the site if untuned)</span></label>
 				</p>
 
-				<textarea id="wps-csp-policy" rows="5" class="wps-mono wps-sm" style="width:100%" spellcheck="false"><?php echo esc_textarea( $csp_policy ); ?></textarea>
+				<textarea id="wps-csp-policy" rows="5" class="wps-mono wps-sm wps-w-full" spellcheck="false"><?php echo esc_textarea( $csp_policy ); ?></textarea>
 				<p class="wps-mt8">
 					<button id="wps-csp-save-btn" class="button button-primary">Save CSP settings</button>
 					<button id="wps-csp-default-btn" class="button" type="button">Reset to default policy</button>

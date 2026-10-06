@@ -1,6 +1,5 @@
 # WP Perf Shield changelog
 
-<<<<<<< HEAD
 ## 1.4.118
 
 Error-page drop-ins: a false positive on a real theme's files, and a blind spot found while fixing it.
@@ -125,8 +124,6 @@ The worm spreads across sites sharing a hosting account and creates admin users 
 Version markers move to 1.4.114. New check `check_link_helper_worm`, new events `link_helper_worm_found`, `link_helper_option_cleared`, one conclusive-tier entry. No new settings. `INDICATOR_VERSION` unchanged.
 
 
-=======
->>>>>>> 224acf1bb7e5cd9cbf5058fc39b4f3a583e5d2fd
 ## 1.4.113
 
 Ten samples from the packed family, one of which was detected and left running.

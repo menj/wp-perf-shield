@@ -587,7 +587,7 @@ class WPS_Admin {
 		</h1>
 
 		<?php if ( $saved ) : ?>
-			<div class="notice notice-success is-dismissible" style="margin:8px 0"><p>Settings saved.</p></div>
+			<div class="notice notice-success is-dismissible wps-notice-tight"><p>Settings saved.</p></div>
 		<?php endif; ?>
 
 		<!-- Tab nav -->
