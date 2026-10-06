@@ -5939,7 +5939,7 @@ class WPS_Scanner {
 		// split-literal-normalised source.
 		$triggers = [ 'wlh_claim', 'wlh_neighbors', 'wlh_adopt', 'wlh_adoptclean', 'wlh_wchinstall', 'wlh_update', 'wlh_links', 'wlh_snippet', 'wlh_botstats', 'wlh_cfg' ];
 		// The option family it persists its identity and worm state into.
-		$options  = [ 'wlh_cdn', 'wlh_key', 'wlh_origin', 'wlh_proj', 'wlh_ca', 'wlh_err', 'wlh_lh', 'wlh_links', 'wlh_sw_links', 'wlh_snippet', 'wlh_adopted' ];
+		$options  = [ 'wlh_cdn', 'wlh_key', 'wlh_origin', 'wlh_proj', 'wlh_ca', 'wlh_err', 'wlh_lh', 'wlh_links', 'wlh_sw_links', 'wlh_snippet', 'wlh_adopted', 'wlh_hide_self', 'wlh_hide_update', 'wlh_bot_hits' ]; // 1.4.123: hiding flags and verified-Googlebot counters from build 0.10.15
 		// The signed worm operations: propagation and second-stage install.
 		$worm_ops = [ 'adopt.ts', 'adoptclean.ts', 'wchinstall.ts' ];
 

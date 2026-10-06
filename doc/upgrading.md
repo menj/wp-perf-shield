@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.123
+
+**More complete cleanup of the WP Link Helper worm.** When it is removed, three more of its options (`wlh_hide_self`, `wlh_hide_update`, `wlh_bot_hits`) are quarantined with it, and are restorable from Diagnostics. Nothing to configure.
+
 ## 1.4.122
 
 **A false positive is fixed.** If WP Perf Shield removed or quarantined a large genuine plugin such as WP File Manager as an "externalized payload loader", that was wrong; restore it from Diagnostics. The check now requires the loader, its decoding and the obfuscation to be in one file that names an opaque data file. Plugins that are really built that way are still reported and removed. Nothing to configure.

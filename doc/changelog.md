@@ -1,5 +1,17 @@
 # WP Perf Shield changelog
 
+## 1.4.123
+
+WP Link Helper 0.10.15 (re-recovered) and a second copy of the token-gated installer.
+
+### WP Link Helper 0.10.15
+Five files (`wp-link-helper.php` and four classes: render, static, cache, botstat). Its own comments document the behaviour: hidden link blocks injected into pages and into static sites' `index.html` over a shared filesystem, a cloak that serves its output only to unverified visitors (verified-Googlebot counters kept in `wlh_bot_hits`), mu-plugin self-heal copies, signed remote operations (adopt, update, rollback) and a panel it phones home to. Two checks already report it, both critical and auto-removable: `check_link_helper_worm` and `check_self_hiding_plugins`. The one gap: this build persists three options the removal did not know about (`wlh_hide_self`, `wlh_hide_update`, `wlh_bot_hits`), so they would have outlived the plugin. They are now part of the worm's option family, which is both detection evidence and the state quarantined with it.
+
+### plugins.php
+Byte-identical (same MD5) to the mu-plugin installer recovered in 1.4.120. Checked as a loose file in mu-plugins, inside an mu-plugins subfolder and inside a plugin folder: `check_remote_code_installer` reports it in all three. No change.
+
+Version markers move to 1.4.123.
+
 ## 1.4.122
 
 False positive: a genuine plugin was reported critical and auto-deleted by `check_external_payload_loader`.
