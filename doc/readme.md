@@ -230,7 +230,7 @@ Safe target ever reaches the destructive gate.
 
 ## Version
 
-Current plugin version: `1.4.120`
+Current plugin version: `1.4.121`
 
 Author: [MENJ](https://github.com/menj)
 
