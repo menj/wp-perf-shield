@@ -37,6 +37,9 @@ class WPS_Scanner {
 		'pro-font-optimizer',
 		'site-speed-insights',
 		'auto-speed-insights',  // 1.4.120: Auto Speed Insights (-3f8f) sample, loader-less
+		'starter-seo-toolkit',  // 1.4.121
+		'total-security-enhancer',  // 1.4.121
+		'ultra-render-helper',  // 1.4.121
 		'advanced-asset-insights', // 1.3.37: ClickFix variant slug
 		'page-seo-toolkit',        // 1.3.39: ClickFix variant slug
 		'starter-image-guard',     // 1.3.39: ClickFix variant slug
@@ -1588,6 +1591,9 @@ class WPS_Scanner {
 			'pro-font-optimizer',
 			'site-speed-insights',
 			'auto-speed-insights',  // 1.4.120: Auto Speed Insights (-3f8f) sample, loader-less
+			'starter-seo-toolkit',  // 1.4.121
+			'total-security-enhancer',  // 1.4.121
+			'ultra-render-helper',  // 1.4.121
 			'advanced-asset-insights', // 1.3.37
 			'page-seo-toolkit',        // 1.3.39
 			'starter-image-guard',     // 1.3.39
@@ -6540,7 +6546,7 @@ class WPS_Scanner {
 		$self_dir = realpath( WPS_DIR ) ?: '';
 		$examined = 0;
 		$reader   = '/\b(?:file_get_contents|fopen|readfile|file)\s*\(/i';
-		$literal  = '/[\'"]([^\'"]*\.(?:dat|cache|bin|data|db|blob|key|enc))[\'"]/i';
+		$literal  = '/[\'"]([^\'"]*\.(?:dat|cache|bin|data|db|blob|key|enc|idx|pkg))[\'"]/i';
 		$decoder  = '/\b(?:openssl_decrypt|gzinflate|gzuncompress|gzdecode|base64_decode|sodium_crypto_[a-z_]*open|mcrypt_decrypt|convert_uudecode)\s*\(/i';
 		$sink     = '/\b(?:eval|assert|create_function)\s*\(|\b(?:include|require)(?:_once)?\s*\(?\s*\$|\bcall_user_func(?:_array)?\s*\(\s*\$/i';
 
