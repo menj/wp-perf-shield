@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.132
+
+**Four new detections, from a remote-control endpoint, its base64 installer, a card-harvesting phishing kit and phishing redirect pages.** Matches are critical and removed automatically (to quarantine when enabled). If the scanner reports `wp-content/easypost/`, `site-tools-*` or random-named folders in uploads, treat the site as compromised: delete administrator users and application passwords you did not create, reset passwords and salts, and find how the files were written. Nothing to configure.
+
 ## 1.4.131
 
 **New optional XML-RPC and exposure controls (Settings, "XML-RPC & exposure").** All are off by default, so nothing changes until you enable one. Check before enabling: a renamed XML-RPC endpoint needs pretty permalinks; IP rules use the connecting address, which is wrong behind a proxy or CDN (you could lock out the proxy); "REST API for signed-in users only" can break public integrations, so use the exempt-namespace list. Disabling pingbacks or XML-RPC methods may affect the Jetpack app or the WordPress mobile app if they use them.

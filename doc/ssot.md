@@ -169,7 +169,7 @@ It runs the parser fallback on every PHP and admin JS file, asserts version-mark
 Development tests are plain PHP scripts in:
 
 ```text
-tests/test-plugin-malware-detection.php   headless/payload/installer/dropper/fake-image/loader/web-shell checks (43 cases)
+tests/test-plugin-malware-detection.php   headless/payload/installer/dropper/fake-image/loader/web-shell/embedded-dropper/admin-endpoint/card-kit/doorway checks ( cases)
 tests/test-manual-removal.php             the "Delete this path" removal routine (16 cases)
 tests/test-policy-ban.php                 the on-disk policy ban (43 cases)
 tests/test-forensics-sql.php              the Forensics media-trace query: placeholders equal arguments (5 cases)
@@ -650,3 +650,6 @@ Detection remains technique-first; behavioural alerts follow the same review-onl
 
 ### XML-RPC and exposure controls (1.4.131)
 Decision: merge only what the plugin did not already do, as original code, all options default off, in one class (`WPS_Exposure_Guard`) and one Settings tab. Source of the idea: Neatma "Disable XML-RPC-API" 2.1.7 (GPLv2). Skipped with reasons: its settings framework and licence code, a stale Jetpack IP list, `chmod 0444` (breaks updates), a malformed hotlink rule, and first-forwarded-IP client detection. Digest 1.4.131: new guard, `xr_*` settings, `xmlrpc_ip_refused` event, 65 new test cases.
+
+### Four detections from the easypost, en and doorway samples (1.4.132)
+Decision: all four are matched on behaviour, not on names or hashes (easypost is also a real shipping brand, so no slug ban). Auto-removal is scoped to the file, or to its folder when the folder holds only that kit. Digest 1.4.132: `check_embedded_php_dropper`, `check_remote_admin_endpoint`, `check_card_harvester_kit`, `check_redirect_doorway`; registered checks 99; no secrets from the samples (bot token, chat id) are stored in the repository.

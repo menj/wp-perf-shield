@@ -1,5 +1,24 @@
 # WP Perf Shield changelog
 
+## 1.4.132
+
+Six uploads triaged statically (nothing executed). Four gaps closed; the rest were already caught.
+
+### Samples and what they do
+- **easypost.php (180 KB) and its installer plugin site-tools-e01f...:** a remote-control endpoint. It loads WordPress, verifies a signed request, creates administrator accounts, marks them concealed, manages application passwords and can replace its own runtime over the air. It also contains an SEO hidden-link injector (white text, zero opacity, hidden classes). The plugin carries the whole file as a 180 KB base64 string, checks its SHA-256 and writes it to `wp-content/easypost/easypost.php` on activation and on every `plugins_loaded`.
+- **smart-health-monitor-669b (two identical uploads):** already detected by nine checks (EtherHiding C2 lookup on Polygon, cloaked footer injector, split-string obfuscation, XOR-decoded config.dat and cache.bin). No change needed.
+- **en (Avast-branded refund page):** a phishing kit. send.php collects card number, expiry, CVV and address and posts them to a Telegram bot; config.php holds the bot token and chat id.
+- **ten random-named folders with one index.php each (and a duplicate upload):** phishing redirect doorways that bounce the visitor, with the URL fragment or an email taken from the link, to a credential-harvesting site. Three had their script blanked with spaces.
+- **deep_check / upload_test .txt files:** 46- and 47-byte probe markers (upload and read-back tests). Harmless text; evidence that someone tested whether uploads and reads work.
+
+### Gaps found and fixed
+- **Embedded-PHP dropper (new check `check_embedded_php_dropper`).** The installer plugin scored zero: its payload only exists as base64. A plugin file with a literal of 2,000+ characters that decodes to PHP and calls `file_put_contents` is now critical and removed with its folder. A long base64 literal that is not PHP is ignored (tested).
+- **Remote admin endpoint outside plugins (new `check_remote_admin_endpoint`).** `wp-content/easypost/` is scanned by no plugin check. Non-standard wp-content folders are now searched for the endpoint (known marker, or administrator creation plus signed-request gate plus application passwords together); the folder is removed.
+- **Card-harvesting kit (new `check_card_harvester_kit`).** Behaviour match: Telegram bot API plus card fields plus request input, or a tiny file defining both bot credentials. A plain Telegram order notification does not match (tested).
+- **Redirect doorways (new `check_redirect_doorway`).** Previously only the generic "PHP in uploads" review. A tiny page in uploads that forwards to another site using the fragment, or a blanked script, is critical and removed with its folder when it is the only file in it.
+
+Tests: `test-plugin-malware-detection.php`  checks (10 new, with near-miss controls); the others unchanged. Registered checks: 99 (was 95).
+
 ## 1.4.131
 
 **XML-RPC and site-exposure controls, merged from the idea behind Neatma's "Disable XML-RPC-API" 2.1.7 (GPLv2).** Everything is new, original code in `includes/class-exposure-guard.php`; nothing was copied. Every option is **off by default**, so upgrading changes nothing until you switch something on. They live in a new Settings tab, "XML-RPC & exposure".
