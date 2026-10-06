@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.129
+
+**`wp-file-manager` and `fileorganizer` are now hard-banned.** If either appears in the plugins folder it is deleted permanently on the next request, with no quarantine copy, and you are emailed the first time. WP File Manager is also found by its main file under any folder name, and its zip cannot be downloaded through WordPress's HTTP API, WP-CLI or an update routine while the ban is on. Other banned plugins (FileBird, Protect Uploads) keep the quarantine-first behaviour. There is nothing to restore from Diagnostics for a hard-banned plugin; both are public and can be downloaded again if you ever lift the ban. Separately, the loader file the mu-plugins dropper writes (`plugins.php` in `mu-plugins`) is now reported and removed on its own, which matters if the installer folder was already deleted and the site is down with a fatal error. Nothing to configure.
+
 ## 1.4.128
 
 **Protect Uploads is now on the built-in banned list**, together with the folder names `rcromlb` and `hvmosjt` it was found under. If any of them is installed, it is removed on the next request (restorable from Diagnostics) and a placeholder file is left where it was; it cannot be installed, uploaded or activated. The plugin is also found by its main file under any other folder name. This is a site-policy decision, not a malware finding. If you do use Protect Uploads, switch the banned-plugins policy off under Settings, Banned plugins, or do not update to this version. Nothing else to configure.

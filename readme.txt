@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.128
+Stable tag: 1.4.129
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -24,6 +24,7 @@ It combines real-time plugin activation blocking, hourly malware scanning, behav
 = Key features =
 
 * Blocks known malicious plugin slugs and renamed plugin patterns from activation.
+* Hard-bans WP File Manager and FileOrganizer: deleted permanently the first time they are found, with no quarantine copy, found by their real main file under any folder name, and their zip downloads refused for anything using the WordPress HTTP API.
 * Removes a banned plugin from disk on the next request, quarantined first, and leaves a placeholder file where it was so a plain re-extract fails; counts every return, records who owns the files and emails you when it keeps coming back.
 * Enforces a site-policy banned-plugins list, separate from malware blocking, for ordinary plugins you choose not to run (WP File Manager, FileOrganizer, FileBird and Protect Uploads by default): refused on upload and activation, and deactivated if already present.
 * Checks plugin file hashes using built-in MD5 indicators and custom MD5/SHA-256 hashes.
@@ -123,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.129 =
+WP File Manager and FileOrganizer are hard-banned: deleted permanently the first time they are found, with no quarantine copy, and you are emailed at once. WP File Manager is also found by its real main file under any folder name, and the download of a banned plugin's zip is refused for anything that uses WordPress's HTTP API, including WP-CLI and update routines. The loader file written by the mu-plugins installer dropper is now reported and removed on its own.
 
 = 1.4.128 =
 Protect Uploads is added to the built-in banned plugins list, with the folder names rcromlb and hvmosjt it was found under. It is refused on install, upload and activation and removed from disk on the next request, including when it sits under an unlisted folder name (found by its main file). A site-policy ban, not a malware label.
@@ -619,6 +623,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.129 =
+WP File Manager and FileOrganizer are deleted permanently, with no quarantine copy, and their downloads are refused. Recommended; nothing to restore if you ever lift the ban.
 
 = 1.4.128 =
 Protect Uploads is now banned by default and removed if present. If you use it, switch the banned-plugins policy off in Settings before updating.

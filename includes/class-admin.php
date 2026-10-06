@@ -766,6 +766,7 @@ class WPS_Admin {
 			'disguised_plugin_index_found' => 'Disguised web shell found',
 			'policy_banned_plugin_found'  => 'Banned plugin found installed (site policy)',
 			'policy_ban_enforced'          => 'Banned plugin removed from disk (site policy)',
+			'policy_download_blocked'      => 'Banned plugin download refused (site policy)',
 			'policy_ban_redrop'           => 'Banned plugin keeps coming back (site policy)',
 			'policy_ban_enforce_failed'   => 'Banned plugin could not be removed (site policy)',
 			'htaccess_php_allowlist_found' => 'PHP allowlist in .htaccess (shell persistence)',
