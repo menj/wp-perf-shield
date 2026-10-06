@@ -238,14 +238,14 @@ class WPS_Admin_Settings {
 										<span class="description">A real editor rarely publishes moments after signing in from a device the account has never used. Catches spam posted with a stolen password, which an ordinary sign-in check cannot see. <strong>On by default.</strong></span>
 									</span>
 								</label>
-								<label class="wps-toggle-row" style="margin-top:8px;">
+								<label class="wps-toggle-row wps-mt8">
 									<input type="checkbox" id="account_guard_auto_trash" name="account_guard_auto_trash" value="1" <?php checked( ( $settings['account_guard_auto_trash'] ?? '1' ) !== '0' ); ?>>
 									<span>
 										<strong>Move the flagged post or page to Trash</strong><br>
 										<span class="description">Reversible: restore it from Trash if it was a false alarm.</span>
 									</span>
 								</label>
-								<label class="wps-toggle-row" style="margin-top:8px;">
+								<label class="wps-toggle-row wps-mt8">
 									<input type="checkbox" id="account_guard_lockdown" name="account_guard_lockdown" value="1" <?php checked( ( $settings['account_guard_lockdown'] ?? '1' ) !== '0' ); ?>>
 									<span>
 										<strong>Sign the account out everywhere and block the address</strong><br>

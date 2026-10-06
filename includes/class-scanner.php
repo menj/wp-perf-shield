@@ -594,10 +594,7 @@ class WPS_Scanner {
 			'check_hidden_admin_backdoor' => [ __CLASS__, 'check_hidden_admin_backdoor' ], // 1.4.81: code that creates an administrator AND hides it from the user list
 			'check_unauth_auth_bypass' => [ __CLASS__, 'check_unauth_auth_bypass' ], // 1.4.95: unauthenticated endpoint that hands out an admin session
 			'check_foreign_plugin_files' => [ __CLASS__, 'check_foreign_plugin_files' ], // 1.4.103: PHP inside a directory plugin that its own official manifest does not list
-<<<<<<< HEAD
 			'check_link_helper_worm' => [ __CLASS__, 'check_link_helper_worm' ], // 1.4.114: WP Link Helper self-propagating worm - the campaign's foothold; removes file + heal-state options
-=======
->>>>>>> 224acf1bb7e5cd9cbf5058fc39b4f3a583e5d2fd
 			'check_encoded_inline_script_injector' => [ __CLASS__, 'check_encoded_inline_script_injector' ], // 1.4.113: gz+base64 blob printed as inline script, hidden from editors and crawlers
 			'check_headless_plugin_folder' => [ __CLASS__, 'check_headless_plugin_folder' ], // 1.4.105: plugin-shaped folder with no entry point, holding a staged or orphaned payload
 			'check_constant_assembled_calls' => [ __CLASS__, 'check_constant_assembled_calls' ], // 1.4.111: function names built from define() constants to defeat searching
@@ -5876,38 +5873,6 @@ class WPS_Scanner {
 	}
 
 	/**
-	 * 1.4.113: a compressed payload printed as script, only to visitors.
-	 *
-	 * Recovered in a suffixed re-drop slot (page-speed-analytics-fbb4-975d)
-	 * beside a headless payload folder: a single-file loader with a genuine
-	 * Plugin Name header, carrying the ClickFix/EtherHiding payload inline as
-	 * a gzinflate(base64_decode(...)) blob, which it copies into an option
-	 * and prints with wp_print_inline_script_tag() - but only for visitors
-	 * who are neither logged in with an editing role nor a known crawler.
-	 * Every plain-text marker of the family is inside the compressed blob, so
-	 * no signature matched. The cloaked-injector check did match it, and the
-	 * policy then refused removal: that check is behavioural and the folder
-	 * carries a real header, so it was reported every scan and left running.
-	 *
-	 * Cloaking on its own is not conclusive - advertising and analytics
-	 * plugins skip administrators and bots and print footer scripts for
-	 * ordinary reasons. What no legitimate plugin does is all three at once:
-	 * decompress an embedded base64 blob, print the result as an inline
-	 * script, and gate that on hiding from BOTH editors and crawlers. A real
-	 * plugin ships its script as a file it enqueues; nothing honest needs to
-	 * compress JavaScript into PHP and show it only to people who will not
-	 * notice. That conjunction is what this reports, so it can join the
-	 * conclusive tier.
-	 *
-	 * The loader also persists the decoded payload into an option
-	 * (update_option(name, base64_encode(...))) and reads that option first
-	 * on later runs, so a copy survives the file. Those options are
-	 * quarantined with it, exactly as the headless-folder check does.
-	 *
-	 * @return array<int, array<string, string>>
-	 */
-<<<<<<< HEAD
-	/**
 	 * 1.4.114: the propagation engine behind this whole campaign.
 	 *
 	 * Recovered as wp-link-helper.php: a single file, header "WP Link Helper",
@@ -6076,8 +6041,37 @@ class WPS_Scanner {
 		return $found;
 	}
 
-=======
->>>>>>> 224acf1bb7e5cd9cbf5058fc39b4f3a583e5d2fd
+	/**
+	 * 1.4.113: a compressed payload printed as script, only to visitors.
+	 *
+	 * Recovered in a suffixed re-drop slot (page-speed-analytics-fbb4-975d)
+	 * beside a headless payload folder: a single-file loader with a genuine
+	 * Plugin Name header, carrying the ClickFix/EtherHiding payload inline as
+	 * a gzinflate(base64_decode(...)) blob, which it copies into an option
+	 * and prints with wp_print_inline_script_tag() - but only for visitors
+	 * who are neither logged in with an editing role nor a known crawler.
+	 * Every plain-text marker of the family is inside the compressed blob, so
+	 * no signature matched. The cloaked-injector check did match it, and the
+	 * policy then refused removal: that check is behavioural and the folder
+	 * carries a real header, so it was reported every scan and left running.
+	 *
+	 * Cloaking on its own is not conclusive - advertising and analytics
+	 * plugins skip administrators and bots and print footer scripts for
+	 * ordinary reasons. What no legitimate plugin does is all three at once:
+	 * decompress an embedded base64 blob, print the result as an inline
+	 * script, and gate that on hiding from BOTH editors and crawlers. A real
+	 * plugin ships its script as a file it enqueues; nothing honest needs to
+	 * compress JavaScript into PHP and show it only to people who will not
+	 * notice. That conjunction is what this reports, so it can join the
+	 * conclusive tier.
+	 *
+	 * The loader also persists the decoded payload into an option
+	 * (update_option(name, base64_encode(...))) and reads that option first
+	 * on later runs, so a copy survives the file. Those options are
+	 * quarantined with it, exactly as the headless-folder check does.
+	 *
+	 * @return array<int, array<string, string>>
+	 */
 	private static function check_encoded_inline_script_injector(): array {
 		$found = [];
 		if ( ! defined( 'WP_CONTENT_DIR' ) || ! is_dir( WP_CONTENT_DIR ) ) {

@@ -59,7 +59,6 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
-<<<<<<< HEAD
 ## 1.4.118
 
 **Harmless maintenance pages stop being flagged, and a way to hide a backdoor in them is closed.** If your scan report has been listing `maintenance.php`, `db-error.php` or `php-error.php` as "unknown publisher" and they are plain static pages, the finding clears by itself. If a file of that name contains executable code or reads request headers, it is now reported as high even when it carries a hosting tool's label; inspect it, and remove it if you did not write it. Nothing is ever removed automatically for this. Nothing to configure. The drop-in baseline guard no longer raises "appeared" or "modified" alerts when a theme writes or updates such a page, but still does if the page gains code, a script, or a reference to another site.
@@ -82,8 +81,6 @@ Two small fixes ride along: help text on a few settings is shorter and plainer, 
 
 Removing it from this site is necessary but not sufficient. The worm spreads to other sites on the same hosting account and can create admin accounts in their databases. Change your FTP/SFTP and hosting control-panel passwords, check every other site on the account for a `wp-link-helper.php` file, and review each site's administrator list for accounts you did not create.
 
-=======
->>>>>>> 224acf1bb7e5cd9cbf5058fc39b4f3a583e5d2fd
 ## 1.4.113
 
 **A loader that was being reported and left running is now removed.** If a scan has been listing a "Cloaked content injector" inside a plugin folder with a random-looking name every hour without removing it, this release removes it, and the copy of its payload it saved in `wp_options`. Nothing to configure.

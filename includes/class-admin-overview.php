@@ -45,7 +45,7 @@ class WPS_Admin_Overview {
 			<!-- Scan button -->
 			<div class="wps-mb10 wps-row">
 				<button id="wps-scan-btn" class="button button-primary"><span class="wps-icon dashicons dashicons-search" aria-hidden="true"></span>Run scan now</button>
-				<a href="<?php echo esc_url( admin_url( 'tools.php?page=wp-perf-shield&tab=diagnostics' ) ); ?>" class="button" style="margin-left:auto">Diagnostics</a>
+				<a href="<?php echo esc_url( admin_url( 'tools.php?page=wp-perf-shield&tab=diagnostics' ) ); ?>" class="button wps-ml-auto">Diagnostics</a>
 				<a href="<?php echo esc_url( admin_url( 'tools.php?page=wp-perf-shield&tab=events' ) ); ?>" class="button">Events</a>
 			</div>
 			<div id="wps-msg" class="wps-mb10 wps-status"></div>
@@ -246,7 +246,7 @@ class WPS_Admin_Overview {
 				</div>
 			</div>
 			<?php else : ?>
-			<div class="wps-mb10" style="background:#eaf3de;border:1px solid #639922;border-radius:6px;padding:12px 16px;color:#3b6d11">
+			<div class="wps-mb10 wps-callout-ok">
 				 No issues detected. Last scan: <?php echo esc_html( $scan_time ); ?>
 			</div>
 			<?php endif; ?>

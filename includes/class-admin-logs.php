@@ -86,7 +86,7 @@ class WPS_Admin_Logs {
 				<?php endif; ?>
 			</div>
 
-			<div id="wps-log-output-wrap" class="wps-card" style="display:none">
+			<div id="wps-log-output-wrap" class="wps-card wps-hidden">
 				<div class="wps-between wps-mb6">
 					<strong id="wps-log-output-title"></strong>
 					<button id="wps-log-output-close" class="button-link wps-muted">Close</button>
