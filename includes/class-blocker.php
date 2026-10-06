@@ -33,6 +33,10 @@ class WPS_Blocker {
             'starter-seo-toolkit',  // 1.4.121
             'total-security-enhancer',  // 1.4.121
             'ultra-render-helper',  // 1.4.121
+            'native-seo-optimizer',  // 1.4.126
+            'native-seo-guard',  // 1.4.126
+            'essential-font-enhancer',  // 1.4.126
+            'smart-seo-scanner',  // 1.4.127
             'advanced-asset-insights', // 1.3.37: Advanced Asset Insights / Cache Team disguise
             'page-seo-toolkit',        // 1.3.39: Page SEO Toolkit / Page Software disguise
             'starter-image-guard',     // 1.3.39: Starter Image Guard / Dev Group disguise
@@ -480,6 +484,14 @@ class WPS_Blocker {
             '/total-security-enhancer[-_][a-z0-9]{3,8}\.php$/i', // 1.4.121
             '/ultra-render-helper[-_][a-z0-9]{3,8}\//i',     // 1.4.121
             '/ultra-render-helper[-_][a-z0-9]{3,8}\.php$/i', // 1.4.121
+            '/native-seo-optimizer[-_][a-z0-9]{3,8}\//i',     // 1.4.126
+            '/native-seo-optimizer[-_][a-z0-9]{3,8}\.php$/i', // 1.4.126
+            '/native-seo-guard[-_][a-z0-9]{3,8}\//i',     // 1.4.126
+            '/native-seo-guard[-_][a-z0-9]{3,8}\.php$/i', // 1.4.126
+            '/essential-font-enhancer[-_][a-z0-9]{3,8}\//i',     // 1.4.126
+            '/essential-font-enhancer[-_][a-z0-9]{3,8}\.php$/i', // 1.4.126
+            '/smart-seo-scanner[-_][a-z0-9]{3,8}\//i',     // 1.4.127
+            '/smart-seo-scanner[-_][a-z0-9]{3,8}\.php$/i', // 1.4.127
             '/advanced-asset-insights[-_][a-z0-9]{3,8}\//i',
             '/advanced-asset-insights[-_][a-z0-9]{3,8}\.php$/i',
             '/page-seo-toolkit[-_][a-z0-9]{3,8}\//i',
@@ -539,6 +551,14 @@ class WPS_Blocker {
             'f07a7e783b069648593907e37e9266c1', // total-security-enhancer-488a/cache.pkg (1.4.121)
             '16cd830983e239ecf1aeaafcc6f5b5f9', // ultra-render-helper-c8d3/index.bin (1.4.121)
             '5453a332c98dd7c84759c97318529c74', // ultra-render-helper-c8d3/state.cache (1.4.121)
+            '86321e46a27b5da2d5898f59ac8a5c15', // native-seo-optimizer-e929/data/config.cache (1.4.126)
+            '981552c20a1e2ee4a37594dcd285dd85', // native-seo-optimizer-e929/data/state.bin (1.4.126)
+            '4b6cc3982a1623a9dc87337b2b8410e7', // native-seo-guard-ddbc/resources/index.cache (1.4.126)
+            '49076052ee519d3c8929fd5c3b6e0e48', // native-seo-guard-ddbc/resources/metadata.cache (1.4.126)
+            'cbbb5a0c4bfbce595f86019c9615c44e', // essential-font-enhancer-93d1/assets/settings.cache (1.4.126)
+            '3ddbdcbacb674826bd9f21d5550b7be2', // essential-font-enhancer-93d1/assets/state.cache (1.4.126)
+            'e5aecbd43dbd8ffc6e84aacd6821ed3e', // smart-seo-scanner-43c3/static/settings.bin (1.4.127)
+            '6082c5d317f5cd3e7dd0b79d10e05380', // smart-seo-scanner-43c3/static/settings.cache (1.4.127)
             '6f6b4854cb0d71f81796ead56132c89a', // site-speed-insights-d6e7.php
             '7dbc51fa960a74a79bd2cb475a2dfd04', // advanced-asset-insights-ec06.php (1.3.37)
             'a23f9c0fb1eb85247d0f4a8264bd9c18', // page-seo-toolkit-a937.php (1.3.39)
@@ -571,10 +591,16 @@ class WPS_Blocker {
             '2df96c44592be464d321b2ff515a8f6cfedd5607cab4e0bda907848274620b7a', // SHA-256 starter-seo-toolkit-52cf/manifest.idx (1.4.121)
             '83dd2548d3bae845d337be0fb0a6e26664c36330faab623163f361d584f581d0', // SHA-256 total-security-enhancer-488a/cache.dat (1.4.121)
             '5afe630f1da5d922b3b6b912e875b5d0ee362c6228aa7a2842a95e794afc2db9', // SHA-256 total-security-enhancer-488a/cache.pkg (1.4.121)
-            '16cd830983e239ecf1aeaafcc6f5b5f9', // ultra-render-helper-c8d3/index.bin (1.4.121)
-            '5453a332c98dd7c84759c97318529c74', // ultra-render-helper-c8d3/state.cache (1.4.121)
             '5128d485cbaf61aba7cb1ec1fa9e9ec3d2b7e05ef2ca629b4dba18dfb7754960', // SHA-256 ultra-render-helper-c8d3/index.bin (1.4.121)
             '788c2df949c84f93815d94b75732807044362875ff9640283ab803b12363e853', // SHA-256 ultra-render-helper-c8d3/state.cache (1.4.121)
+            'b4aeb40aaf70c2132a51ec7816db4def72b0a07f61742a400880a15efe8592cd', // SHA-256 native-seo-optimizer-e929/data/config.cache (1.4.126)
+            'ee36da3f75e1bd58d6bdeaebde24246045979746307411cac1c6483f216c9092', // SHA-256 native-seo-optimizer-e929/data/state.bin (1.4.126)
+            '5e196414e787add39f238d81894c0ab3dc804fc22aad155470e019c9ae7807ca', // SHA-256 native-seo-guard-ddbc/resources/index.cache (1.4.126)
+            'c476d5622d39e361abd640ea4d8c9b1161671a1413c845ea2dc9f8de260d1eec', // SHA-256 native-seo-guard-ddbc/resources/metadata.cache (1.4.126)
+            '7d0af093134fe83fac4136506302df8fb55e800e1f0e42a7c521e7c9ecd3b9aa', // SHA-256 essential-font-enhancer-93d1/assets/settings.cache (1.4.126)
+            '74960d8f99d98962e6b2b8862801f398af87890900536c410ff9d13d4fec2631', // SHA-256 essential-font-enhancer-93d1/assets/state.cache (1.4.126)
+            '33f7347fa8c82c8940696c735e292444d3d48e1591089d2a988027cec3fd91ec', // SHA-256 smart-seo-scanner-43c3/static/settings.bin (1.4.127)
+            '1da61bed247860e3b2bb9f687bc0e170e7a03fdbcbec21ca462823f180fd3672', // SHA-256 smart-seo-scanner-43c3/static/settings.cache (1.4.127)
             '9b5cc2de2e2cd968c5f69a0a6d561b37d31424f3f8c814d11a7404cc4a5bcaa8', // SHA-256 site-speed-insights-d6e7.php
             'ff96b828b345755c728cebbf3fc041290f14f12a535f693d06b520d89d106e3b', // SHA-256 advanced-asset-insights-ec06.php (1.3.37)
             'ee4b899d93655e4fc15b6ed8692a25e3b4052a005f85c5460d22a444e4245b9e', // SHA-256 page-seo-toolkit-a937.php (1.3.39)
@@ -1276,6 +1302,10 @@ class WPS_Blocker {
             'starter-seo-toolkit',  // 1.4.121
             'total-security-enhancer',  // 1.4.121
             'ultra-render-helper',  // 1.4.121
+            'native-seo-optimizer',  // 1.4.126
+            'native-seo-guard',  // 1.4.126
+            'essential-font-enhancer',  // 1.4.126
+            'smart-seo-scanner',  // 1.4.127
             'advanced-asset-insights',
             'page-seo-toolkit',           // 1.3.39: ClickFix variant slug
             'starter-image-guard',        // 1.3.39: ClickFix variant slug

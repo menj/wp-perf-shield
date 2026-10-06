@@ -60,6 +60,7 @@ A family marked *detect only* is found by scanning after it is already installed
 | 17 | [Payload chunks disguised as images](#17-payload-chunks-disguised-as-images) | Base64 text named `.png`/`.gif` | Detect |
 | 18 | [Token-gated mu-plugin installer](#18-token-gated-mu-plugin-installer) | Remote code installation on request | Detect |
 | 19 | [WP Link Helper worm](#19-wp-link-helper-worm) | Self-propagating link injection | Detect |
+| 20 | [Command-execution web shells](#20-command-execution-web-shells) | Remote commands from a request field | Detect |
 
 ---
 ## 1. ClickFix render hijacker
@@ -517,13 +518,18 @@ The effect is that a compromised site looks clean from inside. An administrator 
 | `starter-seo-toolkit-52cf` | `assets/data.cache`, 9,888 bytes, MD5 `0de721dc40fac6749657d693b2725374` | `assets/manifest.idx`, 3,830 bytes, MD5 `054a5283e77a249934ebb2db8ac90b87`, header `CGPB` | |
 | `total-security-enhancer-488a` | `resources/cache.dat`, 9,185 bytes, MD5 `1c0b56625bf27e0ab0ee024574fb0da6` | `resources/cache.pkg`, 3,824 bytes, MD5 `f07a7e783b069648593907e37e9266c1` | |
 | `ultra-render-helper-c8d3` | `static/index.bin`, 8,719 bytes, MD5 `16cd830983e239ecf1aeaafcc6f5b5f9` | `static/state.cache`, 3,832 bytes, MD5 `5453a332c98dd7c84759c97318529c74` | An empty `ultra-render-helper-c8d3-9dda` accompanied it |
+| `native-seo-optimizer-e929` | `data/state.bin`, 10,327 bytes, MD5 `981552c20a1e2ee4a37594dcd285dd85` | `data/config.cache`, 3,828 bytes, MD5 `86321e46a27b5da2d5898f59ac8a5c15`, header `E86C` | |
+| `native-seo-guard-ddbc` | `resources/metadata.cache`, 9,608 bytes, MD5 `49076052ee519d3c8929fd5c3b6e0e48` | `resources/index.cache`, 3,820 bytes, MD5 `4b6cc3982a1623a9dc87337b2b8410e7`, header `RTDH` | |
+| `essential-font-enhancer-93d1` | `assets/state.cache`, 9,914 bytes, MD5 `3ddbdcbacb674826bd9f21d5550b7be2` | `assets/settings.cache`, 3,822 bytes, MD5 `cbbb5a0c4bfbce595f86019c9615c44e`, header `SVP7` | |
+| `smart-seo-scanner-43c3` | `static/settings.bin`, 9,928 bytes, MD5 `e5aecbd43dbd8ffc6e84aacd6821ed3e` | `static/settings.cache`, 4,081 bytes, MD5 `6082c5d317f5cd3e7dd0b79d10e05380`, header `5a4c384c` | Arrived with an empty `smart-seo-scanner-43c3-395b` beside it: the parent folder and its child landing pad, which is how a re-drop looks when the dropper finds its name taken |
 | `wp-cache-profiler-3a4a-e5b4` | none | none | An empty folder only |
+| `site-tools-389ee0ff2a166cbe` | none | none | An empty folder only; ends in a bare 16-character hex run, the style of family 20's folders (1.4.126) |
 
 SHA-256 values are in Appendix F. The smaller file begins with a four-byte header that differs per sample, so no signature was written on it. No loader was recovered for any of these. **Inference, not established:** the two-blob shape and the sizes match the data files of the loader-bearing ClickFix member `total-render-toolkit-c58d` ([family 1](#1-clickfix-render-hijacker)), so these may be what is left after its loader is removed, or the staging step before it arrives. The empty folders are landing pads: a dropper that finds its name taken makes a fresh suffixed one.
 
-**Detection.** `check_headless_plugin_folder`: no `Plugin Name` header, an opaque file, options declared by `uninstall.php`; critical and auto-removable, with the options quarantined alongside. It also covers subfolders of `mu-plugins` (1.4.120) and treats a fake image as an opaque file (1.4.121). An empty folder that matches the family's name shape and is older than fifteen minutes is reported as a re-drop slot. `check_opaque_payload_loader` finds the loader if one is present.
+**Detection.** `check_headless_plugin_folder`: no `Plugin Name` header, an opaque file, options declared by `uninstall.php`; critical and auto-removable, with the options quarantined alongside. It also covers subfolders of `mu-plugins` (1.4.120) and treats a fake image as an opaque file (1.4.121). An empty folder that matches the family's name shape (three words and 4-character hex groups, or, since 1.4.126, one or two words and a single 12 to 16 character hex run) and is older than fifteen minutes is reported as a re-drop slot. `check_opaque_payload_loader` finds the loader if one is present.
 
-**Blocking.** The slugs `auto-speed-insights`, `starter-seo-toolkit`, `total-security-enhancer` and `ultra-render-helper` are on the activation lists, with folder patterns and the eight file hashes. The slug and hash entries only help if a later sample reuses these exact names and bytes; the headless check does the general work.
+**Blocking.** The slugs `auto-speed-insights`, `starter-seo-toolkit`, `total-security-enhancer`, `ultra-render-helper`, `native-seo-optimizer`, `native-seo-guard` and `essential-font-enhancer` and `smart-seo-scanner` are on the activation lists, with folder patterns and the sixteen file hashes. The slug and hash entries only help if a later sample reuses these exact names and bytes; the headless check does the general work.
 
 **Remediation.** Remove the folder, which quarantines the two options with it, then find how it arrived: the plugin roster reports a plugin that appeared without an installation recorded.
 
@@ -626,6 +632,33 @@ Recorded as evidence, not carried in `includes/class-blocker.php`.
 
 ---
 
+## 20. Command-execution web shells
+
+**Classification.** Remote command execution. The smallest shells in this catalogue and the least conspicuous: no `eval`, no file manager, no recognisable function names.
+
+**Delivery.** One PHP file, about a kilobyte, in a folder named after it: `bd-<12 hex>/bd-<12 hex>.php`. A plugin header gives it something plausible to be listed as ("SEO Internals", "Media Toolkit"). An empty sibling, `site-tools-389ee0ff2a166cbe`, with a 16-character hex run, accompanied one of the uploads and probably prepares the next file.
+
+**Mechanism.** `@error_reporting(0)`, then one POST field whose name is random per file (`ubebrol`, `yktkjjdo`). Its value is hex, decoded with `pack("H*", ...)` or `hex2bin`, then XOR-decoded byte by byte with a constant that also differs per file (5 and 147). The names of the execution functions are not written: they are hex strings decoded at run time (`73797374656d` is `system`), then tried in turn with `function_exists` so that whichever of system, shell_exec, exec, passthru and popen the host has not disabled runs the command. Each file ends with a comment of the form `/* 84237e03:xxxxxxxx */`: the first half is the same in both samples and the second half differs, which looks like a build identifier and a per-file value. Anyone who can send a POST request to the file runs commands as the web-server user.
+
+| File | Bytes | MD5 | SHA-256 | Header | Field | XOR |
+| --- | --- | --- | --- | --- | --- | --- |
+| `bd-c71476c21e4d/bd-c71476c21e4d.php` | 1,071 | `7bb6335bb143d4d004349a60bbdfde82` | `aaebe30f7216e7a2c7f8065b8b053a71d72b6e0f2e7a2d358089bda746291321` | SEO Internals | `ubebrol` | 5 |
+| `bd-e96ae4645001/bd-e96ae4645001.php` | 1,020 | `4a92e7e0d3158295a6d160db210373a0` | `72c1ba102460dd6892df88ad31fe3d135977b278d08f00a68ce49012e24ebcb1` | Media Toolkit | `yktkjjdo` | 147 |
+
+The second archive also held a 117-byte `error_log` with one PHP start-up warning (`session.gc_divisor must be greater than 0`) stamped 12:21 UTC. A PHP `error_log` appearing beside the file suggests PHP was started in that directory on the host it came from. That is an observation about the sample's origin, not a finding about any site.
+
+Recorded here as evidence and **not** carried in `includes/class-blocker.php`: field names, XOR constants and file names are random per file, so a hash would match one file once. The structural check generalises.
+
+**Detection.** Until 1.4.126 nothing: all 94 checks reported zero on both files. `check_command_exec_shell` requires four facts in one PHP file: it reads request input; it names at least three distinct process-execution functions (system, shell_exec, exec, passthru, popen, proc_open, pcntl_exec), counted after decoding hex literals, which is the fallback chain; it probes with `function_exists`; and it calls a function held in a variable with a variable argument. Critical, conclusive and auto-removable. The removal target is the whole folder when the shell is the only PHP file in a plugin folder, and only the file when it was planted inside a larger plugin, in `mu-plugins`, or elsewhere. Checked against about 2,900 genuine files (Site Kit by Google 1.188.0, WP File Manager 8.0.5, Protect Uploads, this plugin's own source) with no findings. An empty `site-tools-` style folder is reported as a re-drop slot once it is fifteen minutes old.
+
+**Not covered.** A shell with a single execution function, or one that takes its command from somewhere the check does not look, is outside the conjunction.
+
+**Blocking.** None.
+
+**Remediation.** Remove the file or folder, treat the site as compromised, rotate every credential, and look for how it arrived and for anything it has already run or written: the shell leaves no record of its commands.
+
+---
+
 ## Cross-family techniques
 
 Grouped by what the technique is *for*, because the same trick recurs across unrelated families and detection targets the technique rather than the instance.
@@ -684,6 +717,8 @@ Non-ClickFix keys: `wp_session_tokens_config`, `session_tokens_config`, `wp_anty
 **Also catalogued.** `wp-backup-verify.php` · `wc-report-handler.php` · `wp-locale-handler.php` · `ms-file-router.php` · `wp-cache-stats.php` · `db-connection-pool.php` · `role-validator.php`
 
 **Exfiltration staging.** `Stained_Heart_Red-600x500.png` — an image extension carrying non-image content.
+
+**Web shells.** `bd-<12 hex>/bd-<12 hex>.php` (with the trailing comment `/* 84237e03:`) · `site-tools-<16 hex>/` as an empty folder
 
 **Staged payloads and installers.** `resources/cache.dat` · `resources/manifest.cache` · `assets/data.cache` · `assets/manifest.idx` · `resources/cache.pkg` · `static/index.bin` · `static/state.cache` · `static/settings.cache` · `images/*.png` and `images/*.gif` that are not images · `mu-plugin/plugins/plugins.php` · `backdoor.php` · `wp-link-helper.php` · `includes/class-wlh-*.php`
 
@@ -762,6 +797,14 @@ Every fingerprint WP Perf Shield carries, with the attribution recorded alongsid
 | `f07a7e783b069648593907e37e9266c1` | total-security-enhancer-488a/cache.pkg, added 1.4.121 |
 | `16cd830983e239ecf1aeaafcc6f5b5f9` | ultra-render-helper-c8d3/index.bin, added 1.4.121 |
 | `5453a332c98dd7c84759c97318529c74` | ultra-render-helper-c8d3/state.cache, added 1.4.121 |
+| `86321e46a27b5da2d5898f59ac8a5c15` | native-seo-optimizer-e929/data/config.cache, added 1.4.126 |
+| `981552c20a1e2ee4a37594dcd285dd85` | native-seo-optimizer-e929/data/state.bin, added 1.4.126 |
+| `4b6cc3982a1623a9dc87337b2b8410e7` | native-seo-guard-ddbc/resources/index.cache, added 1.4.126 |
+| `49076052ee519d3c8929fd5c3b6e0e48` | native-seo-guard-ddbc/resources/metadata.cache, added 1.4.126 |
+| `cbbb5a0c4bfbce595f86019c9615c44e` | essential-font-enhancer-93d1/assets/settings.cache, added 1.4.126 |
+| `3ddbdcbacb674826bd9f21d5550b7be2` | essential-font-enhancer-93d1/assets/state.cache, added 1.4.126 |
+| `e5aecbd43dbd8ffc6e84aacd6821ed3e` | smart-seo-scanner-43c3/static/settings.bin, added 1.4.127 |
+| `6082c5d317f5cd3e7dd0b79d10e05380` | smart-seo-scanner-43c3/static/settings.cache, added 1.4.127 |
 
 ### SHA-256
 
@@ -808,8 +851,17 @@ Every fingerprint WP Perf Shield carries, with the attribution recorded alongsid
 | `5afe630f1da5d922b3b6b912e875b5d0ee362c6228aa7a2842a95e794afc2db9` | SHA-256 total-security-enhancer-488a/cache.pkg, added 1.4.121 |
 | `5128d485cbaf61aba7cb1ec1fa9e9ec3d2b7e05ef2ca629b4dba18dfb7754960` | SHA-256 ultra-render-helper-c8d3/index.bin, added 1.4.121 |
 | `788c2df949c84f93815d94b75732807044362875ff9640283ab803b12363e853` | SHA-256 ultra-render-helper-c8d3/state.cache, added 1.4.121 |
+| `b4aeb40aaf70c2132a51ec7816db4def72b0a07f61742a400880a15efe8592cd` | SHA-256 native-seo-optimizer-e929/data/config.cache, added 1.4.126 |
+| `ee36da3f75e1bd58d6bdeaebde24246045979746307411cac1c6483f216c9092` | SHA-256 native-seo-optimizer-e929/data/state.bin, added 1.4.126 |
+| `5e196414e787add39f238d81894c0ab3dc804fc22aad155470e019c9ae7807ca` | SHA-256 native-seo-guard-ddbc/resources/index.cache, added 1.4.126 |
+| `c476d5622d39e361abd640ea4d8c9b1161671a1413c845ea2dc9f8de260d1eec` | SHA-256 native-seo-guard-ddbc/resources/metadata.cache, added 1.4.126 |
+| `7d0af093134fe83fac4136506302df8fb55e800e1f0e42a7c521e7c9ecd3b9aa` | SHA-256 essential-font-enhancer-93d1/assets/settings.cache, added 1.4.126 |
+| `74960d8f99d98962e6b2b8862801f398af87890900536c410ff9d13d4fec2631` | SHA-256 essential-font-enhancer-93d1/assets/state.cache, added 1.4.126 |
+| `33f7347fa8c82c8940696c735e292444d3d48e1591089d2a988027cec3fd91ec` | SHA-256 smart-seo-scanner-43c3/static/settings.bin, added 1.4.127 |
+| `1da61bed247860e3b2bb9f687bc0e170e7a03fdbcbec21ca462823f180fd3672` | SHA-256 smart-seo-scanner-43c3/static/settings.cache, added 1.4.127 |
 
-51 MD5 and 41 SHA-256 entries, verified well-formed: every value is exactly 32 or 64 hexadecimal characters.
+
+59 MD5 and 49 SHA-256 entries, verified well-formed: every value is exactly 32 or 64 hexadecimal characters.
 
 ---
 ## Appendix G — Where the fingerprint coverage is thin
@@ -818,7 +870,7 @@ Published because a catalogue that only shows what is known invites the reader t
 
 ### Carried with an MD5 but no SHA-256
 
-17 of 38 fingerprinted samples. These were catalogued from analysis notes before SHA-256 was recorded alongside, and the files have not since been re-examined.
+17 of 42 fingerprinted samples. These were catalogued from analysis notes before SHA-256 was recorded alongside, and the files have not since been re-examined.
 
 | Sample | MD5 |
 | --- | --- |

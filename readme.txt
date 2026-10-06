@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.125
+Stable tag: 1.4.127
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,7 @@ It combines real-time plugin activation blocking, hourly malware scanning, behav
 * Detects a compressed script printed as inline JavaScript only to visitors who are neither logged-in editors nor known crawlers.
 * Detects and removes payloads packaged to survive removal: a plugin-shaped folder with no plugin header carrying an encrypted payload, and the empty suffixed folders left as landing pads for the next drop - each removed together with the wp_options entries it declares.
 * Detects and removes the self-propagating worm behind the campaign (WP Link Helper): it re-drops payload folders, reinstalls itself from mu-plugins copies, and spreads to other sites on the same hosting account by creating temporary admins in their databases. Removed together with the wp_options state it uses to re-claim.
+* Detects and removes command-execution web shells: a file that takes a command from the request and runs it through a chain of process-execution functions, even when the function names are hex-encoded, removing the whole folder when the shell is its only PHP file and only the file when it was planted inside a real plugin.
 * Detects payload split into chunks and disguised as image files (a .png that is really base64 text), staged payload folders with opaque data files under changing names, an installer endpoint guarded only by a hard-coded token, and plugins that plant bundled folders into mu-plugins.
 * The Delete this path button quarantines instead of deleting permanently, clears the stored options of the worm or payload folder it removes and deactivates a removed plugin, so one click does what automatic remediation does.
 * Normalises split-literal obfuscation before matching, so identifiers written as glued fragments are found and every existing indicator keeps working.
@@ -122,6 +123,12 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.127 =
+Adds one more staged payload folder name and its file hashes to the lists. The folder and its empty companion were already detected and removed.
+
+= 1.4.126 =
+Detects and removes small command-execution web shells (a hex-encoded command taken from a POST field and run through whichever of system, shell_exec, exec, passthru or popen is enabled) that no earlier check reported; reports empty folders ending in a long hex run as re-drop slots; recognises three more staged payload folder names; and fixes a stray pair of hash values in the blocker's SHA-256 list.
 
 = 1.4.125 =
 A banned plugin (WP File Manager, FileOrganizer, FileBird or anything you add) is now removed from the plugins folder on the next request, not only at scan time, and a placeholder file is left in its place so it cannot simply be extracted again. Each return is counted and logged with who owns the files, and you are emailed from the second return, so you can find what is writing it. Lifting the ban cleans the placeholder up. Documentation brought up to date.
@@ -609,6 +616,12 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.127 =
+Adds one more payload folder name to the recognised lists; no behaviour change.
+
+= 1.4.126 =
+Detects and removes small command-execution web shells that earlier versions did not report. Recommended.
 
 = 1.4.125 =
 A banned plugin is removed from disk on the next request and a placeholder stops it being re-extracted; returns are counted and emailed. Recommended if a banned plugin keeps reappearing.

@@ -1,5 +1,41 @@
 # WP Perf Shield changelog
 
+## 1.4.127
+
+One more member of the staged-payload-folder family, and a parent-and-child pair.
+
+`smart-seo-scanner-43c3` is a header-less folder holding `static/settings.bin` (9,928 bytes) and `static/settings.cache` (4,081 bytes) and an `uninstall.php` of 155 bytes, the same shape as the family in `doc/variants.md` family 16. It arrived with an empty `smart-seo-scanner-43c3-395b`, a landing pad that extends its name. Already reported, with no code change: the blob folder as critical and auto-removable by `check_headless_plugin_folder`, and the empty child as a re-drop slot once older than fifteen minutes (verified on both).
+
+Changed: `smart-seo-scanner` added to the slug, folder-pattern and hash lists (4 new fingerprints: 2 MD5, 2 SHA-256, so the code now carries 59 MD5 and 49 SHA-256, listed in Appendix F), and the catalogue row. Honest note: this is the fourth release that only adds names and hashes to this family. They protect only against a later sample reusing these exact names and bytes; the headless-folder check does the general work and caught every member without them.
+
+Version markers move to 1.4.127.
+
+## 1.4.126
+
+Command-execution web shells that no check reported, three more staged payload folders, and a defect in the blocker's hash lists.
+
+### The samples
+- **`bd-c71476c21e4d` and `bd-e96ae4645001`:** one PHP file each, about a kilobyte (1,071 and 1,020 bytes), in a folder named after the file, with a plugin header naming something plausible ("SEO Internals", "Media Toolkit"). Each switches error reporting off and takes one POST field (`ubebrol`, `yktkjjdo`) holding a hex-encoded, XOR-encoded command (keys 5 and 147). The function names are built at run time (`pack("H*", "73797374656d")` is `system`) and tried in turn with `function_exists`: system, shell_exec, exec, passthru, popen. Each ends with a comment `/* 84237e03:xxxxxxxx */`: the first half is identical in both, the second differs. The second archive also held a 117-byte `error_log` with a single PHP start-up warning at 12:21 UTC, which suggests the file's directory was served by PHP on the host it came from; that is an observation, not a conclusion.
+- **`site-tools-389ee0ff2a166cbe`:** an empty folder, the same naming style (a bare 16-character hex run).
+- **`native-seo-optimizer-e929`, `native-seo-guard-ddbc`, `essential-font-enhancer-93d1`:** the staged-payload-folder family from 1.4.120/1.4.121 (header-less, two opaque files, a 153 to 167 byte `uninstall.php` identical modulo the slug), under new names and with `.cache`, `.bin` and `state.cache` file names.
+
+### What was missed, and why
+The two `bd-` shells produced **zero findings from all 94 checks**. Nothing in them is `eval`, so execution-focused signatures pass them; they are not file managers, so the file-manager and file-operation checks pass them; and their function names are hex-encoded, so a name search finds nothing. The three blob folders and their existing detection were fine. The empty folder was quiet because the empty re-drop slot rule only knew three words plus 4-character hex groups.
+
+### What changed
+- **New `check_command_exec_shell`.** Four facts in one PHP file: it reads request input; it names at least three distinct process-execution functions (system, shell_exec, exec, passthru, popen, proc_open, pcntl_exec), counted after decoding `pack("H*", ...)` and `hex2bin(...)` literals, which is the fallback chain; it probes with `function_exists`; and it calls a function held in a variable with a variable argument. Critical, conclusive, auto-removable, and added to the remediation policy's conclusive types. If the shell is the only PHP file in its plugin folder the whole folder is the removal target; planted inside a larger plugin, only the file; loose in `mu-plugins` or elsewhere, the file. Both samples are now reported.
+- **No false positives across about 2,900 genuine files:** Site Kit by Google 1.188.0 (1,972 files, matching wordpress.org's checksums), WP File Manager 8.0.5 (916), Protect Uploads, and a copy of this plugin's own source all produce nothing from the new check. Three near-misses are in the tests and stay quiet: a wrapper that probes three functions but takes no command from the request, request input with one fixed command, and a request-driven runner with only two execution functions.
+- **Empty re-drop slots:** the shape now also matches one or two words followed by a single 12 to 16 character hex run. The folder must still be empty and older than fifteen minutes; `media-library-assistant-6` (a real plugin's name with a short number) stays quiet.
+- **Blob family:** `native-seo-optimizer`, `native-seo-guard` and `essential-font-enhancer` added to the slug, folder-pattern and hash lists (12 new fingerprints: 6 MD5, 6 SHA-256).
+- **Defect fixed in `includes/class-blocker.php`:** a scripted edit in 1.4.121 had also written the two `ultra-render-helper` MD5 values into the SHA-256 list. They were harmless in effect, since the lists are merged, but wrong. Removed; the code now carries 55 MD5 and 45 SHA-256 fingerprints with no duplicates.
+- **Documentation:** `doc/variants.md` gains family 20 (command-execution web shells), the three blob folders in family 16 and the new hashes in Appendix F (counts 55 and 45, now 41 fingerprinted samples); `doc/ssot.md` test counts and digest; `readme.txt`, `doc/readme.md` and `doc/upgrading.md`. `tests/test-docs-sync.php` failed on the 8 then-unlisted hashes before the catalogue was updated, as it is meant to.
+- **Tests:** `tests/test-plugin-malware-detection.php` is now 36 cases (shell detection and removal scoping, three near-misses, the hex-run slot shape). Registered checks: 95 (was 94).
+
+### What this does not do
+The shell check needs the request-input, execution-chain, `function_exists` and variable-call facts together. A shell that uses a single execution function, or keeps its command in an unusual place, is outside it. The loader that would reassemble the staged payload folders was not in any archive.
+
+Version markers move to 1.4.126.
+
 ## 1.4.125
 
 A banned plugin that kept coming back (operator: "i want a permaban on the plugin wp-file-manager but why does it still keep reappearing in the plugins folder"), and a documentation sync.
