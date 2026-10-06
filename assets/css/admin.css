@@ -1940,3 +1940,18 @@ th.wps-ev-ip { text-align: right; }
 .wps-notice-tight { margin: 8px 0; }
 .wps-notice-p { margin: .5em 0; }
 .wps-blocked-label { color: #a00; font-weight: 500; }
+
+/* --- XML-RPC method checkbox grid (1.4.131) --- */
+.wps-checkgrid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+	gap: 8px 16px;
+	margin: 0 0 8px;
+}
+.wps-checkgrid .wps-toggle-row {
+	margin: 0;
+	padding: 8px 10px;
+	border: 1px solid var(--wps-line-soft, #eee);
+	border-radius: 6px;
+	background: var(--wps-bg-soft, #f9f9f9);
+}

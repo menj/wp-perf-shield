@@ -143,6 +143,22 @@ class WPS_Admin {
 			'policy_banned_slugs' => self::sanitize_slug_list( (string) wp_unslash( $_POST['policy_banned_slugs'] ?? '' ) ),
 			// 1.4.52: public identification marker. Off unless ticked.
 			'public_marker' => isset( $_POST['public_marker'] ) ? '1' : '0',
+			// 1.4.131: XML-RPC and site-exposure controls (class-exposure-guard.php).
+			'xr_no_pingback'            => isset( $_POST['xr_no_pingback'] ) ? '1' : '0',
+			'xr_disabled_methods'       => WPS_Exposure_Guard::sanitize_methods(
+				implode( "\n", array_map( 'sanitize_text_field', (array) wp_unslash( $_POST['xr_methods'] ?? [] ) ) ) . "\n" . (string) wp_unslash( $_POST['xr_methods_extra'] ?? '' )
+			),
+			'xr_slug'                   => WPS_Exposure_Guard::sanitize_slug( (string) wp_unslash( $_POST['xr_slug'] ?? '' ) ),
+			'xr_allow_ips'              => WPS_Exposure_Guard::sanitize_rules( (string) wp_unslash( $_POST['xr_allow_ips'] ?? '' ) ),
+			'xr_deny_ips'               => WPS_Exposure_Guard::sanitize_rules( (string) wp_unslash( $_POST['xr_deny_ips'] ?? '' ) ),
+			'xr_hide_version'           => isset( $_POST['xr_hide_version'] ) ? '1' : '0',
+			'xr_remove_discovery_links' => isset( $_POST['xr_remove_discovery_links'] ) ? '1' : '0',
+			'xr_disable_feeds'          => isset( $_POST['xr_disable_feeds'] ) ? '1' : '0',
+			'xr_rest_logged_in_only'    => isset( $_POST['xr_rest_logged_in_only'] ) ? '1' : '0',
+			'xr_rest_exempt_namespaces' => WPS_Exposure_Guard::sanitize_namespaces( (string) wp_unslash( $_POST['xr_rest_exempt_namespaces'] ?? '' ) ),
+			'xr_slow_heartbeat'         => isset( $_POST['xr_slow_heartbeat'] ) ? '1' : '0',
+			'xr_remove_emoji'           => isset( $_POST['xr_remove_emoji'] ) ? '1' : '0',
+			'xr_disable_oembed'         => isset( $_POST['xr_disable_oembed'] ) ? '1' : '0',
 		] ) );
 		wp_safe_redirect( admin_url( 'tools.php?page=wp-perf-shield&saved=1&tab=settings' ) );
 		exit;
@@ -767,6 +783,7 @@ class WPS_Admin {
 			'policy_banned_plugin_found'  => 'Banned plugin found installed (site policy)',
 			'policy_ban_enforced'          => 'Banned plugin removed from disk (site policy)',
 			'policy_download_blocked'      => 'Banned plugin download refused (site policy)',
+			'xmlrpc_ip_refused'           => 'XML-RPC request refused by the address rules',
 			'policy_ban_redrop'           => 'Banned plugin keeps coming back (site policy)',
 			'policy_ban_enforce_failed'   => 'Banned plugin could not be removed (site policy)',
 			'htaccess_php_allowlist_found' => 'PHP allowlist in .htaccess (shell persistence)',

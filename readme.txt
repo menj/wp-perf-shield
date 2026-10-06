@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.130
+Stable tag: 1.4.131
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.131 =
+New optional XML-RPC and exposure controls in a new Settings tab (pingback removal, per-method disabling, secret endpoint slug, IP allow/deny, hide version, remove discovery links, disable feeds, signed-in-only REST, slower Heartbeat, no emoji scripts, no oEmbed discovery). All off by default. Inspired by Neatma's Disable XML-RPC-API (GPLv2); original code.
 
 = 1.4.130 =
 Fixes from a code review. Removal of the WP Link Helper worm, staged payload folders and encoded injectors now really deletes the options it stored (before, it only copied them into quarantine and left them live; check wp_options for leftover wlh_ keys if you removed one under 1.4.114 to 1.4.129). A folder named like this plugin's own folder is no longer skipped by the scanner. The Forensics media-upload trace is restored, the hard ban no longer deletes a plugin whose header merely starts with WP File Manager, and ban tombstones, padded folders and renamed zips are handled correctly. Documentation corrected.
@@ -626,6 +629,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.131 =
+Adds optional XML-RPC and site-exposure controls, all off by default. Nothing changes until you enable them.
 
 = 1.4.130 =
 Important: removal now actually deletes the options a removed worm or payload stored, and a folder named like this plugin is no longer exempt from scanning. Recommended for everyone.
