@@ -521,6 +521,7 @@ The effect is that a compromised site looks clean from inside. An administrator 
 | `native-seo-optimizer-e929` | `data/state.bin`, 10,327 bytes, MD5 `981552c20a1e2ee4a37594dcd285dd85` | `data/config.cache`, 3,828 bytes, MD5 `86321e46a27b5da2d5898f59ac8a5c15`, header `E86C` | |
 | `native-seo-guard-ddbc` | `resources/metadata.cache`, 9,608 bytes, MD5 `49076052ee519d3c8929fd5c3b6e0e48` | `resources/index.cache`, 3,820 bytes, MD5 `4b6cc3982a1623a9dc87337b2b8410e7`, header `RTDH` | |
 | `essential-font-enhancer-93d1` | `assets/state.cache`, 9,914 bytes, MD5 `3ddbdcbacb674826bd9f21d5550b7be2` | `assets/settings.cache`, 3,822 bytes, MD5 `cbbb5a0c4bfbce595f86019c9615c44e`, header `SVP7` | |
+| `smart-seo-scanner-43c3` | `static/settings.bin`, 9,928 bytes, MD5 `e5aecbd43dbd8ffc6e84aacd6821ed3e` | `static/settings.cache`, 4,081 bytes, MD5 `6082c5d317f5cd3e7dd0b79d10e05380`, header `5a4c384c` | Arrived with an empty `smart-seo-scanner-43c3-395b` beside it: the parent folder and its child landing pad, which is how a re-drop looks when the dropper finds its name taken |
 | `wp-cache-profiler-3a4a-e5b4` | none | none | An empty folder only |
 | `site-tools-389ee0ff2a166cbe` | none | none | An empty folder only; ends in a bare 16-character hex run, the style of family 20's folders (1.4.126) |
 
@@ -528,7 +529,7 @@ SHA-256 values are in Appendix F. The smaller file begins with a four-byte heade
 
 **Detection.** `check_headless_plugin_folder`: no `Plugin Name` header, an opaque file, options declared by `uninstall.php`; critical and auto-removable, with the options quarantined alongside. It also covers subfolders of `mu-plugins` (1.4.120) and treats a fake image as an opaque file (1.4.121). An empty folder that matches the family's name shape (three words and 4-character hex groups, or, since 1.4.126, one or two words and a single 12 to 16 character hex run) and is older than fifteen minutes is reported as a re-drop slot. `check_opaque_payload_loader` finds the loader if one is present.
 
-**Blocking.** The slugs `auto-speed-insights`, `starter-seo-toolkit`, `total-security-enhancer`, `ultra-render-helper`, `native-seo-optimizer`, `native-seo-guard` and `essential-font-enhancer` are on the activation lists, with folder patterns and the fourteen file hashes. The slug and hash entries only help if a later sample reuses these exact names and bytes; the headless check does the general work.
+**Blocking.** The slugs `auto-speed-insights`, `starter-seo-toolkit`, `total-security-enhancer`, `ultra-render-helper`, `native-seo-optimizer`, `native-seo-guard` and `essential-font-enhancer` and `smart-seo-scanner` are on the activation lists, with folder patterns and the sixteen file hashes. The slug and hash entries only help if a later sample reuses these exact names and bytes; the headless check does the general work.
 
 **Remediation.** Remove the folder, which quarantines the two options with it, then find how it arrived: the plugin roster reports a plugin that appeared without an installation recorded.
 
@@ -802,6 +803,8 @@ Every fingerprint WP Perf Shield carries, with the attribution recorded alongsid
 | `49076052ee519d3c8929fd5c3b6e0e48` | native-seo-guard-ddbc/resources/metadata.cache, added 1.4.126 |
 | `cbbb5a0c4bfbce595f86019c9615c44e` | essential-font-enhancer-93d1/assets/settings.cache, added 1.4.126 |
 | `3ddbdcbacb674826bd9f21d5550b7be2` | essential-font-enhancer-93d1/assets/state.cache, added 1.4.126 |
+| `e5aecbd43dbd8ffc6e84aacd6821ed3e` | smart-seo-scanner-43c3/static/settings.bin, added 1.4.127 |
+| `6082c5d317f5cd3e7dd0b79d10e05380` | smart-seo-scanner-43c3/static/settings.cache, added 1.4.127 |
 
 ### SHA-256
 
@@ -854,9 +857,11 @@ Every fingerprint WP Perf Shield carries, with the attribution recorded alongsid
 | `c476d5622d39e361abd640ea4d8c9b1161671a1413c845ea2dc9f8de260d1eec` | SHA-256 native-seo-guard-ddbc/resources/metadata.cache, added 1.4.126 |
 | `7d0af093134fe83fac4136506302df8fb55e800e1f0e42a7c521e7c9ecd3b9aa` | SHA-256 essential-font-enhancer-93d1/assets/settings.cache, added 1.4.126 |
 | `74960d8f99d98962e6b2b8862801f398af87890900536c410ff9d13d4fec2631` | SHA-256 essential-font-enhancer-93d1/assets/state.cache, added 1.4.126 |
+| `33f7347fa8c82c8940696c735e292444d3d48e1591089d2a988027cec3fd91ec` | SHA-256 smart-seo-scanner-43c3/static/settings.bin, added 1.4.127 |
+| `1da61bed247860e3b2bb9f687bc0e170e7a03fdbcbec21ca462823f180fd3672` | SHA-256 smart-seo-scanner-43c3/static/settings.cache, added 1.4.127 |
 
 
-57 MD5 and 47 SHA-256 entries, verified well-formed: every value is exactly 32 or 64 hexadecimal characters.
+59 MD5 and 49 SHA-256 entries, verified well-formed: every value is exactly 32 or 64 hexadecimal characters.
 
 ---
 ## Appendix G — Where the fingerprint coverage is thin
@@ -865,7 +870,7 @@ Published because a catalogue that only shows what is known invites the reader t
 
 ### Carried with an MD5 but no SHA-256
 
-17 of 41 fingerprinted samples. These were catalogued from analysis notes before SHA-256 was recorded alongside, and the files have not since been re-examined.
+17 of 42 fingerprinted samples. These were catalogued from analysis notes before SHA-256 was recorded alongside, and the files have not since been re-examined.
 
 | Sample | MD5 |
 | --- | --- |

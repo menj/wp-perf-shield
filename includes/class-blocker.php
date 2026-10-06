@@ -36,6 +36,7 @@ class WPS_Blocker {
             'native-seo-optimizer',  // 1.4.126
             'native-seo-guard',  // 1.4.126
             'essential-font-enhancer',  // 1.4.126
+            'smart-seo-scanner',  // 1.4.127
             'advanced-asset-insights', // 1.3.37: Advanced Asset Insights / Cache Team disguise
             'page-seo-toolkit',        // 1.3.39: Page SEO Toolkit / Page Software disguise
             'starter-image-guard',     // 1.3.39: Starter Image Guard / Dev Group disguise
@@ -489,6 +490,8 @@ class WPS_Blocker {
             '/native-seo-guard[-_][a-z0-9]{3,8}\.php$/i', // 1.4.126
             '/essential-font-enhancer[-_][a-z0-9]{3,8}\//i',     // 1.4.126
             '/essential-font-enhancer[-_][a-z0-9]{3,8}\.php$/i', // 1.4.126
+            '/smart-seo-scanner[-_][a-z0-9]{3,8}\//i',     // 1.4.127
+            '/smart-seo-scanner[-_][a-z0-9]{3,8}\.php$/i', // 1.4.127
             '/advanced-asset-insights[-_][a-z0-9]{3,8}\//i',
             '/advanced-asset-insights[-_][a-z0-9]{3,8}\.php$/i',
             '/page-seo-toolkit[-_][a-z0-9]{3,8}\//i',
@@ -554,6 +557,8 @@ class WPS_Blocker {
             '49076052ee519d3c8929fd5c3b6e0e48', // native-seo-guard-ddbc/resources/metadata.cache (1.4.126)
             'cbbb5a0c4bfbce595f86019c9615c44e', // essential-font-enhancer-93d1/assets/settings.cache (1.4.126)
             '3ddbdcbacb674826bd9f21d5550b7be2', // essential-font-enhancer-93d1/assets/state.cache (1.4.126)
+            'e5aecbd43dbd8ffc6e84aacd6821ed3e', // smart-seo-scanner-43c3/static/settings.bin (1.4.127)
+            '6082c5d317f5cd3e7dd0b79d10e05380', // smart-seo-scanner-43c3/static/settings.cache (1.4.127)
             '6f6b4854cb0d71f81796ead56132c89a', // site-speed-insights-d6e7.php
             '7dbc51fa960a74a79bd2cb475a2dfd04', // advanced-asset-insights-ec06.php (1.3.37)
             'a23f9c0fb1eb85247d0f4a8264bd9c18', // page-seo-toolkit-a937.php (1.3.39)
@@ -594,6 +599,8 @@ class WPS_Blocker {
             'c476d5622d39e361abd640ea4d8c9b1161671a1413c845ea2dc9f8de260d1eec', // SHA-256 native-seo-guard-ddbc/resources/metadata.cache (1.4.126)
             '7d0af093134fe83fac4136506302df8fb55e800e1f0e42a7c521e7c9ecd3b9aa', // SHA-256 essential-font-enhancer-93d1/assets/settings.cache (1.4.126)
             '74960d8f99d98962e6b2b8862801f398af87890900536c410ff9d13d4fec2631', // SHA-256 essential-font-enhancer-93d1/assets/state.cache (1.4.126)
+            '33f7347fa8c82c8940696c735e292444d3d48e1591089d2a988027cec3fd91ec', // SHA-256 smart-seo-scanner-43c3/static/settings.bin (1.4.127)
+            '1da61bed247860e3b2bb9f687bc0e170e7a03fdbcbec21ca462823f180fd3672', // SHA-256 smart-seo-scanner-43c3/static/settings.cache (1.4.127)
             '9b5cc2de2e2cd968c5f69a0a6d561b37d31424f3f8c814d11a7404cc4a5bcaa8', // SHA-256 site-speed-insights-d6e7.php
             'ff96b828b345755c728cebbf3fc041290f14f12a535f693d06b520d89d106e3b', // SHA-256 advanced-asset-insights-ec06.php (1.3.37)
             'ee4b899d93655e4fc15b6ed8692a25e3b4052a005f85c5460d22a444e4245b9e', // SHA-256 page-seo-toolkit-a937.php (1.3.39)
@@ -1298,6 +1305,7 @@ class WPS_Blocker {
             'native-seo-optimizer',  // 1.4.126
             'native-seo-guard',  // 1.4.126
             'essential-font-enhancer',  // 1.4.126
+            'smart-seo-scanner',  // 1.4.127
             'advanced-asset-insights',
             'page-seo-toolkit',           // 1.3.39: ClickFix variant slug
             'starter-image-guard',        // 1.3.39: ClickFix variant slug

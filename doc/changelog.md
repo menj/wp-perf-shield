@@ -1,5 +1,15 @@
 # WP Perf Shield changelog
 
+## 1.4.127
+
+One more member of the staged-payload-folder family, and a parent-and-child pair.
+
+`smart-seo-scanner-43c3` is a header-less folder holding `static/settings.bin` (9,928 bytes) and `static/settings.cache` (4,081 bytes) and an `uninstall.php` of 155 bytes, the same shape as the family in `doc/variants.md` family 16. It arrived with an empty `smart-seo-scanner-43c3-395b`, a landing pad that extends its name. Already reported, with no code change: the blob folder as critical and auto-removable by `check_headless_plugin_folder`, and the empty child as a re-drop slot once older than fifteen minutes (verified on both).
+
+Changed: `smart-seo-scanner` added to the slug, folder-pattern and hash lists (4 new fingerprints: 2 MD5, 2 SHA-256, so the code now carries 59 MD5 and 49 SHA-256, listed in Appendix F), and the catalogue row. Honest note: this is the fourth release that only adds names and hashes to this family. They protect only against a later sample reusing these exact names and bytes; the headless-folder check does the general work and caught every member without them.
+
+Version markers move to 1.4.127.
+
 ## 1.4.126
 
 Command-execution web shells that no check reported, three more staged payload folders, and a defect in the blocker's hash lists.

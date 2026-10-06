@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.126
+Stable tag: 1.4.127
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -123,6 +123,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.127 =
+Adds one more staged payload folder name and its file hashes to the lists. The folder and its empty companion were already detected and removed.
 
 = 1.4.126 =
 Detects and removes small command-execution web shells (a hex-encoded command taken from a POST field and run through whichever of system, shell_exec, exec, passthru or popen is enabled) that no earlier check reported; reports empty folders ending in a long hex run as re-drop slots; recognises three more staged payload folder names; and fixes a stray pair of hash values in the blocker's SHA-256 list.
@@ -613,6 +616,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.127 =
+Adds one more payload folder name to the recognised lists; no behaviour change.
 
 = 1.4.126 =
 Detects and removes small command-execution web shells that earlier versions did not report. Recommended.

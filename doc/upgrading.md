@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.127
+
+**One more staged payload folder name is recognised** (`smart-seo-scanner`), with its empty companion folder. Both were already being reported and removed; this only adds the name and file hashes to the lists. Nothing to configure.
+
 ## 1.4.126
 
 **Small command-execution web shells are now found.** A one-file "plugin" (often named `bd-` followed by twelve hex characters) that takes a hex-encoded command from a POST field and runs it through whichever of system, shell_exec, exec, passthru or popen your host allows was not reported by any earlier check. It is now reported as critical and removed: the whole folder if the shell is the only PHP file in it, only the file if it was planted inside a real plugin. Empty folders ending in a long hex run are now reported as re-drop slots once they are fifteen minutes old, and three more staged payload folder names are recognised. If your site had one of these shells, treat it as compromised: rotate credentials and look for how it arrived. Nothing to configure.
