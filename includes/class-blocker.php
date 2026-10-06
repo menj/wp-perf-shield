@@ -212,6 +212,172 @@ class WPS_Blocker {
         return $res;
     }
 
+    /**
+     * 1.4.125: enforce the policy ban on disk, not only at the installer.
+     *
+     * Every other guard on a banned plugin is a WordPress route: the upgrader's
+     * package options, the ZIP upload prefilter, activation, the active-plugins
+     * list. A folder written straight onto disk (FTP or SSH, a deployment or
+     * backup restore, another tool extracting a zip, a dropper) never passes
+     * any of them, and the scanner only removed it when a scan next ran, and
+     * only on an exact folder name. So the ban held against the Plugins screen
+     * and nowhere else, and the plugin kept coming back.
+     *
+     * This removes any banned folder in WP_PLUGIN_DIR on the next request
+     * (quarantine first, so it is restorable), then leaves a small tombstone
+     * FILE under the same name: a zip extraction cannot create a directory
+     * where a file already sits, so a plain re-extract fails instead of
+     * succeeding. It also records how often a folder returns and who owns the
+     * files, which is how you find what is writing it. Matching is the same
+     * substring rule the installer ban uses. With the ban switched off in
+     * Settings nothing is removed and any tombstones are cleaned up.
+     *
+     * @return string[] folder names removed
+     */
+    public static function enforce_policy_ban(): array {
+        $removed = [];
+        if ( ! defined( 'WP_PLUGIN_DIR' ) || ! is_dir( WP_PLUGIN_DIR ) ) {
+            return $removed;
+        }
+        $root    = rtrim( WP_PLUGIN_DIR, '/\\' );
+        $entries = @scandir( $root );
+        if ( ! is_array( $entries ) ) {
+            return $removed;
+        }
+        $enabled = self::policy_ban_enabled();
+        $self    = realpath( WPS_DIR ) ?: '';
+
+        foreach ( $entries as $entry ) {
+            if ( '.' === $entry || '..' === $entry ) {
+                continue;
+            }
+            $path = $root . '/' . $entry;
+
+            if ( is_file( $path ) && ! is_link( $path ) && self::is_ban_tombstone( $path ) ) {
+                if ( ! $enabled || ! self::is_policy_banned( $entry ) ) {
+                    @unlink( $path );
+                }
+                continue;
+            }
+            if ( ! $enabled || is_link( $path ) || ! is_dir( $path ) || ! self::is_policy_banned( $entry ) ) {
+                continue;
+            }
+            $real = realpath( $path ) ?: $path;
+            if ( '' !== $self && ( $real === $self || 0 === strpos( $real, $self ) ) ) {
+                continue;
+            }
+            if ( ! class_exists( 'WPS_Scanner' ) || ! method_exists( 'WPS_Scanner', 'remediate_manually' ) ) {
+                continue;
+            }
+
+            // Who and when, before the files move.
+            $newest = 0;
+            $owner  = '';
+            try {
+                $iter = new RecursiveIteratorIterator(
+                    new RecursiveDirectoryIterator( $path, FilesystemIterator::SKIP_DOTS ),
+                    RecursiveIteratorIterator::LEAVES_ONLY
+                );
+                $n = 0;
+                foreach ( $iter as $f ) {
+                    if ( ++$n > 600 ) {
+                        break;
+                    }
+                    if ( $f instanceof SplFileInfo ) {
+                        $newest = max( $newest, (int) $f->getMTime() );
+                    }
+                }
+            } catch ( \Throwable $t ) {
+                $newest = 0;
+            }
+            $uid = @fileowner( $path );
+            if ( false !== $uid && function_exists( 'posix_getpwuid' ) ) {
+                $pw    = @posix_getpwuid( (int) $uid );
+                $owner = is_array( $pw ) ? (string) $pw['name'] : (string) $uid;
+            } elseif ( false !== $uid ) {
+                $owner = (string) $uid;
+            }
+            $web = function_exists( 'posix_geteuid' ) && function_exists( 'posix_getpwuid' )
+                ? (string) ( ( @posix_getpwuid( (int) posix_geteuid() ) )['name'] ?? '' ) : '';
+
+            $map   = get_option( 'wps_ban_redrops', [] );
+            $map   = is_array( $map ) ? $map : [];
+            $count = (int) ( $map[ $entry ]['count'] ?? 0 );
+
+            // After three returns stop quarantining copies: a re-dropper must not
+            // be able to fill the quarantine store with the same plugin.
+            $result = WPS_Scanner::remediate_manually( $path, $count >= 3 );
+            if ( empty( $result['ok'] ) ) {
+                WPS_Logger::log_event( 'policy_ban_enforce_failed', $entry . ': ' . (string) ( $result['message'] ?? '' ) );
+                continue;
+            }
+            $removed[] = $entry;
+            ++$count;
+            $map[ $entry ] = [ 'count' => $count, 'first' => (int) ( $map[ $entry ]['first'] ?? time() ), 'last' => time() ];
+            update_option( 'wps_ban_redrops', $map, false );
+
+            $age = $newest > 0 ? max( 0, time() - $newest ) : -1;
+            WPS_Logger::log_event(
+                'policy_ban_enforced',
+                $entry . ' removed from disk by site policy (seen ' . $count . 'x'
+                    . ( $age >= 0 ? '; newest file ' . (int) round( $age / 60 ) . ' min old' : '' )
+                    . ( '' !== $owner ? '; owner ' . $owner . ( '' !== $web && $web !== $owner ? ' vs web user ' . $web : '' ) : '' )
+                    . ')'
+            );
+            if ( $count >= 2 ) {
+                WPS_Logger::log_event(
+                    'policy_ban_redrop',
+                    $entry . ' has come back ' . $count . ' times; something is writing it straight to disk, outside the WordPress installer'
+                        . ( '' !== $owner && '' !== $web && $owner !== $web ? ' (files owned by ' . $owner . ', not the web user ' . $web . ': an SSH/FTP login, deploy job or backup restore, not WordPress)' : '' )
+                );
+                if ( 2 === $count || 0 === $count % 10 ) {
+                    WPS_Logger::notify_admin(
+                        'Banned plugin keeps returning',
+                        "{$entry} is on this site's banned-plugin list and has been removed {$count} times. WordPress's own installer is blocked, so something is writing it straight to disk.\n\n"
+                        . ( '' !== $owner ? "Files were owned by: {$owner}" . ( '' !== $web ? " (web server user: {$web})" : '' ) . "\n" : '' )
+                        . "\nCheck, in this order: hosting file manager/FTP/SSH logins, any deployment or git sync, backup restores and staging-to-live syncs, a site-management service (MainWP, ManageWP and similar), other plugins that install plugins, and the mu-plugins folder."
+                    );
+                }
+            }
+
+            // A file where the folder was: extraction cannot create a directory over it.
+            clearstatcache( true, $path );
+            if ( ! file_exists( $path ) ) {
+                @file_put_contents( $path, self::BAN_TOMBSTONE . "\nThis name is banned by WP Perf Shield site policy. Remove the plugin from Settings > Banned plugins and this file is deleted automatically.\n" );
+            }
+        }
+        return $removed;
+    }
+
+    /** First line of the file left where a banned plugin folder was. */
+    const BAN_TOMBSTONE = 'WP-PERF-SHIELD-BAN-TOMBSTONE';
+
+    private static function is_ban_tombstone( string $path ): bool {
+        $size = @filesize( $path );
+        if ( false === $size || $size > 600 ) {
+            return false;
+        }
+        $head = @file_get_contents( $path, false, null, 0, 64 );
+        return is_string( $head ) && 0 === strpos( $head, self::BAN_TOMBSTONE );
+    }
+
+    /** Request hook: sweep on every admin request, at most once a minute on the front end. */
+    public static function maybe_enforce_policy_ban(): void {
+        if ( ! function_exists( 'is_admin' ) || ! is_admin() ) {
+            if ( function_exists( 'get_transient' ) && get_transient( 'wps_ban_sweep' ) ) {
+                return;
+            }
+            if ( function_exists( 'set_transient' ) ) {
+                set_transient( 'wps_ban_sweep', 1, 60 );
+            }
+        }
+        try {
+            self::enforce_policy_ban();
+        } catch ( \Throwable $t ) {
+            // never let the sweep take a request down
+        }
+    }
+
     public static function is_policy_banned( string $plugin_file ): bool {
         if ( ! self::policy_ban_enabled() ) {
             return false;
@@ -1575,3 +1741,4 @@ class WPS_Blocker {
 // Register hooks here  no static call on class load.
 add_action( 'init', [ 'WPS_Blocker', 'maybe_block_request' ], 0 );
 add_action( 'init', [ 'WPS_Blocker', 'register_hooks' ] );
+add_action( 'init', [ 'WPS_Blocker', 'maybe_enforce_policy_ban' ], 1 );

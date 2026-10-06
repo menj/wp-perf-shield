@@ -1,5 +1,34 @@
 # WP Perf Shield changelog
 
+## 1.4.125
+
+A banned plugin that kept coming back (operator: "i want a permaban on the plugin wp-file-manager but why does it still keep reappearing in the plugins folder"), and a documentation sync.
+
+### Why it came back
+Read from the code, not from the operator's site, which was not available. `wp-file-manager` was already on the built-in banned list, but every guard that list drove was a WordPress route: the upgrader's package options, the ZIP upload prefilter, activation and the active-plugins list. A folder written straight onto disk (FTP or SSH, a deployment or backup restore, a staging sync, another tool extracting a zip, a dropper) passes through none of them. The scanner's own removal ran only when a scan next ran, and matched the folder name exactly, so `wp-file-manager-pro` or a renamed copy was blocked at install and never removed. Nothing was left behind to stop the next write, and nothing recorded how often it returned or who wrote it.
+
+### What changed
+- **Real-time enforcement.** `WPS_Blocker::enforce_policy_ban()` removes any banned folder in the plugins directory on the next request: on every admin request, and at most once a minute on the front end. Quarantine first, so the removal is restorable; the plugin is deactivated, the redrop baseline recorded and any options it identifies are quarantined with it, through the same routine the "Delete this path" button uses. It uses the same substring rule as the installer ban, so variants are covered, and it never touches this plugin's own folder.
+- **A tombstone where the folder was.** A small file with the folder's exact name is left in its place. A zip extraction cannot create a directory over an existing file, so a plain re-extract fails instead of succeeding. It carries a marker on its first line; only files carrying it are ever treated as tombstones, and they are deleted automatically when the ban is switched off or the slug is taken off the list, so lifting a ban needs no manual cleanup.
+- **Re-drop accounting.** Each return is counted per folder in `wps_ban_redrops`, and each removal is logged with how old the newest file was and which account owns the files, compared with the web server's. A folder owned by a different account than the web server was written by an SSH or FTP login, a deploy job or a backup restore, not by WordPress. From the second return a critical `policy_ban_redrop` event is recorded and the administrator is emailed (on the second return, then every tenth), listing where to look.
+- **Bounded storage.** After three returns the folder is deleted outright instead of quarantined, so a re-dropper cannot fill the quarantine store with copies of the same plugin.
+- Three new event types (`policy_ban_enforced`, `policy_ban_redrop`, `policy_ban_enforce_failed`) appear in the Events tab with labels and severities.
+- `WPS_Scanner::remediate_manually()` gained a `$permanent` argument for the above.
+
+### What this does not do
+It cannot stop something that runs with the privilege to delete the tombstone and recreate the folder: a root cron job, a deployment pipeline, a compromised account. It makes the return visible within a request, removes it again and tells you who wrote it, which is what you need to find the source. The redrop log names the cause class; it does not name the cause.
+
+### Documentation sync (partial)
+Done in this release: `readme.txt` (features, a FAQ entry on why a banned plugin comes back, a FAQ entry on the "Delete this path" button, and Upgrade Notice entries for 1.4.120 to 1.4.125), `doc/upgrading.md`, this changelog, `tests/index.php` and `tests/.htaccess` (so `tests/` is guarded like `tools/`), and `tests/test-policy-ban.php` (14 cases). All three test files pass. `tests/` is development material and should not be included in the release ZIP.
+
+**Not done, and known to be stale:**
+- `doc/variants.md` does not list the 1.4.120 to 1.4.124 samples (staged blob folders, payload chunks disguised as images, the token-gated mu-plugin installer, the WP Link Helper worm, `total-render-toolkit-c58d`). Its Appendix F lists 43 MD5 and 33 SHA-256 fingerprints while `includes/class-blocker.php` carries 51 and 41: the 16 missing are the blob-folder hashes added in 1.4.120 and 1.4.121. The appendix also says it is "asserted against the code by the test suite"; no such test exists in this repository.
+- `doc/ssot.md` describes a documentation layout and tooling that predate `doc/variants.md`, `doc/remediation-roadmap.md`, `doc/wappalyzer-submission.md` and `tests/`, and its incremental log stops at 1.4.69.
+- `doc/readme.md` has the current version but its feature list and a Testing section have not been updated.
+- `doc/remediation-roadmap.md` is current as of 1.4.61 and has not been re-audited.
+
+Version markers move to 1.4.125.
+
 ## 1.4.124
 
 The "Delete this path" button now removes things the way automatic remediation does.

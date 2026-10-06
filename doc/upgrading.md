@@ -59,6 +59,12 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.125
+
+**A banned plugin is now removed from disk on the next request and cannot simply be re-extracted.** If `wp-file-manager` (or any plugin on the banned list) keeps reappearing in the plugins folder, something is writing it straight to disk, past WordPress's installer. WP Perf Shield now removes it on the next request (restorable from Diagnostics), leaves a small file with the folder's name where it was, and records each return and who owns the files, in the Events tab. After the second return it emails you. If the owner shown is not your web server's account, look at FTP/SSH logins, deployments, backup restores, staging syncs, site-management services and other plugins that install plugins.
+
+Turning the ban off in Settings, or taking a slug off the list, deletes its placeholder file automatically. Nothing else to configure.
+
 ## 1.4.124
 
 **The "Delete this path" button now quarantines.** Before, it deleted permanently and left the WP Link Helper worm's stored options behind. Now the target is moved to quarantine (restorable from Diagnostics), the options it identifies are quarantined with it, and a removed plugin is deactivated. If quarantine is switched off in Settings, the button still deletes outright. Nothing to configure.
