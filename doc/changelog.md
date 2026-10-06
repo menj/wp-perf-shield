@@ -1,5 +1,24 @@
 # WP Perf Shield changelog
 
+## 1.4.128
+
+Protect Uploads banned (operator: "Protect Uploads is not sanctioned by me. ban it", after asking to block the folder names `rcromlb` and `hvmosjt`).
+
+### What was found
+Two uploads, `rcromlb` and `hvmosjt`, were byte-identical copies of the genuine wordpress.org Protect Uploads plugin under random folder names. Neither was malicious content, and nothing in the scanner reported them, correctly. The operator does not sanction the plugin on this site.
+
+### What changed
+- **Policy ban, not a malware label.** `protect-uploads`, `rcromlb` and `hvmosjt` are added to the built-in banned list (`WPS_Blocker::get_policy_banned_slugs()`). Install, ZIP upload and activation are refused, and since 1.4.125 a banned folder appearing on disk is removed on the next request, quarantined first, with a tombstone left in its place. The wording stays "banned by site policy"; nothing is recorded as malware against it. It is an operator-preference ban like `filebird`, and the settings screen says so.
+- **Found by its main file, under any folder name.** Banning folder names alone is whack-a-mole: the same plugin had already turned up under two random names. The on-disk sweep now also removes a folder whose top-level PHP file is named exactly a banned slug (`protect-uploads.php`) and carries a `Plugin Name:` header. The match is strict because it removes a whole folder on one file name: a file that merely contains the word, or has the exact name but no plugin header, is left alone (both in the tests). The activation, upload and active-list guards already match the slug as a substring of the plugin file path, so `anything/protect-uploads.php` is refused wherever it sits.
+- The Settings description of the shipped bans is updated.
+- `tests/test-policy-ban.php` is now 21 cases, adding the two listed folder names, the same plugin under an unlisted folder name, the activation guard, and three near-misses that stay: a plugin with a `protect-uploads-compat.php` file, a file with the exact name and no header, and a similarly named `wp-protect-me`.
+- Also triaged, no change needed: `site-font-analytics-bfa2` (a staged payload folder, reported as critical) with its empty `-7555` child (reported as a re-drop slot).
+
+### What this does not do
+It bans the plugin on every site running this version, because the defaults are shared. The three entries are built in: they cannot be removed from the list, only by switching the whole banned-plugins policy off in Settings. A banned plugin renamed so that neither its folder nor its main file name matches would not be found by this; the content checks do not treat it as malware, since it is not.
+
+Version markers move to 1.4.128.
+
 ## 1.4.127
 
 One more member of the staged-payload-folder family, and a parent-and-child pair.

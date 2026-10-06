@@ -67,7 +67,7 @@ adds the uploader's address to the hostile-IP auto-block list.
 
 The **site-policy denylist** (`WPS_Blocker::get_policy_banned_slugs()`) is for
 clean, ordinary plugins an operator has chosen not to run — shipped defaults
-`wp-file-manager` and `filebird`, plus operator additions from Settings. It
+`wp-file-manager`, `fileorganizer`, `filebird` and `protect-uploads` (plus the folder names `rcromlb` and `hvmosjt` it was found under), plus operator additions from Settings. It
 reuses the same five enforcement choke points (activation-link removal,
 activation block, active-list filter, active-list scrub, upload prefilter) but
 with its own event types (`policy_*`), its own wording ("banned by site
@@ -97,6 +97,7 @@ Decisions, recorded so they are not reversed by accident:
 - **Quarantine first, restorable.** Removal goes through `WPS_Scanner::remediate_manually()`, the routine behind the "Delete this path" button. After three returns of the same folder the removal becomes permanent, so a re-dropper cannot fill the quarantine store.
 - **A tombstone file is left in place.** A plain file with the folder's exact name; a zip extraction cannot create a directory over it. Only files whose first line is `WP-PERF-SHIELD-BAN-TOMBSTONE` are ever treated as tombstones, and they are deleted automatically when the ban is switched off or the slug leaves the list. A file that is merely named like a banned plugin is never touched.
 - **Returns are evidence.** Each return is counted in `wps_ban_redrops` and logged with the newest file's age and the files' owner against the web server's account. From the second return the event `policy_ban_redrop` is critical and the administrator is emailed (second return, then every tenth). The log names the class of cause (an account other than the web server's means FTP, SSH, a deploy or a restore); it does not name the cause.
+- **A banned plugin is also found by its main file (1.4.128).** Banning a folder name is whack-a-mole when the same plugin returns under a fresh random name (`rcromlb`, `hvmosjt`, ...). The sweep also removes any folder whose top-level PHP file is named exactly a banned slug (`protect-uploads.php`) and carries a `Plugin Name:` header. The match is deliberately strict because it removes a whole folder on one file name: a file that only contains the word, or has the right name and no plugin header, is left alone. The activation, upload and active-list guards already match the slug as a substring of the plugin file path, so they refuse its main file under any folder name.
 - **The plugin never removes itself**, even if its own folder name is added to the list.
 - **Limit, stated plainly.** Anything with the privilege to delete the tombstone and recreate the folder defeats this. The point is to make the return visible and attributable.
 
@@ -168,7 +169,7 @@ Development tests are plain PHP scripts in:
 ```text
 tests/test-plugin-malware-detection.php   headless/payload/installer/dropper/fake-image/loader/web-shell checks (36 cases)
 tests/test-manual-removal.php             the "Delete this path" removal routine (12 cases)
-tests/test-policy-ban.php                 the on-disk policy ban (14 cases)
+tests/test-policy-ban.php                 the on-disk policy ban (21 cases)
 tests/test-docs-sync.php                  version markers, changelog entries, and Appendix F against the code
 ```
 
