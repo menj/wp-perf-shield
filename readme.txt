@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.123
+Stable tag: 1.4.124
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -111,6 +111,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.124 =
+The "Delete this path" button now quarantines instead of deleting permanently, clears the stored options of the worm or payload folder it removes, and deactivates a removed plugin, so one click does what automatic remediation does. A removal can be restored from Diagnostics.
 
 = 1.4.123 =
 Removing the WP Link Helper worm now also quarantines three more options its newest build stores (hiding flags and crawl counters), so nothing of its state is left behind.

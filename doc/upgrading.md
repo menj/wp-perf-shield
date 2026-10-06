@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.124
+
+**The "Delete this path" button now quarantines.** Before, it deleted permanently and left the WP Link Helper worm's stored options behind. Now the target is moved to quarantine (restorable from Diagnostics), the options it identifies are quarantined with it, and a removed plugin is deactivated. If quarantine is switched off in Settings, the button still deletes outright. Nothing to configure.
+
 ## 1.4.123
 
 **More complete cleanup of the WP Link Helper worm.** When it is removed, three more of its options (`wlh_hide_self`, `wlh_hide_update`, `wlh_bot_hits`) are quarantined with it, and are restorable from Diagnostics. Nothing to configure.

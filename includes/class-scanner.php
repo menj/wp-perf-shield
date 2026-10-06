@@ -3336,6 +3336,13 @@ class WPS_Scanner {
 	const PAYLOAD_MAX_DEPTH = 10;
 
 	/**
+	 * The WP Link Helper worm's option family. Both detection evidence (three of
+	 * these in one file) and the state quarantined with the worm. 1.4.123 added
+	 * the hiding flags and crawl counters from build 0.10.15.
+	 */
+	const LINK_HELPER_OPTIONS = [ 'wlh_cdn', 'wlh_key', 'wlh_origin', 'wlh_proj', 'wlh_ca', 'wlh_err', 'wlh_lh', 'wlh_links', 'wlh_sw_links', 'wlh_snippet', 'wlh_adopted', 'wlh_hide_self', 'wlh_hide_update', 'wlh_bot_hits' ];
+
+	/**
 	 * Walk wp-content/ for cached dropper toolkits and loose backdoor files.
 	 *
 	 * @return array<int, array<string, string|bool>>
@@ -5939,7 +5946,7 @@ class WPS_Scanner {
 		// split-literal-normalised source.
 		$triggers = [ 'wlh_claim', 'wlh_neighbors', 'wlh_adopt', 'wlh_adoptclean', 'wlh_wchinstall', 'wlh_update', 'wlh_links', 'wlh_snippet', 'wlh_botstats', 'wlh_cfg' ];
 		// The option family it persists its identity and worm state into.
-		$options  = [ 'wlh_cdn', 'wlh_key', 'wlh_origin', 'wlh_proj', 'wlh_ca', 'wlh_err', 'wlh_lh', 'wlh_links', 'wlh_sw_links', 'wlh_snippet', 'wlh_adopted', 'wlh_hide_self', 'wlh_hide_update', 'wlh_bot_hits' ]; // 1.4.123: hiding flags and verified-Googlebot counters from build 0.10.15
+		$options  = self::LINK_HELPER_OPTIONS;
 		// The signed worm operations: propagation and second-stage install.
 		$worm_ops = [ 'adopt.ts', 'adoptclean.ts', 'wchinstall.ts' ];
 
@@ -13805,6 +13812,153 @@ class WPS_Scanner {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * 1.4.124: remove a path on the operator's explicit request, the same way
+	 * automatic remediation would, so the "Delete this path" button no longer
+	 * leaves a restorable removal half done.
+	 *
+	 * Before this the button unlinked the target permanently: no quarantine, so
+	 * nothing to restore, and none of the worm's stored options cleared, so a
+	 * surviving mu-plugins copy could re-claim from them. This quarantines first
+	 * (reversible, evidence kept), clears the options the target's own files
+	 * identify, deactivates a plugin that was removed, and records the redrop
+	 * baseline. Two things differ from auto_remediate() on purpose: the
+	 * remediation policy is NOT consulted, because this is the control offered
+	 * for findings the policy declined to remove and the operator has just
+	 * confirmed the deletion; and if quarantine is enabled but fails, nothing is
+	 * deleted, for the reason given in CRIT-002 there.
+	 *
+	 * The caller has already applied its own path-safety checks.
+	 *
+	 * @return array{ok:bool,message:string,quarantined:?string,options:string[]}
+	 */
+	public static function remediate_manually( string $target ): array {
+		$real = realpath( $target );
+		if ( ! $real ) {
+			return [ 'ok' => true, 'message' => 'Already gone.', 'quarantined' => null, 'options' => [] ];
+		}
+		$pre_hashes = self::compute_redrop_hashes( $real );
+		// Discover state BEFORE the files move: it is read from them.
+		$state_options = self::state_options_for_path( $real );
+
+		$quarantined_id = null;
+		if ( self::quarantine_enabled() && class_exists( 'WPS_Quarantine' ) ) {
+			$quarantined_id = WPS_Quarantine::quarantine(
+				$real,
+				[
+					'type'     => 'manual removal',
+					'severity' => 'high',
+					'subject'  => self::display_path( $real ),
+					'reason'   => 'operator removed this from the findings list',
+				]
+			);
+			if ( null === $quarantined_id ) {
+				return [
+					'ok'          => false,
+					'message'     => 'Quarantine failed, so nothing was deleted. Check that the quarantine store (' . self::display_path( WPS_Quarantine::store_dir() ) . ') exists, is writable and has free space, then try again.',
+					'quarantined' => null,
+					'options'     => [],
+				];
+			}
+		} else {
+			$done = is_dir( $real ) ? self::delete_directory( $real ) : ( is_file( $real ) ? @unlink( $real ) : false );
+			if ( ! $done ) {
+				return [ 'ok' => false, 'message' => 'Could not delete ' . basename( $real ) . '; check file permissions.', 'quarantined' => null, 'options' => [] ];
+			}
+		}
+		clearstatcache( true, $real );
+		if ( file_exists( $real ) ) {
+			return [ 'ok' => false, 'message' => 'Removal reported success but ' . basename( $real ) . ' still exists. Permissions may be blocking it, or something re-created it.', 'quarantined' => $quarantined_id, 'options' => [] ];
+		}
+
+		$cleared = [];
+		if ( class_exists( 'WPS_Quarantine' ) && method_exists( 'WPS_Quarantine', 'quarantine_option' ) ) {
+			foreach ( $state_options as $opt ) {
+				if ( null === get_option( $opt, null ) ) {
+					continue;
+				}
+				WPS_Quarantine::quarantine_option( $opt, [
+					'type'   => 'db_option (manual removal)',
+					'reason' => 'state stored by ' . self::display_path( $real ),
+				] );
+				$cleared[] = $opt;
+			}
+		}
+		self::record_redrop_baseline( $pre_hashes, [ 'type' => 'manual removal', 'subject' => self::display_path( $real ), 'severity' => 'high' ] );
+		self::scrub_deleted_from_db( $real );
+		WPS_Logger::log_event( null !== $quarantined_id ? 'manual_quarantined' : 'manual_deleted', self::display_path( $real ) . ( $cleared ? ' (options: ' . implode( ',', $cleared ) . ')' : '' ) );
+		delete_transient( 'wps_scan_results' );
+
+		$msg = ( null !== $quarantined_id ? 'Quarantined' : 'Deleted' ) . ': ' . basename( $real )
+			. ( null !== $quarantined_id ? ' (restorable from Diagnostics)' : '' )
+			. ( $cleared ? '; also cleared ' . count( $cleared ) . ' stored option(s): ' . implode( ', ', array_slice( $cleared, 0, 4 ) ) . ( count( $cleared ) > 4 ? ', ...' : '' ) : '' ) . '.';
+		return [ 'ok' => true, 'message' => $msg, 'quarantined' => $quarantined_id, 'options' => $cleared ];
+	}
+
+	/**
+	 * Option names that the files under $path identify as state belonging to
+	 * what is being removed. Two families, each established from the files
+	 * themselves, so a legitimate plugin's options are never named here:
+	 * the WP Link Helper worm's (three or more of its options quoted in one PHP
+	 * file), and the uninstall.php options of a folder with no plugin header.
+	 *
+	 * @return string[]
+	 */
+	private static function state_options_for_path( string $path ): array {
+		$found = [];
+		$files = [];
+		if ( is_file( $path ) ) {
+			$files[] = $path;
+		} elseif ( is_dir( $path ) ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $path, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 6 );
+				$n = 0;
+				foreach ( $iter as $f ) {
+					if ( ++$n > 3000 ) {
+						break;
+					}
+					if ( $f instanceof SplFileInfo && $f->isFile() && 'php' === strtolower( $f->getExtension() ) && $f->getSize() < 600000 ) {
+						$files[] = $f->getPathname();
+					}
+				}
+			} catch ( \Throwable $t ) {
+				return [];
+			}
+		}
+		foreach ( $files as $file ) {
+			$raw = @file_get_contents( $file );
+			if ( ! is_string( $raw ) || '' === $raw ) {
+				continue;
+			}
+			if ( false !== stripos( $raw, 'wlh_' ) ) {
+				$src  = class_exists( 'WPS_Utils' ) ? WPS_Utils::normalise_split_literals( $raw ) : $raw;
+				$hits = [];
+				foreach ( self::LINK_HELPER_OPTIONS as $o ) {
+					if ( preg_match( '/[\'"]' . preg_quote( $o, '/' ) . '[\'"]/', $src ) ) {
+						$hits[] = $o;
+					}
+				}
+				if ( count( $hits ) >= 3 ) {
+					$found = array_merge( $found, self::LINK_HELPER_OPTIONS );
+				}
+			}
+		}
+		if ( is_dir( $path ) && ! self::folder_has_plugin_header( $path ) ) {
+			$un = $path . '/uninstall.php';
+			if ( is_file( $un ) ) {
+				$raw = @file_get_contents( $un );
+				if ( is_string( $raw ) && preg_match_all( '/delete_option\s*\(\s*[\'"]([A-Za-z0-9_\-]+)[\'"]/', $raw, $om ) ) {
+					$found = array_merge( $found, $om[1] );
+				}
+			}
+		}
+		return array_values( array_unique( $found ) );
 	}
 
 	private static function auto_remediate( array &$findings ): void {
