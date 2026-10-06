@@ -606,6 +606,7 @@ class WPS_Scanner {
 			'check_remote_admin_endpoint' => [ __CLASS__, 'check_remote_admin_endpoint' ], // 1.4.132: standalone PHP endpoint in wp-content that creates administrators or application passwords
 			'check_card_harvester_kit' => [ __CLASS__, 'check_card_harvester_kit' ], // 1.4.132: phishing kit PHP that sends card details to a Telegram bot
 			'check_redirect_doorway' => [ __CLASS__, 'check_redirect_doorway' ], // 1.4.132: tiny uploads page that only forwards the visitor (and URL fragment) to another site, or a blanked one
+			'check_probe_marker_files' => [ __CLASS__, 'check_probe_marker_files' ], // 1.4.133: deep_check_<hex>.txt / upload_test_<hex>.txt write-access probes
 			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
 			'check_mu_plugin_dropper' => [ __CLASS__, 'check_mu_plugin_dropper' ], // 1.4.120: plugin that copies bundled folders into mu-plugins and writes require loaders for them
 			'check_fake_image_payload' => [ __CLASS__, 'check_fake_image_payload' ], // 1.4.121: image-named files that are really encoded text, inside plugins that do have a header, mu-plugins and themes
@@ -7211,6 +7212,75 @@ class WPS_Scanner {
 			}
 		} catch ( \Throwable $t ) {
 			return $found;
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.133: the write-access probe files `deep_check_<32 hex>.txt` and
+	 * `upload_test_<32 hex>.txt`.
+	 *
+	 * A file of one line, `DEEP_CHECK_OK_<hex>` or `UPLOAD_TEST_OK_<hex>`, with
+	 * the same hex as its name, proves an upload and read-back worked. It is
+	 * harmless itself and is left by whoever is testing the site before
+	 * dropping something. Both parts of the name and content must agree.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_probe_marker_files(): array {
+		$found = [];
+		$roots = self::kit_roots();
+		$up    = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
+		if ( is_array( $up ) && empty( $up['error'] ) && ! empty( $up['basedir'] ) && is_dir( $up['basedir'] ) ) {
+			$roots[] = $up['basedir'];
+		}
+		if ( defined( 'ABSPATH' ) && is_dir( ABSPATH ) ) {
+			$roots[] = rtrim( ABSPATH, '/\\' );
+		}
+		$seen = [];
+		$n    = 0;
+		foreach ( array_unique( $roots ) as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 5 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() || ++$n > 20000 ) {
+						return $found;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || $f->getSize() > 200 ) {
+						continue;
+					}
+					if ( ! preg_match( '/^(deep_check|upload_test)_([0-9a-f]{32})\.txt$/i', $f->getFilename(), $m ) ) {
+						continue;
+					}
+					$real = realpath( $f->getPathname() ) ?: $f->getPathname();
+					if ( isset( $seen[ $real ] ) ) {
+						continue;
+					}
+					$body = trim( (string) @file_get_contents( $f->getPathname() ) );
+					if ( 0 !== strcasecmp( $body, strtoupper( $m[1] ) . '_OK_' . $m[2] ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					$found[] = [
+						'severity'    => 'high',
+						'type'        => 'Write-access probe file left by an intruder',
+						'subject'     => self::display_path( $f->getPathname() ) . ' proves a file could be uploaded and read back',
+						'path'        => $f->getPathname(),
+						'action'      => 'These one-line marker files are left by whoever tests whether a site accepts uploads, usually before placing a shell or phishing kit. The file is removed. Look for what else was written at the same time, and for how the upload was possible.',
+						'auto_delete' => true,
+						'delete_path' => $f->getPathname(),
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'probe_marker_found', self::display_path( $f->getPathname() ) );
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
 		}
 		return $found;
 	}

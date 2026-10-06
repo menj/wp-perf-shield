@@ -1,5 +1,14 @@
 # WP Perf Shield changelog
 
+## 1.4.133
+
+**The write-access probe files are now blocked and removed.** `deep_check_<32 hex>.txt` and `upload_test_<32 hex>.txt` are one-line markers (`DEEP_CHECK_OK_<hex>`, `UPLOAD_TEST_OK_<hex>`) left by whoever tests whether a site accepts uploads, usually before placing a shell or kit. They do nothing themselves, but they are evidence of an intruder.
+- **Upload filter:** `WPS_Blocker::block_zip_upload()` refuses a file with either name through the WordPress upload handler, logs `upload_blocked` and records the uploader like any other malware upload attempt. `WPS_Blocker::is_probe_marker_name()` holds the pattern.
+- **Scanner:** new `check_probe_marker_files` finds existing copies in uploads, wp-content and the web root and removes them. Both name and content must agree (same hex), so a same-named file with other content, or the marker text under another name, is left alone.
+- This cannot stop a direct write that bypasses WordPress (a shell, FTP); the scan removes those on the next run.
+
+Tests: `test-plugin-malware-detection.php`  checks (5 new). Registered checks: 100 (was 99).
+
 ## 1.4.132
 
 Six uploads triaged statically (nothing executed). Four gaps closed; the rest were already caught.
