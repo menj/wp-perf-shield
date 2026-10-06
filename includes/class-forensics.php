@@ -149,6 +149,9 @@ class WPS_Forensics {
             '%pro-font-optimizer%',
             '%site-speed-insights%',
             '%auto-speed-insights%',
+            '%starter-seo-toolkit%',
+            '%total-security-enhancer%',
+            '%ultra-render-helper%',
             '%advanced-asset-insights%',
             '%page-seo-toolkit%',
             '%starter-image-guard%',
@@ -221,6 +224,9 @@ class WPS_Forensics {
         $suspicious_slugs[] = 'pro-font-optimizer';
         $suspicious_slugs[] = 'site-speed-insights';
         $suspicious_slugs[] = 'auto-speed-insights'; // 1.4.120
+        $suspicious_slugs[] = 'starter-seo-toolkit'; // 1.4.121
+        $suspicious_slugs[] = 'total-security-enhancer'; // 1.4.121
+        $suspicious_slugs[] = 'ultra-render-helper'; // 1.4.121
         $suspicious_slugs[] = 'advanced-asset-insights'; // 1.3.39: gap-fill from 1.3.37
         $suspicious_slugs[] = 'page-seo-toolkit';        // 1.3.39
         $suspicious_slugs[] = 'starter-image-guard';     // 1.3.39

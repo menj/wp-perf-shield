@@ -30,6 +30,9 @@ class WPS_Blocker {
             'pro-font-optimizer',
             'site-speed-insights',
             'auto-speed-insights',  // 1.4.120: Auto Speed Insights (-3f8f) sample, loader-less
+            'starter-seo-toolkit',  // 1.4.121
+            'total-security-enhancer',  // 1.4.121
+            'ultra-render-helper',  // 1.4.121
             'advanced-asset-insights', // 1.3.37: Advanced Asset Insights / Cache Team disguise
             'page-seo-toolkit',        // 1.3.39: Page SEO Toolkit / Page Software disguise
             'starter-image-guard',     // 1.3.39: Starter Image Guard / Dev Group disguise
@@ -305,6 +308,12 @@ class WPS_Blocker {
             '/site-speed-insights[-_][a-z0-9]{3,8}\.php$/i',
             '/auto-speed-insights[-_][a-z0-9]{3,8}\//i',     // 1.4.120
             '/auto-speed-insights[-_][a-z0-9]{3,8}\.php$/i', // 1.4.120
+            '/starter-seo-toolkit[-_][a-z0-9]{3,8}\//i',     // 1.4.121
+            '/starter-seo-toolkit[-_][a-z0-9]{3,8}\.php$/i', // 1.4.121
+            '/total-security-enhancer[-_][a-z0-9]{3,8}\//i',     // 1.4.121
+            '/total-security-enhancer[-_][a-z0-9]{3,8}\.php$/i', // 1.4.121
+            '/ultra-render-helper[-_][a-z0-9]{3,8}\//i',     // 1.4.121
+            '/ultra-render-helper[-_][a-z0-9]{3,8}\.php$/i', // 1.4.121
             '/advanced-asset-insights[-_][a-z0-9]{3,8}\//i',
             '/advanced-asset-insights[-_][a-z0-9]{3,8}\.php$/i',
             '/page-seo-toolkit[-_][a-z0-9]{3,8}\//i',
@@ -358,6 +367,12 @@ class WPS_Blocker {
             '99c53e189239269f0197802306af236a', // pro-font-optimizer-c88b.php
             '04862e5820ea350b8579668a1ddbf337', // auto-speed-insights-3f8f/resources/cache.dat (1.4.120)
             'dcc1d76e1572d52301b6cb2482021be6', // auto-speed-insights-3f8f/resources/manifest.cache (1.4.120)
+            '0de721dc40fac6749657d693b2725374', // starter-seo-toolkit-52cf/data.cache (1.4.121)
+            '054a5283e77a249934ebb2db8ac90b87', // starter-seo-toolkit-52cf/manifest.idx (1.4.121)
+            '1c0b56625bf27e0ab0ee024574fb0da6', // total-security-enhancer-488a/cache.dat (1.4.121)
+            'f07a7e783b069648593907e37e9266c1', // total-security-enhancer-488a/cache.pkg (1.4.121)
+            '16cd830983e239ecf1aeaafcc6f5b5f9', // ultra-render-helper-c8d3/index.bin (1.4.121)
+            '5453a332c98dd7c84759c97318529c74', // ultra-render-helper-c8d3/state.cache (1.4.121)
             '6f6b4854cb0d71f81796ead56132c89a', // site-speed-insights-d6e7.php
             '7dbc51fa960a74a79bd2cb475a2dfd04', // advanced-asset-insights-ec06.php (1.3.37)
             'a23f9c0fb1eb85247d0f4a8264bd9c18', // page-seo-toolkit-a937.php (1.3.39)
@@ -386,6 +401,14 @@ class WPS_Blocker {
             '751b9848b645f5e7ab72eab015ea6743284657cfdcfc844a9c06081400ded3b6', // SHA-256 pro-font-optimizer-c88b.php
             '5b0bfdcecf305a2143b6264603aa6f7528df4a7a5d56cb44f392b9a7c27b5f38', // SHA-256 auto-speed-insights-3f8f cache.dat (1.4.120)
             'af1a7006c4eb2f90b03d3022ad999c411b56d8cfd75f1abc5df20d2e860b2193', // SHA-256 auto-speed-insights-3f8f manifest.cache (1.4.120)
+            '20f70020156fb76127c860485185762f8425bf4f95a7550f7e10297ff9bdebce', // SHA-256 starter-seo-toolkit-52cf/data.cache (1.4.121)
+            '2df96c44592be464d321b2ff515a8f6cfedd5607cab4e0bda907848274620b7a', // SHA-256 starter-seo-toolkit-52cf/manifest.idx (1.4.121)
+            '83dd2548d3bae845d337be0fb0a6e26664c36330faab623163f361d584f581d0', // SHA-256 total-security-enhancer-488a/cache.dat (1.4.121)
+            '5afe630f1da5d922b3b6b912e875b5d0ee362c6228aa7a2842a95e794afc2db9', // SHA-256 total-security-enhancer-488a/cache.pkg (1.4.121)
+            '16cd830983e239ecf1aeaafcc6f5b5f9', // ultra-render-helper-c8d3/index.bin (1.4.121)
+            '5453a332c98dd7c84759c97318529c74', // ultra-render-helper-c8d3/state.cache (1.4.121)
+            '5128d485cbaf61aba7cb1ec1fa9e9ec3d2b7e05ef2ca629b4dba18dfb7754960', // SHA-256 ultra-render-helper-c8d3/index.bin (1.4.121)
+            '788c2df949c84f93815d94b75732807044362875ff9640283ab803b12363e853', // SHA-256 ultra-render-helper-c8d3/state.cache (1.4.121)
             '9b5cc2de2e2cd968c5f69a0a6d561b37d31424f3f8c814d11a7404cc4a5bcaa8', // SHA-256 site-speed-insights-d6e7.php
             'ff96b828b345755c728cebbf3fc041290f14f12a535f693d06b520d89d106e3b', // SHA-256 advanced-asset-insights-ec06.php (1.3.37)
             'ee4b899d93655e4fc15b6ed8692a25e3b4052a005f85c5460d22a444e4245b9e', // SHA-256 page-seo-toolkit-a937.php (1.3.39)
@@ -1084,6 +1107,9 @@ class WPS_Blocker {
             'pro-font-optimizer',
             'site-speed-insights',
             'auto-speed-insights',  // 1.4.120: Auto Speed Insights (-3f8f) sample, loader-less
+            'starter-seo-toolkit',  // 1.4.121
+            'total-security-enhancer',  // 1.4.121
+            'ultra-render-helper',  // 1.4.121
             'advanced-asset-insights',
             'page-seo-toolkit',           // 1.3.39: ClickFix variant slug
             'starter-image-guard',        // 1.3.39: ClickFix variant slug

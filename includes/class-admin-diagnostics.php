@@ -722,6 +722,9 @@ class WPS_Admin_Diagnostics {
 			'pro-font-optimizer',
 			'site-speed-insights',
 			'auto-speed-insights',  // 1.4.120: Auto Speed Insights (-3f8f) sample, loader-less
+			'starter-seo-toolkit',  // 1.4.121
+			'total-security-enhancer',  // 1.4.121
+			'ultra-render-helper',  // 1.4.121
 			'advanced-asset-insights',
 			'page-seo-toolkit',
 			'starter-image-guard',

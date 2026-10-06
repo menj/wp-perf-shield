@@ -37,6 +37,9 @@ class WPS_Scanner {
 		'pro-font-optimizer',
 		'site-speed-insights',
 		'auto-speed-insights',  // 1.4.120: Auto Speed Insights (-3f8f) sample, loader-less
+		'starter-seo-toolkit',  // 1.4.121
+		'total-security-enhancer',  // 1.4.121
+		'ultra-render-helper',  // 1.4.121
 		'advanced-asset-insights', // 1.3.37: ClickFix variant slug
 		'page-seo-toolkit',        // 1.3.39: ClickFix variant slug
 		'starter-image-guard',     // 1.3.39: ClickFix variant slug
@@ -601,6 +604,7 @@ class WPS_Scanner {
 			'check_opaque_payload_loader' => [ __CLASS__, 'check_opaque_payload_loader' ], // 1.4.120: plugin PHP that reads an encrypted data file from its own folder, decodes it and runs the result
 			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
 			'check_mu_plugin_dropper' => [ __CLASS__, 'check_mu_plugin_dropper' ], // 1.4.120: plugin that copies bundled folders into mu-plugins and writes require loaders for them
+			'check_fake_image_payload' => [ __CLASS__, 'check_fake_image_payload' ], // 1.4.121: image-named files that are really encoded text, inside plugins that do have a header, mu-plugins and themes
 			'check_constant_assembled_calls' => [ __CLASS__, 'check_constant_assembled_calls' ], // 1.4.111: function names built from define() constants to defeat searching
 			'check_unattributed_plugins' => [ __CLASS__, 'check_unattributed_plugins' ], // 1.4.83: a plugin folder that appeared with no install ever recorded - the tool an intruder brought
 			'check_db_resident_payload' => [ __CLASS__, 'check_db_resident_payload' ], // 1.4.86: plugin that stores its payload in wp_options and re-seeds it, so deleting the folder leaves it behind
@@ -1587,6 +1591,9 @@ class WPS_Scanner {
 			'pro-font-optimizer',
 			'site-speed-insights',
 			'auto-speed-insights',  // 1.4.120: Auto Speed Insights (-3f8f) sample, loader-less
+			'starter-seo-toolkit',  // 1.4.121
+			'total-security-enhancer',  // 1.4.121
+			'ultra-render-helper',  // 1.4.121
 			'advanced-asset-insights', // 1.3.37
 			'page-seo-toolkit',        // 1.3.39
 			'starter-image-guard',     // 1.3.39
@@ -6377,6 +6384,137 @@ class WPS_Scanner {
 	}
 
 	/**
+	 * 1.4.121: files named like images that are really encoded text.
+	 *
+	 * Recovered shape (comparetool.zip): eight files named .png and .gif, none
+	 * an image. Each is one unbroken line of base64-style text that begins with
+	 * the three letters PNG or GIF to pass a glance, split into 65,536-byte
+	 * chunks (213,339 bytes is three chunks and a remainder), with empty
+	 * index.htm and js files to look like a tool. Nothing in the folder is
+	 * code; the payload is staged for a loader elsewhere to reassemble.
+	 *
+	 * The headless-folder check reports such a folder when it has no plugin
+	 * header. This reports them inside folders that do have one, and in
+	 * mu-plugins and themes. Review-only here: it is evidence, not proof, that
+	 * a plugin is hostile, and the folder is a real plugin or theme.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_fake_image_payload(): array {
+		$found = [];
+		$roots = [];
+		if ( defined( 'WP_PLUGIN_DIR' ) && is_dir( WP_PLUGIN_DIR ) ) {
+			$roots[] = [ rtrim( WP_PLUGIN_DIR, '/\\' ), true ];
+		}
+		if ( defined( 'WPMU_PLUGIN_DIR' ) && is_dir( WPMU_PLUGIN_DIR ) ) {
+			$roots[] = [ rtrim( WPMU_PLUGIN_DIR, '/\\' ), false ];
+		}
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR . '/themes' ) ) {
+			$roots[] = [ rtrim( WP_CONTENT_DIR, '/\\' ) . '/themes', false ];
+		}
+		$self_dir = realpath( WPS_DIR ) ?: '';
+		$examined = 0;
+		$by_dir   = [];
+		foreach ( $roots as [ $root, $headless_covers ] ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( self::PAYLOAD_MAX_DEPTH );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() || self::scan_budget_exceeded() || ++$examined > 12000 ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
+						continue;
+					}
+					$ext = strtolower( $f->getExtension() );
+					if ( ! in_array( $ext, [ 'png', 'gif', 'jpg', 'jpeg', 'webp', 'ico' ], true ) ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+					if ( ! self::is_fake_image( $path, $ext, (int) $f->getSize() ) ) {
+						continue;
+					}
+					$top = self::top_folder_under( $path, $root );
+					$dir = '' !== $top ? $root . '/' . $top : $root;
+					// Header-less plugin folders are reported, and removed, by the
+					// headless-folder check; do not report them twice.
+					if ( $headless_covers && '' !== $top && ! self::folder_has_plugin_header( $dir ) ) {
+						continue;
+					}
+					$by_dir[ $dir ][] = $f->getFilename();
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		foreach ( $by_dir as $dir => $names ) {
+			$found[] = [
+				'severity' => 'high',
+				'type'     => 'Image files that are really encoded text',
+				'subject'  => self::display_path( $dir ) . ': ' . count( $names ) . ' file(s) named like images are plain encoded text (' . implode( ', ', array_slice( $names, 0, 3 ) ) . ( count( $names ) > 3 ? ', ...' : '' ) . ')',
+				'path'     => $dir,
+				'action'   => 'A real image starts with a PNG, GIF, JPEG, WebP or icon signature. These start with ordinary text, usually base64, sometimes with the letters PNG or GIF written in front to look right at a glance. Nothing displays them; they are a payload kept as data until a loader elsewhere reassembles and runs it. '
+					. 'Nothing is removed automatically here because the folder is an installed plugin or theme. Check who installed it and whether it is on the plugin roster; if you did not install it deliberately, delete the whole folder and look for how it arrived. If it is legitimate, mark it Safe so later scans stop asking.',
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'fake_image_payload_found', self::display_path( $dir ) . ' (' . count( $names ) . ' file(s))' );
+			}
+		}
+		return $found;
+	}
+
+	/** True for a file named like an image whose content is plain text, not an image. */
+	private static function is_fake_image( string $path, string $ext, int $size ): bool {
+		if ( $size < 512 || ! in_array( $ext, [ 'png', 'gif', 'jpg', 'jpeg', 'webp', 'ico' ], true ) ) {
+			return false;
+		}
+		$head = @file_get_contents( $path, false, null, 0, 2048 );
+		if ( ! is_string( $head ) || '' === $head ) {
+			return false;
+		}
+		if ( 0 === strncmp( $head, "\x89PNG\r\n\x1a\n", 8 ) || 0 === strncmp( $head, 'GIF87a', 6 ) || 0 === strncmp( $head, 'GIF89a', 6 )
+			|| 0 === strncmp( $head, "\xFF\xD8\xFF", 3 ) || 0 === strncmp( $head, "\x00\x00\x01\x00", 4 )
+			|| ( 0 === strncmp( $head, 'RIFF', 4 ) && 'WEBP' === substr( $head, 8, 4 ) ) ) {
+			return false;
+		}
+		$printable = preg_match_all( '/[\x20-\x7e\r\n\t]/', $head );
+		return ( $printable / strlen( $head ) ) >= 0.98;
+	}
+
+	/** Does any PHP file near the top of this folder carry a Plugin Name header? */
+	private static function folder_has_plugin_header( string $dir ): bool {
+		try {
+			$iter = new RecursiveIteratorIterator(
+				new RecursiveDirectoryIterator( $dir, FilesystemIterator::SKIP_DOTS ),
+				RecursiveIteratorIterator::LEAVES_ONLY
+			);
+			$iter->setMaxDepth( 4 );
+			$n = 0;
+			foreach ( $iter as $f ) {
+				if ( ++$n > 2000 ) {
+					break;
+				}
+				if ( $f instanceof SplFileInfo && $f->isFile() && 'php' === strtolower( $f->getExtension() ) ) {
+					$raw = @file_get_contents( $f->getPathname(), false, null, 0, 8192 );
+					if ( is_string( $raw ) && preg_match( '/^[ \t\/*#@]*Plugin Name\s*:/mi', $raw ) ) {
+						return true;
+					}
+				}
+			}
+		} catch ( \Throwable $t ) {
+			return true; // cannot tell: do not suppress the finding
+		}
+		return false;
+	}
+
+	/**
 	 * 1.4.120: a plugin whose code decodes an encrypted file shipped beside it
 	 * and runs the result.
 	 *
@@ -6408,7 +6546,7 @@ class WPS_Scanner {
 		$self_dir = realpath( WPS_DIR ) ?: '';
 		$examined = 0;
 		$reader   = '/\b(?:file_get_contents|fopen|readfile|file)\s*\(/i';
-		$literal  = '/[\'"]([^\'"]*\.(?:dat|cache|bin|data|db|blob|key|enc))[\'"]/i';
+		$literal  = '/[\'"]([^\'"]*\.(?:dat|cache|bin|data|db|blob|key|enc|idx|pkg))[\'"]/i';
 		$decoder  = '/\b(?:openssl_decrypt|gzinflate|gzuncompress|gzdecode|base64_decode|sodium_crypto_[a-z_]*open|mcrypt_decrypt|convert_uudecode)\s*\(/i';
 		$sink     = '/\b(?:eval|assert|create_function)\s*\(|\b(?:include|require)(?:_once)?\s*\(?\s*\$|\bcall_user_func(?:_array)?\s*\(\s*\$/i';
 
@@ -6595,6 +6733,13 @@ class WPS_Scanner {
 								}
 							}
 						}
+						continue;
+					}
+
+					// 1.4.121: an "image" that is really encoded text is a payload
+					// container, not an asset. Checked before the asset skip below.
+					if ( self::is_fake_image( $fp, $ext, (int) $f->getSize() ) ) {
+						$opaque[] = $f->getFilename();
 						continue;
 					}
 

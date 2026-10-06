@@ -1,5 +1,27 @@
 # WP Perf Shield changelog
 
+## 1.4.121
+
+New family: payload chunks disguised as images (comparetool, wishlistbuilder).
+
+### The samples
+Two archives with the same layout and different names: a folder holding `images/` with eight files named `.png` and `.gif`, plus empty `index.htm`, `js/index.html` and a `.js` file. None of the "images" is an image. Each is one unbroken line of ASCII text that begins with the letters `PNG` or `GIF` (so that a glance at the first bytes looks right), then base64-style text, in some files re-encoded with a reduced 42-character alphabet. Sizes are 65,536-byte chunks: 213,339 bytes is three chunks and a remainder, and four files in each sample have that exact size. There is no PHP, no plugin header and no uninstall file. The loader that would reassemble and run the chunks was not in either archive and was not recovered.
+
+### Why nothing reported it
+`check_headless_plugin_folder` ignored `.png` and `.gif` outright as harmless asset types, so the one place that looks for staged payloads in header-less folders was told not to look at the payload. All 93 checks over each sample: 0 findings.
+
+### What changed
+- **Fake images are payload containers.** A file named `.png`, `.gif`, `.jpg`, `.jpeg`, `.webp` or `.ico`, 512 bytes or more, whose first 2 KB carries none of the real signatures (PNG, GIF87a/89a, JPEG, WebP, icon) and is at least 98 percent printable ASCII, is now counted as opaque data by the headless-folder check, before the asset skip. Both samples are now reported as "Plugin folder with no plugin in it", critical, quarantined with the folder.
+- **New check `check_fake_image_payload`:** the same test for folders that do have a plugin header, in mu-plugins and in themes. High and review-only, since the folder is installed software. Header-less plugin folders are left to the headless check so they are not reported twice.
+- **Regression tests** cover a header-less fake-image folder (critical, auto-removable), the same files inside a plugin with a header (review-only), no double report, and a plugin with genuine PNG and GIF files (quiet). 24 cases pass.
+- **No change** for `media-library-assistant-6`, an empty folder named after a real plugin: its name lacks the family's hex-group shape and an empty folder with that name is also what a failed update leaves behind.
+- **More samples of the blob-folder family (`starter-seo-toolkit-52cf`, `total-security-enhancer-488a`, `ultra-render-helper-c8d3` and its empty `-9dda` re-drop slot):** each is a header-less folder with two opaque files and a 159 to 167 byte `uninstall.php` that deletes two options, under changing folder, extension and name choices (`.cache`/`.idx`, `.dat`/`.pkg`, `.bin`/`.cache`). The headless-folder check already reports and removes all of them, and the empty slot is reported by the 1.4.112 re-drop rule; the three names were added to the slug, folder-pattern and hash lists, and `.idx` and `.pkg` to the extensions the payload-loader check recognises. The blobs begin with a different four-byte header in each sample (`WVLR`, `CGPB`, others), so no signature was written on it.
+- **`total-render-toolkit-c58d`:** the known wp-perf-analytics ClickFix family with its loader present (an obfuscated `src/class-manager.php`, a known C2 domain, on-chain resolution, cloaked injection). Eleven existing checks report it, five of them auto-removable. No change.
+- **Genuine plugins left alone:** Site Kit by Google 1.188.0 (1,972 files, every one matching wordpress.org's published checksums) and Protect Uploads (two copies under random folder names) produce no findings.
+- Registered checks: 94 (was 93).
+
+Version markers move to 1.4.121.
+
 ## 1.4.120
 
 New sample: Auto Speed Insights (`auto-speed-insights-3f8f`, contributor `autoio`, "2.7.60").
