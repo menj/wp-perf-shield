@@ -39,6 +39,7 @@ class WPS_Admin_Settings {
 				<div class="wps-subnav" role="tablist" aria-label="Settings sections">
 					<button type="button" class="wps-subtab" role="tab" id="wps-st-detection" aria-controls="wps-sp-detection" aria-selected="true" data-panel="detection">Detection</button>
 					<button type="button" class="wps-subtab" role="tab" id="wps-st-signin" aria-controls="wps-sp-signin" aria-selected="false" data-panel="signin">Sign-in</button>
+					<button type="button" class="wps-subtab" role="tab" id="wps-st-xmlrpc" aria-controls="wps-sp-xmlrpc" aria-selected="false" data-panel="xmlrpc">XML-RPC &amp; exposure</button>
 					<button type="button" class="wps-subtab" role="tab" id="wps-st-posting" aria-controls="wps-sp-posting" aria-selected="false" data-panel="posting">Posting &amp; accounts</button>
 					<button type="button" class="wps-subtab" role="tab" id="wps-st-response" aria-controls="wps-sp-response" aria-selected="false" data-panel="response">Response</button>
 					<button type="button" class="wps-subtab" role="tab" id="wps-st-banned" aria-controls="wps-sp-banned" aria-selected="false" data-panel="banned">Banned plugins</button>
@@ -207,6 +208,169 @@ class WPS_Admin_Settings {
 								</label>
 							</td>
 						</tr>
+						</table>
+					</div>
+				</section>
+
+				<section class="wps-subpanel" role="tabpanel" id="wps-sp-xmlrpc" aria-labelledby="wps-st-xmlrpc" data-wps-panel="xmlrpc">
+					<?php
+					$xr_disabled = WPS_Exposure_Guard::parse_method_list( (string) ( $settings['xr_disabled_methods'] ?? '' ) );
+					$xr_curated  = array_keys( WPS_Exposure_Guard::CURATED_METHODS );
+					$xr_extra    = implode( "\n", array_values( array_diff( $xr_disabled, $xr_curated ) ) );
+					?>
+					<div class="wps-card wps-card--pad-lg">
+						<h2 class="wps-card-h">XML-RPC</h2>
+						<p class="wps-sm wps-muted wps-p">Everything here is off by default. To block <code>xmlrpc.php</code> outright, use the rule on the <a href="<?php echo esc_url( admin_url( 'tools.php?page=wp-perf-shield&tab=hardening' ) ); ?>">Hardening</a> tab; the controls below are for sites that still need XML-RPC (Jetpack, the mobile apps) and want to narrow it.</p>
+						<table class="form-table wps-p0">
+							<tr>
+								<th><label for="xr_no_pingback">Pingbacks</label></th>
+								<td>
+									<label class="wps-toggle-row">
+										<input type="checkbox" id="xr_no_pingback" name="xr_no_pingback" value="1" <?php checked( ( $settings['xr_no_pingback'] ?? '0' ) === '1' ); ?>>
+										<span>
+											<strong>Switch off pingbacks and trackbacks</strong><br>
+											<span class="description">Removes the <code>X-Pingback</code> header and the pingback link, closes pings on every post, and removes the two pingback methods from XML-RPC. Pingbacks are mostly used to send spam and to make your server request attacker-chosen addresses.</span>
+										</span>
+									</label>
+								</td>
+							</tr>
+							<tr>
+								<th>Disable methods</th>
+								<td>
+									<div class="wps-checkgrid">
+										<?php foreach ( WPS_Exposure_Guard::CURATED_METHODS as $xr_m => $xr_label ) : ?>
+											<label class="wps-toggle-row">
+												<input type="checkbox" name="xr_methods[]" value="<?php echo esc_attr( $xr_m ); ?>" <?php checked( in_array( $xr_m, $xr_disabled, true ) ); ?>>
+												<span><code><?php echo esc_html( $xr_m ); ?></code><br><span class="description"><?php echo esc_html( $xr_label ); ?></span></span>
+											</label>
+										<?php endforeach; ?>
+									</div>
+									<p class="description">Tick the methods this site should refuse. Anything you leave unticked keeps working, so Jetpack and the apps are not affected unless you tick what they use.</p>
+									<label for="xr_methods_extra" class="wps-sm wps-muted">Other method names, one per line</label>
+									<textarea id="xr_methods_extra" name="xr_methods_extra" rows="3" class="wps-mono wps-sm wps-w-full"><?php echo esc_textarea( $xr_extra ); ?></textarea>
+								</td>
+							</tr>
+							<tr>
+								<th><label for="xr_slug">Endpoint name</label></th>
+								<td>
+									<input type="text" id="xr_slug" name="xr_slug" value="<?php echo esc_attr( (string) ( $settings['xr_slug'] ?? '' ) ); ?>" class="regular-text wps-mono" maxlength="40" autocomplete="off" spellcheck="false">
+									<p class="description">Leave empty to keep <code>xmlrpc.php</code>. Set a name (4 to 40 letters, digits, dash or underscore) and XML-RPC is served at <code><?php echo esc_html( home_url( '/' ) ); ?>your-name</code> while <code>xmlrpc.php</code> answers 404, so scanners looking for the default file find nothing. This hides the endpoint; it does not protect it, so pair it with the address rules below. Needs pretty permalinks. Tell Jetpack or your apps the new address before you save.</p>
+								</td>
+							</tr>
+							<tr>
+								<th><label for="xr_allow_ips">Allowed addresses</label></th>
+								<td>
+									<textarea id="xr_allow_ips" name="xr_allow_ips" rows="3" class="wps-mono wps-sm wps-w-full" placeholder="203.0.113.7&#10;198.51.100.0/24"><?php echo esc_textarea( (string) ( $settings['xr_allow_ips'] ?? '' ) ); ?></textarea>
+									<p class="description">One address or range (CIDR) per line. When this list is not empty, only these addresses may use XML-RPC; everyone else gets a 403. Every valid line applies. Leave empty to allow everyone except the list below.</p>
+								</td>
+							</tr>
+							<tr>
+								<th><label for="xr_deny_ips">Blocked addresses</label></th>
+								<td>
+									<textarea id="xr_deny_ips" name="xr_deny_ips" rows="3" class="wps-mono wps-sm wps-w-full"><?php echo esc_textarea( (string) ( $settings['xr_deny_ips'] ?? '' ) ); ?></textarea>
+									<p class="description">One address or range per line, refused with a 403 whatever the allowed list says. Refusals are logged once per address every ten minutes. The address used is the connecting address (<code>REMOTE_ADDR</code>); behind a proxy or CDN that is the proxy's address, so these rules are only reliable when the connection reaches this server directly.</p>
+								</td>
+							</tr>
+						</table>
+					</div>
+
+					<div class="wps-card wps-card--pad-lg">
+						<h2 class="wps-card-h">Site exposure</h2>
+						<p class="wps-sm wps-muted wps-p">Fewer clues for the scanners that look for the WordPress version and its discovery endpoints before choosing an exploit.</p>
+						<table class="form-table wps-p0">
+							<tr>
+								<th><label for="xr_hide_version">WordPress version</label></th>
+								<td>
+									<label class="wps-toggle-row">
+										<input type="checkbox" id="xr_hide_version" name="xr_hide_version" value="1" <?php checked( ( $settings['xr_hide_version'] ?? '0' ) === '1' ); ?>>
+										<span>
+											<strong>Hide the WordPress version</strong><br>
+											<span class="description">Removes the generator tag and the <code>?ver=</code> value from script and style addresses when it equals the WordPress version. Plugin and theme versions are left alone so browser caching keeps working. This hides the number; it does not make an old version safe.</span>
+										</span>
+									</label>
+								</td>
+							</tr>
+							<tr>
+								<th><label for="xr_remove_discovery_links">Discovery links</label></th>
+								<td>
+									<label class="wps-toggle-row">
+										<input type="checkbox" id="xr_remove_discovery_links" name="xr_remove_discovery_links" value="1" <?php checked( ( $settings['xr_remove_discovery_links'] ?? '0' ) === '1' ); ?>>
+										<span>
+											<strong>Remove the RSD and Windows Live Writer links</strong><br>
+											<span class="description">Takes the <code>rsd_link</code> and <code>wlwmanifest_link</code> tags out of the page head. They advertise the XML-RPC endpoint to desktop publishing tools almost nobody uses now.</span>
+										</span>
+									</label>
+								</td>
+							</tr>
+							<tr>
+								<th><label for="xr_disable_feeds">Feeds</label></th>
+								<td>
+									<label class="wps-toggle-row">
+										<input type="checkbox" id="xr_disable_feeds" name="xr_disable_feeds" value="1" <?php checked( ( $settings['xr_disable_feeds'] ?? '0' ) === '1' ); ?>>
+										<span>
+											<strong>Turn off RSS and Atom feeds</strong><br>
+											<span class="description">Feeds answer 404 and their links leave the page head. Leave this off if readers, podcast apps or syndication depend on your feed.</span>
+										</span>
+									</label>
+								</td>
+							</tr>
+							<tr>
+								<th><label for="xr_rest_logged_in_only">REST API</label></th>
+								<td>
+									<label class="wps-toggle-row">
+										<input type="checkbox" id="xr_rest_logged_in_only" name="xr_rest_logged_in_only" value="1" <?php checked( ( $settings['xr_rest_logged_in_only'] ?? '0' ) === '1' ); ?>>
+										<span>
+											<strong>REST API for signed-in users only</strong><br>
+											<span class="description">Signed-out requests get a 401, which also stops user-name listing through <code>/wp/v2/users</code>. This can break contact forms, headless front ends and any public integration; list those below.</span>
+										</span>
+									</label>
+									<label for="xr_rest_exempt_namespaces" class="wps-sm wps-muted">Still allowed when signed out: namespace prefixes, one per line (for example <code>contact-form-7/</code>)</label>
+									<textarea id="xr_rest_exempt_namespaces" name="xr_rest_exempt_namespaces" rows="2" class="wps-mono wps-sm wps-w-full"><?php echo esc_textarea( (string) ( $settings['xr_rest_exempt_namespaces'] ?? '' ) ); ?></textarea>
+								</td>
+							</tr>
+						</table>
+					</div>
+
+					<div class="wps-card wps-card--pad-lg">
+						<h2 class="wps-card-h">Speed</h2>
+						<p class="wps-sm wps-muted wps-p">Small front-end and admin savings. None of these touches security.</p>
+						<table class="form-table wps-p0">
+							<tr>
+								<th><label for="xr_slow_heartbeat">Heartbeat</label></th>
+								<td>
+									<label class="wps-toggle-row">
+										<input type="checkbox" id="xr_slow_heartbeat" name="xr_slow_heartbeat" value="1" <?php checked( ( $settings['xr_slow_heartbeat'] ?? '0' ) === '1' ); ?>>
+										<span>
+											<strong>Slow the WordPress heartbeat to once a minute</strong><br>
+											<span class="description">Fewer background requests while the editor or dashboard is open. Autosave and post-lock checks run less often.</span>
+										</span>
+									</label>
+								</td>
+							</tr>
+							<tr>
+								<th><label for="xr_remove_emoji">Emoji scripts</label></th>
+								<td>
+									<label class="wps-toggle-row">
+										<input type="checkbox" id="xr_remove_emoji" name="xr_remove_emoji" value="1" <?php checked( ( $settings['xr_remove_emoji'] ?? '0' ) === '1' ); ?>>
+										<span>
+											<strong>Remove the emoji detection script and styles</strong><br>
+											<span class="description">Browsers draw emoji natively. Older browsers may show a plain glyph instead of WordPress's image.</span>
+										</span>
+									</label>
+								</td>
+							</tr>
+							<tr>
+								<th><label for="xr_disable_oembed">oEmbed script</label></th>
+								<td>
+									<label class="wps-toggle-row">
+										<input type="checkbox" id="xr_disable_oembed" name="xr_disable_oembed" value="1" <?php checked( ( $settings['xr_disable_oembed'] ?? '0' ) === '1' ); ?>>
+										<span>
+											<strong>Remove the embed helper script</strong><br>
+											<span class="description">Stops loading <code>wp-embed.js</code> on the front end. Other sites embedding your posts as cards will lose their live preview.</span>
+										</span>
+									</label>
+								</td>
+							</tr>
 						</table>
 					</div>
 				</section>

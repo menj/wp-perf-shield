@@ -448,6 +448,7 @@ class WPS_Utils {
 			'policy_banned_plugin_found'    => 'warning',
 			'policy_ban_enforced'            => 'warning',
 			'policy_download_blocked'        => 'warning',
+			'xmlrpc_ip_refused'              => 'warning',
 			'policy_ban_redrop'              => 'critical',
 			'policy_ban_enforce_failed'      => 'critical',
 			'htaccess_php_allowlist_found'  => 'critical',

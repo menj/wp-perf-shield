@@ -1,5 +1,19 @@
 # WP Perf Shield changelog
 
+## 1.4.131
+
+**XML-RPC and site-exposure controls, merged from the idea behind Neatma's "Disable XML-RPC-API" 2.1.7 (GPLv2).** Everything is new, original code in `includes/class-exposure-guard.php`; nothing was copied. Every option is **off by default**, so upgrading changes nothing until you switch something on. They live in a new Settings tab, "XML-RPC & exposure".
+
+### Added
+- **XML-RPC:** remove pingback support (methods, `X-Pingback` header, pingback URL); disable chosen methods (a curated list plus free text); serve the endpoint at a secret slug and 404 `xmlrpc.php` (needs pretty permalinks); allow or deny by IP or CIDR (IPv4 and IPv6, deny wins, 403 and a once-per-10-minutes `xmlrpc_ip_refused` event).
+- **Exposure:** hide the WordPress version from generator tags and `ver=` query strings; remove RSD, wlwmanifest and shortlink links; disable feeds; REST API for signed-in users only, with an exempt-namespace list.
+- **Speed:** slow the Heartbeat to 60 seconds; remove the emoji scripts; disable oEmbed discovery.
+
+### Not merged, and why
+Already covered by WP Perf Shield (login guard, file-edit lock, scanner); the source's settings framework and licence/update code (not needed); its Jetpack IP list (stale); `chmod 0444` on files (breaks updates); a hotlink rule with a malformed pattern; and a client-IP routine that trusts only the first forwarded address. IP rules use `REMOTE_ADDR`, which is unreliable behind a proxy or CDN. Signed-in-only REST can break public integrations.
+
+Tests: new `test-exposure-guard.php` 50 cases and `test-settings-render.php` 15; others unchanged. Registered checks unchanged at 95.
+
 ## 1.4.130
 
 Findings from CodeAnt AI's review of PRs 3 to 10, each checked against the code before anything was changed. Several were real, one was serious and wider than reported, and two are recorded as accepted limits.

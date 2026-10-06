@@ -173,6 +173,8 @@ tests/test-plugin-malware-detection.php   headless/payload/installer/dropper/fak
 tests/test-manual-removal.php             the "Delete this path" removal routine (16 cases)
 tests/test-policy-ban.php                 the on-disk policy ban (43 cases)
 tests/test-forensics-sql.php              the Forensics media-trace query: placeholders equal arguments (5 cases)
+tests/test-exposure-guard.php             XML-RPC and exposure guard: hooks, IP/CIDR, slug, REST gate, exiting behaviour via subprocess (50 cases)
+tests/test-settings-render.php            the real Settings tab renders and every xr_ field is saved and read (15 cases)
 tests/test-docs-sync.php                  version markers, changelog entries, and Appendix F against the code
 ```
 
@@ -645,3 +647,6 @@ Fields the plugin can't populate yet (country/city/asn before the GeoIP decision
 Detection remains technique-first; behavioural alerts follow the same review-only versus auto-remediation discipline as file detections (an anomaly is never auto-remediated; only content-confirmed malware is). Every list - scores, MITRE mappings, tracked screens, FIM file sets - lives in exactly one constant with accessors. UI additions follow the token system (PHP chooses classes, CSS owns colours, value-preserving) and the tabbed layout. The verification protocol extends to hook-driven features: the fixture harness gains WordPress hook stubs (`add_action`/`do_action` capture) so timelines and scoring are testable the way 1.3.97's detections are, and changelog claims stay grounded in what the harness actually exercised. `INDICATOR_VERSION` is unaffected by any of this planning; it moves only when the indicator lists change.
 
 ---
+
+### XML-RPC and exposure controls (1.4.131)
+Decision: merge only what the plugin did not already do, as original code, all options default off, in one class (`WPS_Exposure_Guard`) and one Settings tab. Source of the idea: Neatma "Disable XML-RPC-API" 2.1.7 (GPLv2). Skipped with reasons: its settings framework and licence code, a stale Jetpack IP list, `chmod 0444` (breaks updates), a malformed hotlink rule, and first-forwarded-IP client detection. Digest 1.4.131: new guard, `xr_*` settings, `xmlrpc_ip_refused` event, 65 new test cases.
