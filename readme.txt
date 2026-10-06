@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.127
+Stable tag: 1.4.128
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -25,7 +25,7 @@ It combines real-time plugin activation blocking, hourly malware scanning, behav
 
 * Blocks known malicious plugin slugs and renamed plugin patterns from activation.
 * Removes a banned plugin from disk on the next request, quarantined first, and leaves a placeholder file where it was so a plain re-extract fails; counts every return, records who owns the files and emails you when it keeps coming back.
-* Enforces a site-policy banned-plugins list, separate from malware blocking, for ordinary plugins you choose not to run (WP File Manager, FileOrganizer, and FileBird by default): refused on upload and activation, and deactivated if already present.
+* Enforces a site-policy banned-plugins list, separate from malware blocking, for ordinary plugins you choose not to run (WP File Manager, FileOrganizer, FileBird and Protect Uploads by default): refused on upload and activation, and deactivated if already present.
 * Checks plugin file hashes using built-in MD5 indicators and custom MD5/SHA-256 hashes.
 * Scrubs blocked plugins from both normal active plugin lists and multisite network-active plugin lists.
 * Detects wp-content drop-in persistence loaders that restore `mu-plugins/session-manager.php` from `wp_session_tokens_config`.
@@ -123,6 +123,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.128 =
+Protect Uploads is added to the built-in banned plugins list, with the folder names rcromlb and hvmosjt it was found under. It is refused on install, upload and activation and removed from disk on the next request, including when it sits under an unlisted folder name (found by its main file). A site-policy ban, not a malware label.
 
 = 1.4.127 =
 Adds one more staged payload folder name and its file hashes to the lists. The folder and its empty companion were already detected and removed.
@@ -616,6 +619,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.128 =
+Protect Uploads is now banned by default and removed if present. If you use it, switch the banned-plugins policy off in Settings before updating.
 
 = 1.4.127 =
 Adds one more payload folder name to the recognised lists; no behaviour change.

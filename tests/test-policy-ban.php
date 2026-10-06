@@ -109,6 +109,28 @@ put( $P . '/fileorganizer-notes', "some notes the operator wrote\n" );
 WPS_Blocker::enforce_policy_ban();
 check( 'a non-tombstone file is never deleted', is_file( $P . '/fileorganizer-notes' ) );
 
+// Protect Uploads (operator ban, 1.4.128): its slug, two folder names it was found under, and
+// the same plugin under a folder name nobody has listed.
+$pu = "<?php\n/**\n * Plugin Name:       Protect Uploads\n * Version:           0.3\n */\n";
+put( $P . '/rcromlb/protect-uploads.php', $pu );
+put( $P . '/hvmosjt/protect-uploads.php', $pu );
+put( $P . '/zzqq-random-77/protect-uploads.php', $pu );
+put( $P . '/zzqq-random-77/includes/class-protect-uploads.php', "<?php\n" );
+$removed = WPS_Blocker::enforce_policy_ban();
+check( 'the two listed folder names are removed', in_array( 'rcromlb', $removed, true ) && in_array( 'hvmosjt', $removed, true ), json_encode( $removed ) );
+check( 'the same plugin under an unlisted folder name is removed by its main file', in_array( 'zzqq-random-77', $removed, true ), json_encode( $removed ) );
+check( 'tombstones sit where all three were', is_file( $P . '/rcromlb' ) && is_file( $P . '/hvmosjt' ) && is_file( $P . '/zzqq-random-77' ) );
+check( 'the activation guard refuses its main file under any folder', WPS_Blocker::is_policy_banned( 'rcromlb/protect-uploads.php' ) && WPS_Blocker::is_policy_banned( 'anything-at-all/protect-uploads.php' ) );
+
+// Near misses stay.
+put( $P . '/compat-bridge/protect-uploads-compat.php', "<?php\n/* Plugin Name: Compat Bridge */\n" );
+put( $P . '/notaplugin/protect-uploads.php', "<?php\n// a file with the name but no plugin header\n" );
+put( $P . '/wp-protect-me/wp-protect-me.php', "<?php\n/* Plugin Name: Protect Me */\n" );
+$removed = WPS_Blocker::enforce_policy_ban();
+check( 'a plugin that only has a file with the word in its name is left alone', is_file( $P . '/compat-bridge/protect-uploads-compat.php' ) && ! in_array( 'compat-bridge', $removed, true ), json_encode( $removed ) );
+check( 'a file with the exact name but no plugin header is left alone', is_file( $P . '/notaplugin/protect-uploads.php' ) && ! in_array( 'notaplugin', $removed, true ), json_encode( $removed ) );
+check( 'a similar but different plugin name is left alone', is_file( $P . '/wp-protect-me/wp-protect-me.php' ) );
+
 // Our own directory is never touched even if the policy list names it.
 $GLOBALS['opts'][ WPS_OPTION ] = [ 'policy_banned_slugs' => "wp-perf-shield-self\n" ];
 WPS_Blocker::enforce_policy_ban();

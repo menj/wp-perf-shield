@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.128
+
+**Protect Uploads is now on the built-in banned list**, together with the folder names `rcromlb` and `hvmosjt` it was found under. If any of them is installed, it is removed on the next request (restorable from Diagnostics) and a placeholder file is left where it was; it cannot be installed, uploaded or activated. The plugin is also found by its main file under any other folder name. This is a site-policy decision, not a malware finding. If you do use Protect Uploads, switch the banned-plugins policy off under Settings, Banned plugins, or do not update to this version. Nothing else to configure.
+
 ## 1.4.127
 
 **One more staged payload folder name is recognised** (`smart-seo-scanner`), with its empty companion folder. Both were already being reported and removed; this only adds the name and file hashes to the lists. Nothing to configure.

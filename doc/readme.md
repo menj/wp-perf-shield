@@ -7,7 +7,7 @@ It is built for incident response and post-compromise hardening rather than broa
 ## Features
 
 - Real-time activation blocking for known malicious slugs, renamed patterns, and file hashes.
-- Site-policy plugin denylist, separate from malware blocking: ordinary plugins the operator refuses to run (WP File Manager, FileOrganizer, and FileBird by default) cannot be uploaded or activated, and are deactivated if already present. Recorded as policy decisions, never as malware, and the uploader's address is never added to the hostile-IP list. A banned plugin found installed on disk is quarantined and removed on the next scan (reversible, and gated on both the banned-plugins and auto-delete switches).
+- Site-policy plugin denylist, separate from malware blocking: ordinary plugins the operator refuses to run (WP File Manager, FileOrganizer, FileBird and Protect Uploads by default) cannot be uploaded or activated, and are deactivated if already present. Recorded as policy decisions, never as malware, and the uploader's address is never added to the hostile-IP list. A banned plugin found installed on disk is quarantined and removed on the next scan (reversible, and gated on both the banned-plugins and auto-delete switches).
 - Built-in MD5 indicators plus custom MD5/SHA-256 hash support.
 - Normal and multisite network-active plugin scrubbing.
 - Detection for wp-content drop-in persistence loaders that restore `mu-plugins/session-manager.php` from `wp_session_tokens_config`.
@@ -34,7 +34,7 @@ It is built for incident response and post-compromise hardening rather than broa
 - Detection of injected casino/gambling/SEO-spam content in posts and comments, at scan time and in real time as a post is saved, tuned so it flags SEO-spam signatures without flagging legitimate writing that merely mentions gambling. Detection only — it never deletes content.
 - PHP-guarded structured event log under `wp-perf-shield/logs/events.php`.
 - Tamper-evident event chain with a concurrency-safe append, and an in-plugin Event-chain self-test in Diagnostics that verifies the chain against the live database on the host — including that its append lock excludes across two connections — without external tooling.
-- A site-policy banned-plugins list (WP File Manager, FileOrganizer and FileBird by default, plus your own) enforced on disk as well as at the installer: a banned folder is removed on the next request, quarantined first, a placeholder file is left where it was so a plain re-extract fails, and every return is counted, logged with who owns the files and emailed from the second return.
+- A site-policy banned-plugins list (WP File Manager, FileOrganizer, FileBird and Protect Uploads by default, plus your own) enforced on disk as well as at the installer: a banned folder is removed on the next request, quarantined first, a placeholder file is left where it was so a plain re-extract fails, and every return is counted, logged with who owns the files and emailed from the second return.
 - Detection and removal of command-execution web shells: a file that takes a command from the request and runs it through a chain of process-execution functions (system, shell_exec, exec, passthru, popen), including when the function names are hex-encoded. The whole folder goes when the shell is its only PHP file; only the file when it was planted inside a real plugin.
 - Detection of staged payloads that have no loader: header-less plugin folders (and `mu-plugins` subfolders) holding opaque data under changing names, and payload chunks disguised as `.png`/`.gif` files that are really base64 text.
 - Detection of an installer endpoint guarded only by a hard-coded token that unpacks an uploaded zip into a code directory (removed together with the loader that requires it), of plugins that plant bundled folders into `mu-plugins`, and of plugin code that decodes an encrypted data file from its own folder and runs it.
@@ -228,7 +228,7 @@ Safe target ever reaches the destructive gate.
 
 ## Banned plugins
 
-WP Perf Shield keeps a policy list of plugins this site has chosen not to run. It is separate from the malware blocklist: removal under it is a policy decision and is never described as malware. `wp-file-manager`, `fileorganizer` and `filebird` are on it by default; add more under **Settings, Banned plugins**. The whole policy can be switched off there, which also removes any placeholder files.
+WP Perf Shield keeps a policy list of plugins this site has chosen not to run. It is separate from the malware blocklist: removal under it is a policy decision and is never described as malware. `wp-file-manager`, `fileorganizer`, `filebird` and `protect-uploads` are on it by default, along with the folder names `rcromlb` and `hvmosjt` that Protect Uploads has been found under; add more under **Settings, Banned plugins**. The whole policy can be switched off there, which also removes any placeholder files.
 
 A banned plugin is refused when installed, uploaded or activated, and since 1.4.125 it is also removed from the plugins folder on the next request, whoever put it there. The removal is quarantined first, so it can be restored from Diagnostics. A small placeholder file with the folder's name is left behind; a zip extraction cannot create a folder over a file. After three returns the folder is deleted instead of quarantined.
 
@@ -256,7 +256,7 @@ Each exits non-zero on failure. They do not replace running the plugin on a stag
 
 ## Version
 
-Current plugin version: `1.4.127`
+Current plugin version: `1.4.128`
 
 Author: [MENJ](https://github.com/menj)
 

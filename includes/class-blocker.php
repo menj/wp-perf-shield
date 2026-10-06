@@ -104,6 +104,9 @@ class WPS_Blocker {
             'wp-file-manager', // full-filesystem file manager; CVE-2020-25213 lineage
             'filebird',        // media-library folder organiser; operator preference
             'fileorganizer',   // elFinder-based full-filesystem file manager (Softaculous); same risk class as wp-file-manager. Substring match also catches the fileorganizer-pro add-on.
+            'protect-uploads', // operator preference (1.4.128): not sanctioned on this site. Substring match covers the plugin's own files wherever it is installed.
+            'rcromlb',         // folder name the same plugin has been found under (1.4.128); a random name, so it cannot collide with a real slug
+            'hvmosjt',         // second such folder name (1.4.128)
         ];
 
         $saved = get_option( WPS_OPTION, [] );
@@ -263,7 +266,13 @@ class WPS_Blocker {
                 }
                 continue;
             }
-            if ( ! $enabled || is_link( $path ) || ! is_dir( $path ) || ! self::is_policy_banned( $entry ) ) {
+            if ( ! $enabled || is_link( $path ) || ! is_dir( $path ) ) {
+                continue;
+            }
+            // Banned by folder name, or by what the folder holds: a banned plugin's
+            // main file under a folder name nobody has listed. Without this the same
+            // plugin returns under a fresh random folder name each time.
+            if ( ! self::is_policy_banned( $entry ) && '' === self::folder_holds_banned_plugin( $path ) ) {
                 continue;
             }
             $real = realpath( $path ) ?: $path;
@@ -351,6 +360,39 @@ class WPS_Blocker {
             }
         }
         return $removed;
+    }
+
+    /**
+     * 1.4.128: the main file of a banned plugin, found under any folder name.
+     *
+     * The match is strict on purpose, because it removes a whole folder on the
+     * strength of one file name: a top-level PHP file whose name is exactly a
+     * banned slug (`protect-uploads.php` for `protect-uploads`) AND that carries
+     * a `Plugin Name:` header. A plugin that merely has a file with a banned
+     * word somewhere in its name is not matched, and neither is a file with the
+     * right name and no plugin header.
+     *
+     * @return string the matching file name, or '' for none
+     */
+    private static function folder_holds_banned_plugin( string $dir ): string {
+        $files = @scandir( $dir );
+        if ( ! is_array( $files ) || count( $files ) > 400 ) {
+            return '';
+        }
+        $slugs = array_map( 'strtolower', self::get_policy_banned_slugs() );
+        foreach ( $files as $f ) {
+            if ( '.php' !== strtolower( substr( $f, -4 ) ) ) {
+                continue;
+            }
+            if ( ! in_array( strtolower( substr( $f, 0, -4 ) ), $slugs, true ) ) {
+                continue;
+            }
+            $head = @file_get_contents( $dir . '/' . $f, false, null, 0, 8192 );
+            if ( is_string( $head ) && preg_match( '/^[ \t\/*#@]*Plugin Name\s*:/mi', $head ) ) {
+                return $f;
+            }
+        }
+        return '';
     }
 
     /** First line of the file left where a banned plugin folder was. */
