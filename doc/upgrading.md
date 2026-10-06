@@ -61,7 +61,7 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 ## 1.4.120
 
-**One more disguised plugin is recognised.** A plugin named "Auto Speed Insights" (folder `auto-speed-insights-` plus four characters) is now reported and quarantined like the other fake caching plugins in this family. If you have never installed it, nothing changes. Nothing to configure. Two related additions: staged payload folders inside `mu-plugins` are now reported like the ones in `plugins`, and a plugin whose code reads an encrypted data file from its own folder, decodes it and runs it is reported as high and left for you to review; it is never removed automatically.
+**One more disguised plugin is recognised.** A plugin named "Auto Speed Insights" (folder `auto-speed-insights-` plus four characters) is now reported and quarantined like the other fake caching plugins in this family. If you have never installed it, nothing changes. Nothing to configure. Two related additions: staged payload folders inside `mu-plugins` are now reported like the ones in `plugins`, and a plugin whose code reads an encrypted data file from its own folder, decodes it and runs it is reported as high and left for you to review; it is never removed automatically. Also new: a web endpoint that unzips uploaded archives into a code directory, protected only by a secret compiled into the file, is reported as critical and removed with its loader, since nothing legitimate works that way; and a plugin that copies bundled folders into mu-plugins on activation is reported as high for your review.
 
 ## 1.4.119
 
