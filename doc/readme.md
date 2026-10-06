@@ -35,6 +35,7 @@ It is built for incident response and post-compromise hardening rather than broa
 - PHP-guarded structured event log under `wp-perf-shield/logs/events.php`.
 - Tamper-evident event chain with a concurrency-safe append, and an in-plugin Event-chain self-test in Diagnostics that verifies the chain against the live database on the host — including that its append lock excludes across two connections — without external tooling.
 - A site-policy banned-plugins list (WP File Manager, FileOrganizer and FileBird by default, plus your own) enforced on disk as well as at the installer: a banned folder is removed on the next request, quarantined first, a placeholder file is left where it was so a plain re-extract fails, and every return is counted, logged with who owns the files and emailed from the second return.
+- Detection and removal of command-execution web shells: a file that takes a command from the request and runs it through a chain of process-execution functions (system, shell_exec, exec, passthru, popen), including when the function names are hex-encoded. The whole folder goes when the shell is its only PHP file; only the file when it was planted inside a real plugin.
 - Detection of staged payloads that have no loader: header-less plugin folders (and `mu-plugins` subfolders) holding opaque data under changing names, and payload chunks disguised as `.png`/`.gif` files that are really base64 text.
 - Detection of an installer endpoint guarded only by a hard-coded token that unpacks an uploaded zip into a code directory (removed together with the loader that requires it), of plugins that plant bundled folders into `mu-plugins`, and of plugin code that decodes an encrypted data file from its own folder and runs it.
 - Removal from the findings list that does what automatic remediation does: "Delete this path" quarantines the item, quarantines the options its own files identify, and deactivates a removed plugin.
@@ -255,7 +256,7 @@ Each exits non-zero on failure. They do not replace running the plugin on a stag
 
 ## Version
 
-Current plugin version: `1.4.125`
+Current plugin version: `1.4.126`
 
 Author: [MENJ](https://github.com/menj)
 

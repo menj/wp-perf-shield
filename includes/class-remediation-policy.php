@@ -150,6 +150,11 @@ final class WPS_Remediation_Policy {
 		// guarded only by a secret compiled into the file. Six conditions at once
 		// (route, upload, unpack, code directory, hard-coded secret, no capability
 		// check); nothing legitimate installs code on request without asking who.
+		// 1.4.126: a file that takes a command from the request and runs it through a
+		// chain of process-execution functions. Four conditions at once (request input,
+		// three or more distinct execution functions, function_exists probing, a
+		// variable-function call with a variable argument); nothing legitimate.
+		'Command-execution web shell',
 		'Endpoint that installs uploaded code behind a fixed token',
 		'Endpoint that installs uploaded code behind a fixed token (loader)',
 		// 1.4.111: a nest of constants resolving to a dangerous call whose

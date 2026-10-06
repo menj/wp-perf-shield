@@ -166,8 +166,8 @@ It runs the parser fallback on every PHP and admin JS file, asserts version-mark
 Development tests are plain PHP scripts in:
 
 ```text
-tests/test-plugin-malware-detection.php   headless/payload/installer/dropper/fake-image/loader checks (26 cases)
-tests/test-manual-removal.php             the "Delete this path" removal routine (11 cases)
+tests/test-plugin-malware-detection.php   headless/payload/installer/dropper/fake-image/loader/web-shell checks (36 cases)
+tests/test-manual-removal.php             the "Delete this path" removal routine (12 cases)
 tests/test-policy-ban.php                 the on-disk policy ban (14 cases)
 tests/test-docs-sync.php                  version markers, changelog entries, and Appendix F against the code
 ```
@@ -586,6 +586,8 @@ Versions 1.3.58 and 1.3.59 are not formal protocol re-audits; they are increment
 **1.4.124 - the "Delete this path" button** quarantines, clears the options the target's own files identify, deactivates a removed plugin and records the redrop baseline, through `WPS_Scanner::remediate_manually()`. The remediation policy is deliberately not consulted: this is the control for findings the policy declined to remove, after an explicit confirmation.
 
 **1.4.125 - the policy ban on disk** (see Policy Ban Enforcement on Disk above) and a documentation sync.
+
+**1.4.126 - a web shell no check reported.** Two one-file command-execution shells produced zero findings from all 94 checks: no `eval`, not a file manager, function names hex-encoded. `check_command_exec_shell` reports a file that reads request input, names three or more distinct process-execution functions after decoding hex literals, probes with `function_exists` and calls a function held in a variable. Decision: conclusive and auto-removable, because the conjunction has no legitimate counterpart; removal scope follows what the shell sits in (whole folder only when it is the folder's only PHP file). It was run against about 2,900 genuine files before it shipped, and against three near-miss shapes in the tests. Also recorded: a defect in the blocker's hash lists (two MD5 values inside the SHA-256 list since 1.4.121) found while editing it, fixed; `tests/test-docs-sync.php` is what keeps the catalogue honest about the hash lists.
 
 ## Product Roadmap - EDR Programme (adopted 2026-07-03)
 

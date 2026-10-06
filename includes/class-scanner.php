@@ -605,6 +605,7 @@ class WPS_Scanner {
 			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
 			'check_mu_plugin_dropper' => [ __CLASS__, 'check_mu_plugin_dropper' ], // 1.4.120: plugin that copies bundled folders into mu-plugins and writes require loaders for them
 			'check_fake_image_payload' => [ __CLASS__, 'check_fake_image_payload' ], // 1.4.121: image-named files that are really encoded text, inside plugins that do have a header, mu-plugins and themes
+			'check_command_exec_shell' => [ __CLASS__, 'check_command_exec_shell' ], // 1.4.126: request-driven command runner probing a chain of process-execution functions, names often hex-encoded
 			'check_constant_assembled_calls' => [ __CLASS__, 'check_constant_assembled_calls' ], // 1.4.111: function names built from define() constants to defeat searching
 			'check_unattributed_plugins' => [ __CLASS__, 'check_unattributed_plugins' ], // 1.4.83: a plugin folder that appeared with no install ever recorded - the tool an intruder brought
 			'check_db_resident_payload' => [ __CLASS__, 'check_db_resident_payload' ], // 1.4.86: plugin that stores its payload in wp_options and re-seeds it, so deleting the folder leaves it behind
@@ -6391,6 +6392,160 @@ class WPS_Scanner {
 	}
 
 	/**
+	 * 1.4.126: a web shell that runs a command taken from the request.
+	 *
+	 * Recovered shape (bd-c71476c21e4d, bd-e96ae4645001): about a kilobyte, a
+	 * plugin header naming something plausible ("SEO Internals", "Media
+	 * Toolkit"), error reporting switched off, and one POST field that carries a
+	 * hex-encoded, XOR-encoded command. The function names are built at run time
+	 * (`pack("H*", "73797374656d")` is `system`) and tried one after another with
+	 * `function_exists`, so whichever of system, shell_exec, exec, passthru or
+	 * popen the host leaves enabled runs the command. Nothing in it is `eval`,
+	 * so execution-focused signatures, file-manager heuristics and the
+	 * file-operation cluster all pass it by: all 94 earlier checks reported zero
+	 * on both samples.
+	 *
+	 * Four facts must hold in one PHP file. It reads request input. It names at
+	 * least three DISTINCT process-execution functions, after decoding hex
+	 * literals, which is the fallback chain. It probes with `function_exists`.
+	 * And it calls a function held in a variable with a variable argument.
+	 * Legitimate code that shells out takes a fixed command rather than request
+	 * input; legitimate wrappers that probe several exec functions do not also
+	 * read a request field and call the result dynamically. Conclusive and
+	 * auto-removable. If the shell is the only PHP file in its plugin folder the
+	 * whole folder goes; if it sits among other code (an injected file in a real
+	 * plugin) only the file does.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_command_exec_shell(): array {
+		$found = [];
+		$roots = [];
+		if ( defined( 'ABSPATH' ) && is_dir( ABSPATH ) ) {
+			$roots[] = rtrim( ABSPATH, '/\\' );
+		}
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
+			$roots[] = rtrim( WP_CONTENT_DIR, '/\\' );
+		}
+		$self_dir = realpath( WPS_DIR ) ?: '';
+		$seen     = [];
+		$examined = 0;
+		$execs    = [ 'system', 'shell_exec', 'exec', 'passthru', 'popen', 'proc_open', 'pcntl_exec' ];
+		$rx_input = '/\$_(?:POST|REQUEST|GET|COOKIE)\b|php:\/\/input/i';
+		$rx_dyn   = '/@?\$\w+\s*\(\s*\$\w+/';
+
+		foreach ( array_unique( $roots ) as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 6 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() || self::scan_budget_exceeded() || ++$examined > 10000 ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( false === $size || $size < 120 || $size > 200000 ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					if ( '' !== $self_dir && strpos( $real, $self_dir ) === 0 ) {
+						continue;
+					}
+					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+						continue;
+					}
+					$raw = @file_get_contents( $path );
+					if ( ! is_string( $raw ) || false === stripos( $raw, 'function_exists' ) || ! preg_match( $rx_input, $raw ) || ! preg_match( $rx_dyn, $raw ) ) {
+						continue;
+					}
+
+					// Names the file can resolve to: quoted literals plus hex literals
+					// decoded through pack("H*", ...) and hex2bin(...).
+					$names = [];
+					foreach ( $execs as $e ) {
+						if ( preg_match( '/[\'"]' . $e . '[\'"]/i', $raw ) ) {
+							$names[ $e ] = true;
+						}
+					}
+					if ( preg_match_all( '/(?:pack\s*\(\s*[\'"]H\*[\'"]\s*,\s*|hex2bin\s*\(\s*)[\'"]([0-9a-fA-F]{4,64})[\'"]/', $raw, $hm ) ) {
+						foreach ( $hm[1] as $hx ) {
+							if ( 0 === strlen( $hx ) % 2 ) {
+								$dec = strtolower( (string) @hex2bin( $hx ) );
+								if ( in_array( $dec, $execs, true ) ) {
+									$names[ $dec ] = true;
+								}
+							}
+						}
+					}
+					if ( count( $names ) < 3 ) {
+						continue;
+					}
+
+					// Whole folder only when this is the only PHP file in a plugin folder.
+					$delete = $path;
+					$rootn  = str_replace( '\\', '/', $root );
+					$realn  = str_replace( '\\', '/', $real );
+					if ( preg_match( '#^' . preg_quote( $rootn, '#' ) . '/(?:wp-content/)?(plugins|mu-plugins)/([^/]+)/#', $realn, $pm ) ) {
+						$dir = $rootn . '/' . ( false !== strpos( $realn, '/wp-content/' ) ? 'wp-content/' : '' ) . $pm[1] . '/' . $pm[2];
+						if ( is_dir( $dir ) ) {
+							$php_count = 0;
+							try {
+								$sub = new RecursiveIteratorIterator(
+									new RecursiveDirectoryIterator( $dir, FilesystemIterator::SKIP_DOTS ),
+									RecursiveIteratorIterator::LEAVES_ONLY
+								);
+								$sub->setMaxDepth( 6 );
+								$n = 0;
+								foreach ( $sub as $sf ) {
+									if ( ++$n > 400 ) {
+										$php_count = 99;
+										break;
+									}
+									if ( $sf instanceof SplFileInfo && $sf->isFile() && 'php' === strtolower( $sf->getExtension() ) ) {
+										++$php_count;
+									}
+								}
+							} catch ( \Throwable $t ) {
+								$php_count = 99;
+							}
+							if ( 1 === $php_count && 'plugins' === $pm[1] ) {
+								$delete = $dir;
+							}
+						}
+					}
+
+					$found[] = [
+						'severity'    => 'critical',
+						'type'        => 'Command-execution web shell',
+						'subject'     => self::display_path( $path ) . ' runs a command taken from the request through ' . implode( ', ', array_keys( $names ) ),
+						'path'        => $path,
+						'action'      => 'This file reads a value from the request, decodes it and passes it to whichever process-execution function the host leaves enabled, trying ' . implode( ', ', array_keys( $names ) ) . ' in turn. It is a remote command shell: anyone who can send it a request runs commands as the web server. Nothing legitimate takes a command from a request field and probes for an execution function to run it. '
+							. 'Remove it, treat the site as compromised, rotate every credential, and look for how it arrived and for anything it has already run or written.',
+						'auto_delete' => true,
+						'delete_path' => $delete,
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'command_exec_shell_found', self::display_path( $path ) );
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		return $found;
+	}
+
+	/**
 	 * 1.4.121: files named like images that are really encoded text.
 	 *
 	 * Recovered shape (comparetool.zip): eight files named .png and .gif, none
@@ -6811,7 +6966,12 @@ class WPS_Scanner {
 				}
 				$age   = time() - (int) @filemtime( $pdir );
 				$known = self::headless_slug_parent( $slug );
-				$shape = (bool) preg_match( '/^[a-z]+-[a-z]+-[a-z]+(?:-[0-9a-f]{4})+$/', $slug );
+				$shape = (bool) preg_match( '/^[a-z]+-[a-z]+-[a-z]+(?:-[0-9a-f]{4})+$/', $slug )
+					// 1.4.126: the same operator's folders also come as one or two words
+					// and a single 12 to 16 character hex run (bd-c71476c21e4d,
+					// site-tools-389ee0ff2a166cbe). A real plugin slug does not end in a
+					// bare hex run that long, and the folder must still be empty and old.
+					|| (bool) preg_match( '/^[a-z]+(?:-[a-z]+)?-[0-9a-f]{12,16}$/', $slug );
 				if ( $age >= 15 * MINUTE_IN_SECONDS && ( '' !== $known || $shape ) ) {
 					$seen = self::remember_headless_slug( '' !== $known ? $known : $slug );
 					$found[] = [
