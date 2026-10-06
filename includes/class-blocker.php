@@ -1194,11 +1194,25 @@ class WPS_Blocker {
         }
     }
 
+    /** True for the probe marker file names `deep_check_<32 hex>.txt` and `upload_test_<32 hex>.txt`. */
+    public static function is_probe_marker_name( string $filename ): bool {
+        return (bool) preg_match( '/^(?:deep_check|upload_test)_[0-9a-f]{32}\.txt$/i', basename( str_replace( '\\', '/', $filename ) ) );
+    }
+
     public static function block_zip_upload( array $file ): array {
         $filename = (string) ( $file['name'] ?? '' );
         $name     = strtolower( $filename );
         $ip       = self::client_ip();
         $context  = self::upload_context( $filename );
+
+        // 1.4.133: upload and read-back probes (deep_check_<hex>.txt, upload_test_<hex>.txt)
+        // are left by whoever is testing whether a site can be written to.
+        if ( self::is_probe_marker_name( $filename ) ) {
+            WPS_Logger::log_event( 'upload_blocked', self::format_upload_context( $filename, $context ), $ip );
+            self::record_upload_offender( $ip, $filename, $context );
+            $file['error'] = 'This file is blocked by WP Perf Shield.';
+            return $file;
+        }
 
         foreach ( self::get_blocked_slugs() as $slug ) {
             if ( strpos( $name, strtolower( $slug ) ) !== false ) {

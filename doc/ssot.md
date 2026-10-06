@@ -653,3 +653,6 @@ Decision: merge only what the plugin did not already do, as original code, all o
 
 ### Four detections from the easypost, en and doorway samples (1.4.132)
 Decision: all four are matched on behaviour, not on names or hashes (easypost is also a real shipping brand, so no slug ban). Auto-removal is scoped to the file, or to its folder when the folder holds only that kit. Digest 1.4.132: `check_embedded_php_dropper`, `check_remote_admin_endpoint`, `check_card_harvester_kit`, `check_redirect_doorway`; registered checks 99; no secrets from the samples (bot token, chat id) are stored in the repository.
+
+### Probe marker files (1.4.133)
+Decision: block by name at upload time and remove by name plus matching content on scan; name alone is not enough to delete. Digest 1.4.133: `check_probe_marker_files`, `WPS_Blocker::is_probe_marker_name()`; registered checks 100.
