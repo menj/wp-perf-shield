@@ -56,11 +56,15 @@ A family marked *detect only* is found by scanning after it is already installed
 | 10 | [EtherHiding loaders](#10-etherhiding-loaders) | Blockchain-hosted payload delivery | Detect |
 | 11 | [Persistence implants](#11-persistence-implants) | Survival across cleanup | Detect |
 | 12 | [Other tracked slugs](#12-other-tracked-slugs) | Assorted fake plugins | Activation, upload, detect |
+| 16 | [Staged payload folders](#16-staged-payload-folders) | Opaque data with no loader, under changing names | Activation, hash, detect |
+| 17 | [Payload chunks disguised as images](#17-payload-chunks-disguised-as-images) | Base64 text named `.png`/`.gif` | Detect |
+| 18 | [Token-gated mu-plugin installer](#18-token-gated-mu-plugin-installer) | Remote code installation on request | Detect |
+| 19 | [WP Link Helper worm](#19-wp-link-helper-worm) | Self-propagating link injection | Detect |
 
 ---
 ## 1. ClickFix render hijacker
 
-The family WP Perf Shield was originally written against, and still the largest. Seventeen catalogued members.
+The family WP Perf Shield was originally written against, and still the largest. Eighteen catalogued members.
 
 **Classification.** Visitor-facing JavaScript injection. The site's own pages are used to serve a lure to ordinary visitors while the owner sees nothing wrong.
 
@@ -94,6 +98,7 @@ Deleting the plugin file alone is insufficient. The option row survives and re-s
 | `total-database-optimizer` | `total-database-optimizer-9a95.php` | `80322b56aaec6af92d392f8daa36aee7` | 1.3.69 | **Verified** |
 | `site-security-toolkit` | `site-security-toolkit-1f30.php` | `608576a9322aab3585fe7e7eb109f368` | 1.3.79 | **Verified** |
 | `auto-asset-helper` | `auto-asset-helper-2763.php` | `7bbf81ab731b59b3c0fed628c1f3cf3d` | 1.3.79 | **Verified** |
+| `total-render-toolkit` | `total-render-toolkit-c58d/src/class-manager.php` | `9f15fe93926b2a5c5ec750d2dfacfa65` | 1.4.121 | **Verified** |
 | `wp-performance-analytics` | — | covered by the XOR-build hashes | 1.2.x | Catalogued |
 | `wp-perf-monitor` | — | covered by the XOR-build hashes | 1.2.x | Catalogued |
 | `wp-site-analytics` | — | covered by the XOR-build hashes | 1.2.x | Catalogued |
@@ -101,6 +106,8 @@ Deleting the plugin file alone is insufficient. The option row survives and re-s
 | `wp-perf-stats` | — | covered by the XOR-build hashes | 1.2.x | Catalogued |
 
 Four members were verified directly for this catalogue. `total-database-optimizer-9a95.php` is 9,808 bytes, SHA-256 `1e599220…6adb3`, class `WP_Manager_abc5`, author "Cache Software", option `wp_d4b340aceb_cfg`. `site-security-toolkit-1f30.php` is 9,674 bytes, SHA-256 `3bb3738a…5ae9`, class `Core_Loader_c8fc`, author "Cache Solutions", option `wp_1f20bc3f7f_cfg`. `auto-asset-helper-2763.php` is 10,739 bytes, SHA-256 `de3bc67f…a451`, class `Res_Helper_ad74`, author "WP Solutions", option `wp_8447aa87d2_cfg`.
+
+`total-render-toolkit-c58d` (examined for 1.4.121, SHA-256 `d38fd9827553b1ac00dfeb8f3fe4655a6743e7a89039e354c9d25b21ba9c9fc9`, 9,022 bytes) differs from the members above in one respect: its payload is not a `wp_options` row but a bundled blob, `static/index.bin` (4,079 bytes, MD5 `5d9f7369da1479d52e8bf9c62cd35b77`, header `KZHE`), with a second opaque file `static/settings.cache` (9,030 bytes, MD5 `03a6c1fb75587968ca13cc605b3a2d23`). The loader, class `Health_Init_e784`, reads the blob, undoes a byte-substitution table named in its header, then `gzinflate`s it. Every hook name is assembled from string fragments, and it schedules `wp_f9317aa4_tick` on a self-registered `every_fifteen_minutes` interval. It references the known C2 domain `webanalytics-cdn.sbs` and resolves on-chain. Eleven existing checks report it, five of them auto-removable, so the shape needed no new detection. It matters for [family 16](#16-staged-payload-folders), whose folders have the same two-blob shape without the loader.
 
 `auto-asset-helper` was carried without a hash from 1.4.49 until 1.4.53, because the sample was not available and a hash written from memory silently matches nothing while looking like protection. The operator supplied the file, so the entry is now computed from it rather than remembered.
 
@@ -498,6 +505,127 @@ The effect is that a compromised site looks clean from inside. An administrator 
 
 ---
 
+## 16. Staged payload folders
+
+**Classification.** Delivery staging. The folder is not malware by itself, because nothing in it can run; it is the data half of a plugin whose loader is somewhere else, or has been removed, or has not arrived yet.
+
+**Delivery.** A folder under `wp-content/plugins` named like the ClickFix family (`<words>-<4 hex>`, sometimes a second hex group), with no plugin header anywhere, a generic caching or SEO readme, a `.pot` file, a licence, and an `uninstall.php` of 159 to 167 bytes that is identical across samples apart from the slug. It deletes two options, `<slug>_initialized` and `<slug>_cfg`. Two opaque files sit in a subfolder whose name and the files' extensions change per sample.
+
+| Folder | Larger file | Smaller file | Notes |
+| --- | --- | --- | --- |
+| `auto-speed-insights-3f8f` | `resources/cache.dat`, 9,812 bytes, MD5 `04862e5820ea350b8579668a1ddbf337` | `resources/manifest.cache`, 3,838 bytes, MD5 `dcc1d76e1572d52301b6cb2482021be6`, header `WVLR` | Readme names contributor `autoio`, version 2.7.60; an empty `includes/` folder |
+| `starter-seo-toolkit-52cf` | `assets/data.cache`, 9,888 bytes, MD5 `0de721dc40fac6749657d693b2725374` | `assets/manifest.idx`, 3,830 bytes, MD5 `054a5283e77a249934ebb2db8ac90b87`, header `CGPB` | |
+| `total-security-enhancer-488a` | `resources/cache.dat`, 9,185 bytes, MD5 `1c0b56625bf27e0ab0ee024574fb0da6` | `resources/cache.pkg`, 3,824 bytes, MD5 `f07a7e783b069648593907e37e9266c1` | |
+| `ultra-render-helper-c8d3` | `static/index.bin`, 8,719 bytes, MD5 `16cd830983e239ecf1aeaafcc6f5b5f9` | `static/state.cache`, 3,832 bytes, MD5 `5453a332c98dd7c84759c97318529c74` | An empty `ultra-render-helper-c8d3-9dda` accompanied it |
+| `wp-cache-profiler-3a4a-e5b4` | none | none | An empty folder only |
+
+SHA-256 values are in Appendix F. The smaller file begins with a four-byte header that differs per sample, so no signature was written on it. No loader was recovered for any of these. **Inference, not established:** the two-blob shape and the sizes match the data files of the loader-bearing ClickFix member `total-render-toolkit-c58d` ([family 1](#1-clickfix-render-hijacker)), so these may be what is left after its loader is removed, or the staging step before it arrives. The empty folders are landing pads: a dropper that finds its name taken makes a fresh suffixed one.
+
+**Detection.** `check_headless_plugin_folder`: no `Plugin Name` header, an opaque file, options declared by `uninstall.php`; critical and auto-removable, with the options quarantined alongside. It also covers subfolders of `mu-plugins` (1.4.120) and treats a fake image as an opaque file (1.4.121). An empty folder that matches the family's name shape and is older than fifteen minutes is reported as a re-drop slot. `check_opaque_payload_loader` finds the loader if one is present.
+
+**Blocking.** The slugs `auto-speed-insights`, `starter-seo-toolkit`, `total-security-enhancer` and `ultra-render-helper` are on the activation lists, with folder patterns and the eight file hashes. The slug and hash entries only help if a later sample reuses these exact names and bytes; the headless check does the general work.
+
+**Remediation.** Remove the folder, which quarantines the two options with it, then find how it arrived: the plugin roster reports a plugin that appeared without an installation recorded.
+
+---
+
+## 17. Payload chunks disguised as images
+
+**Classification.** Delivery staging, as family 16, with the payload split and hidden behind image file names.
+
+**Delivery.** A folder with no plugin header holding `images/` with eight files named `.png` and `.gif`, plus an empty `index.htm`, an empty `js/index.html` and an empty `.js` file with a random name. Two samples are catalogued, `comparetool` and `wishlistbuilder`, with different file names and almost identical sizes.
+
+**Mechanism.** None of the "images" is an image. Each is one unbroken line of ASCII text that begins with the letters `PNG` or `GIF`, so that a glance at the first bytes looks right, followed by base64-style text. Four files per sample are exactly 213,339 bytes, which is three 65,536-byte chunks and a remainder: pieces of one larger blob. Some use the standard 64-character alphabet; others use a reduced 42-character one, a custom substitution. No loader was recovered, and the blob was not decoded.
+
+| Sample | File | Bytes | MD5 | Begins |
+| --- | --- | --- | --- | --- |
+| `comparetool` | `images/cedushe.png` | 213,339 | `eac645932516f89f7cb68ac71ee91415` | `PNGciXaZwT4F` |
+| `comparetool` | `images/hysuceh.png` | 95,787 | `df75287bc56acfa33c3979dade44f1ac` | `PNGJEB4AL3S6` |
+| `comparetool` | `images/ocegole.png` | 213,339 | `b7f4178c530d7cd7bb5c0b5008fa04ca` | `PNGFwnahLQkF` |
+| `comparetool` | `images/tidykil.gif` | 12,479 | `d9596399df1ff87065b208d660379c86` | `GIFOwFSstjVZ` |
+| `comparetool` | `images/tohizy.gif` | 213,339 | `b01b61086b01f5c0729421c062c60e2f` | `PNGFa=8ZiTdn` |
+| `comparetool` | `images/vewygu.png` | 213,339 | `22ec53e118b7cb7b777b0884a56073b6` | `PNGhi=0ciTWn` |
+| `comparetool` | `images/ywilid.gif` | 473,907 | `64a40c600acb100b5b2d5df433f3872c` | `GIF6kjWAyKge` |
+| `comparetool` | `images/zovuki.png` | 64,331 | `7dcfe315b7eec8554351c36ef2c4a454` | `PNGF2rU14cSF` |
+| `wishlistbuilder` | `images/axothuh.png` | 64,455 | `1e583b67b3aca8b43517c71e85d805fb` | `PNGz2th76i5G` |
+| `wishlistbuilder` | `images/efanyqu.gif` | 213,339 | `27d0bbd3d91033f3c45fee80e6fde6ce` | `PNGzU=fYdPoz` |
+| `wishlistbuilder` | `images/izywyx.gif` | 468,387 | `86b75e9d9d82b7069dc29dd2e1d41ce2` | `GIFJouyBCRwD` |
+| `wishlistbuilder` | `images/noshepa.png` | 213,339 | `63acca09d4801af4c6f7951fc46dc155` | `PNGi1rfXUE6z` |
+| `wishlistbuilder` | `images/obavena.png` | 213,339 | `9d16c1ce4838cef6b19c4a98e78b72ec` | `PNGzfk4X1E/=` |
+| `wishlistbuilder` | `images/orobej.gif` | 95,791 | `29580c09697f777fbc13da4adc48a3b0` | `GIF0xj6BdW5J` |
+| `wishlistbuilder` | `images/tyqano.png` | 213,339 | `4faea4b4c72ce9514a441199fbcbede9` | `PNGY1kVi1Ey=` |
+| `wishlistbuilder` | `images/zatedu.png` | 12,467 | `a8924d39400c73106e2d4c77d70b71b7` | `PNGGUz5eauKX` |
+
+These hashes are recorded here as evidence and are **not** carried in `includes/class-blocker.php`: the file names are random per sample, and the structural test is what generalises.
+
+**Detection.** Until 1.4.121 nothing: `check_headless_plugin_folder` skipped `.png` and `.gif` as harmless assets, so the one check that looks for staged payloads was told not to look at this one, and all checks reported zero findings on both samples. Now a file with an image extension, 512 bytes or more, with none of the real signatures (PNG, GIF87a/89a, JPEG, WebP, icon) and at least 98 percent printable ASCII in its first 2 KB counts as opaque data. `check_headless_plugin_folder` reports a header-less folder as critical and auto-removable; `check_fake_image_payload` reports the same files inside a plugin that has a header, in `mu-plugins` and in themes as high and review-only.
+
+**Blocking.** None, by design; the names are random.
+
+**Remediation.** Remove the folder. Then find the loader that reassembles the chunks, which was not in either archive.
+
+---
+
+## 18. Token-gated mu-plugin installer
+
+**Classification.** Remote code installation on request: a backdoor whose only function is to let whoever holds a secret put any PHP they like into `mu-plugins`, where it loads on every request before anything can object.
+
+**Delivery.** A two-part package named `backdoor`. The dropper, `backdoor.php` (plugin header `Backdoor`, version 0.1.0, 1,930 bytes), registers an activation hook that copies every folder bundled in its own `mu-plugin/` directory into `WPMU_PLUGIN_DIR` and writes a loader for each, `<name>.php`, that requires `<name>/<name>.php`. The bundled folder is the installer, `mu-plugin/plugins/plugins.php` (6,802 bytes).
+
+**Mechanism.** The installer registers a REST route in the namespace `plugins/v1`. `POST /install` accepts a zip, as a multipart upload or as a raw body with the folder name in an `X-Plugin-Slug` header, unzips it to a scratch directory, deletes any existing mu-plugin of the same name together with its loader, and installs the new one. `GET /health` is unauthenticated and returns a fixed OK body, which is a presence oracle: it tells anyone who asks that this site carries the backdoor. The only gate on `/install` is a 64-character hexadecimal token compiled into the file and compared with `hash_equals`, accepted from the `X-Auth-Token` header or a `token` parameter. There is no capability check, login or nonce. Every copy of the file carries the same token, so every site that has it is open to whoever has the token.
+
+The token is **not** reproduced here. Publishing a working credential for backdoors that may still be live would help whoever reads this catalogue more than it helps anyone defending. It begins `34856927` and ends `e01e1495`; search a file for both to identify it.
+
+| File | Bytes | MD5 | SHA-256 |
+| --- | --- | --- | --- |
+| `backdoor.php` | 1,930 | `cf116a970c145341a79d6052d5470469` | `38f5b5e9b179ad47eb4297646e5777a1797d3f181f07051df11ac85d9ff7fe5e` |
+| `mu-plugin/plugins/plugins.php` | 6,802 | `b95e3751dec6f60ea554ddf4964c5b60` | `07d99e9acc2395d4c816e05b592502e5869d48b442e01738be1267e25ad5c2c9` |
+
+Recorded here as evidence, not carried in `includes/class-blocker.php`: the structural checks below generalise where a hash would not.
+
+**Detection.** `check_remote_code_installer` (1.4.120) requires six facts in one PHP file: a REST route or logged-out AJAX action, an uploaded file or raw body, an archive unpack, a code directory, a hard-coded hex secret compared with `hash_equals` or a constant, and no `current_user_can`, login or nonce check anywhere in the file. It is critical, conclusive and auto-removable, and it reports the one-line loader first, because deleting the folder while the loader still requires it would make the loader fatal on every request. It works for the file loose in `mu-plugins`, in an `mu-plugins` subfolder and in a plugin folder. `check_mu_plugin_dropper` reports the dropper as high and review-only, because a few legitimate plugins install one helper into `mu-plugins`.
+
+**Blocking.** None.
+
+**Remediation.** Remove the loader and the folder, treat the site as compromised, rotate every credential, and look in `plugins` and `mu-plugins` for anything it has already installed, since the route exists to install things.
+
+---
+
+## 19. WP Link Helper worm
+
+**Classification.** Self-propagating link injection and the campaign's foothold: it re-drops the payload folders in families 1 and 16 and spreads to other sites on the same host.
+
+**Delivery.** `wp-link-helper/`, plugin header `WP Link Helper`, build 0.10.15 examined: `wp-link-helper.php` and four classes (`WLH_Render`, `WLH_Static`, `WLH_Cache`, `WLH_Botstat`). Its own changelog comments document it plainly, which is how most of what follows is known.
+
+**Mechanism.**
+- Injects hidden link blocks into rendered pages (`template_redirect` at priority 1), serving them only to visitors who are not administrators or verified crawlers, and counting verified Googlebot hits by forward-confirmed reverse DNS in the option `wlh_bot_hits`.
+- A **static channel** (0.7.0): it writes hidden `<!--lh:s{id}-->` link blocks, closed by `<!--lh:e{id}-->`, into the `index.html` of other, non-WordPress sites that share the server account, directly over the filesystem, with atomic writes and a ceiling of 30 links per site.
+- Survives removal: mu-plugins copies that re-activate or re-download it, including after deactivation or when its main file is gutted; a baked-in claim fallback so a copy wiped down to nothing can re-claim; marker strings assembled at run time; a heartbeat-driven self-update pinned to a SHA, with a signed rollback to the previous build.
+- Remote control by signed requests to the site: `?wlh_claim`, `?wlh_update`, `?wlh_adopt`, `?wlh_adoptclean`, `?wlh_wchinstall`, `?wlh_botstats`, `?wlh_neighbors` (a scan for sibling sites under the same account). Unsigned requests get no response at all, to avoid acting as a presence oracle.
+- Hides itself: options `wlh_hide_self` and `wlh_hide_update`.
+
+Options it stores: `wlh_cdn`, `wlh_key`, `wlh_origin`, `wlh_proj`, `wlh_ca`, `wlh_err`, `wlh_lh`, `wlh_links`, `wlh_sw_links`, `wlh_snippet`, `wlh_adopted`, `wlh_hide_self`, `wlh_hide_update`, `wlh_bot_hits`. The cron hook and signed-operation names are in `check_link_helper_worm`.
+
+| File | Bytes | MD5 | SHA-256 |
+| --- | --- | --- | --- |
+| `wp-link-helper.php` | 18,375 | `efc4ec81fb468f621c90d3845e5af919` | `5fc7a12ad306b66c51fad97f5619c3f6c61368a97ec352b2609239469bcb1b86` |
+| `includes/class-wlh-render.php` | 12,018 | `84763e737a5ebd5df751ee33115fdac1` | `6b39cbe007d31a9d57fe788758c5e32781166f53fb3024ee1acf20c94b298406` |
+| `includes/class-wlh-static.php` | 12,163 | `1f6c601ca1d0cd9881bf24eddca1ca4f` | `897b6dea4d00f48cdab8aaa37fb48b4b3ff65df97bc241d79d2adfd30f7c9c54` |
+| `includes/class-wlh-botstat.php` | 6,120 | `c0497f85fe29ebb02c3a8500e2235657` | `96604128c7ffcb935807d039a6eef39177b5164b1231e1513e57a49c8965432f` |
+| `includes/class-wlh-cache.php` | 976 | `e9121d9773ec54190da35d1675b82088` | `5485bbad48b9727b446e5fadaf73e3d19bcdb95287f0901d52c5ec6517b07dc5` |
+
+Recorded as evidence, not carried in `includes/class-blocker.php`.
+
+**Detection.** `check_link_helper_worm` (1.4.114): a cluster of its own request handlers, three or more of its option names quoted in one file, and a signed worm operation, all together; critical and auto-removable. `check_self_hiding_plugins` independently reports `class-wlh-render.php` for serving output only to visitors who are not administrators. Both fire on the 0.10.15 sample.
+
+**Not covered.** Nothing in WP Perf Shield looks for the hidden link blocks the static channel writes into other sites' `index.html` files. They sit outside WordPress, so a scan of this site cannot see them, and removing the worm here does not remove them. Check the `index.html` of every other site on the same hosting account for the `lh:s` and `lh:e` comment markers. The worm's `mu-plugins` self-heal copies were not in the sample and were not tested.
+
+**Blocking.** None.
+
+**Remediation.** Enable auto-remediation and scan, or use "Delete this path" (1.4.124: quarantines the folder, quarantines the options above and deactivates the plugin). Then scan again: each `mu-plugins` self-heal copy is a separate finding, and any left behind will re-claim.
+
+---
+
 ## Cross-family techniques
 
 Grouped by what the technique is *for*, because the same trick recurs across unrelated families and detection targets the technique rather than the instance.
@@ -545,6 +673,8 @@ Thirteen ClickFix payload keys of the form `wp_<10 hex>_cfg` are catalogued indi
 
 `wp_94d4678186_cfg` · `wp_a26c00cc40_cfg` · `wp_0b05838858_cfg` · `wp_e3ef2393dd_cfg` · `wp_204acd2d43_cfg` · `wp_fe99c06901_cfg` · `wp_b6786d21cb_cfg` · `wp_a326b31e44_cfg` · `wp_e07ded4e61_cfg` · `wp_3093c104e2_cfg` · `wp_d4b340aceb_cfg` · `wp_1f20bc3f7f_cfg` · `wp_8447aa87d2_cfg`
 
+Worm keys (family 19): `wlh_cdn` · `wlh_key` · `wlh_origin` · `wlh_proj` · `wlh_ca` · `wlh_err` · `wlh_lh` · `wlh_links` · `wlh_sw_links` · `wlh_snippet` · `wlh_adopted` · `wlh_hide_self` · `wlh_hide_update` · `wlh_bot_hits`. Staged folders (family 16) declare `<slug>_initialized` and `<slug>_cfg`, read from their own `uninstall.php`.
+
 Non-ClickFix keys: `wp_session_tokens_config`, `session_tokens_config`, `wp_antymalwary_bot`, `wpconsole_key`, `wps_emergency_pass`, `malwary_pass`, `wp_perf_ok`, `_wp_perf_ok`, `_cf_verified`, `cf_verified_token`.
 
 ## Appendix C — Filenames
@@ -554,6 +684,8 @@ Non-ClickFix keys: `wp_session_tokens_config`, `session_tokens_config`, `wp_anty
 **Also catalogued.** `wp-backup-verify.php` · `wc-report-handler.php` · `wp-locale-handler.php` · `ms-file-router.php` · `wp-cache-stats.php` · `db-connection-pool.php` · `role-validator.php`
 
 **Exfiltration staging.** `Stained_Heart_Red-600x500.png` — an image extension carrying non-image content.
+
+**Staged payloads and installers.** `resources/cache.dat` · `resources/manifest.cache` · `assets/data.cache` · `assets/manifest.idx` · `resources/cache.pkg` · `static/index.bin` · `static/state.cache` · `static/settings.cache` · `images/*.png` and `images/*.gif` that are not images · `mu-plugin/plugins/plugins.php` · `backdoor.php` · `wp-link-helper.php` · `includes/class-wlh-*.php`
 
 **Kit components.** `core/core.php` · `core/panel_<hex>.php` · `core/filemanager_<hex>.php` · `core/backdor_<hex>.php` · `config/settings.json`
 
@@ -622,6 +754,14 @@ Every fingerprint WP Perf Shield carries, with the attribution recorded alongsid
 | `50c02424e0e723c019b4d2bf849f2a9b` | wp-security-helper.php |
 | `b466fa4c2fac736d65b343d47fd0e1d1` | Stained_Heart_Red-600x500.png (416-line) |
 | `09a86e4696b21391d3911b0b64a50c48` | Stained_Heart_Red-600x500.png (63-line, live) |
+| `04862e5820ea350b8579668a1ddbf337` | auto-speed-insights-3f8f/resources/cache.dat, added 1.4.120 |
+| `dcc1d76e1572d52301b6cb2482021be6` | auto-speed-insights-3f8f/resources/manifest.cache, added 1.4.120 |
+| `0de721dc40fac6749657d693b2725374` | starter-seo-toolkit-52cf/data.cache, added 1.4.121 |
+| `054a5283e77a249934ebb2db8ac90b87` | starter-seo-toolkit-52cf/manifest.idx, added 1.4.121 |
+| `1c0b56625bf27e0ab0ee024574fb0da6` | total-security-enhancer-488a/cache.dat, added 1.4.121 |
+| `f07a7e783b069648593907e37e9266c1` | total-security-enhancer-488a/cache.pkg, added 1.4.121 |
+| `16cd830983e239ecf1aeaafcc6f5b5f9` | ultra-render-helper-c8d3/index.bin, added 1.4.121 |
+| `5453a332c98dd7c84759c97318529c74` | ultra-render-helper-c8d3/state.cache, added 1.4.121 |
 
 ### SHA-256
 
@@ -660,8 +800,16 @@ Every fingerprint WP Perf Shield carries, with the attribution recorded alongsid
 | `bae6d2e4f396b9610c11a839a9ffc9740033c7d7a482d5310af63cc45351979b` | SHA-256 |
 | `1d2699149bbb1f523cd914cbe2025de77e00dd58dedd11eaded9a04b01246d50` | SHA-256 |
 | `0a26e477951896659dbc5b0b18929995303a9ab4e071288b40691e0b366b96a1` | SHA-256 |
+| `5b0bfdcecf305a2143b6264603aa6f7528df4a7a5d56cb44f392b9a7c27b5f38` | SHA-256 auto-speed-insights-3f8f cache.dat, added 1.4.120 |
+| `af1a7006c4eb2f90b03d3022ad999c411b56d8cfd75f1abc5df20d2e860b2193` | SHA-256 auto-speed-insights-3f8f manifest.cache, added 1.4.120 |
+| `20f70020156fb76127c860485185762f8425bf4f95a7550f7e10297ff9bdebce` | SHA-256 starter-seo-toolkit-52cf/data.cache, added 1.4.121 |
+| `2df96c44592be464d321b2ff515a8f6cfedd5607cab4e0bda907848274620b7a` | SHA-256 starter-seo-toolkit-52cf/manifest.idx, added 1.4.121 |
+| `83dd2548d3bae845d337be0fb0a6e26664c36330faab623163f361d584f581d0` | SHA-256 total-security-enhancer-488a/cache.dat, added 1.4.121 |
+| `5afe630f1da5d922b3b6b912e875b5d0ee362c6228aa7a2842a95e794afc2db9` | SHA-256 total-security-enhancer-488a/cache.pkg, added 1.4.121 |
+| `5128d485cbaf61aba7cb1ec1fa9e9ec3d2b7e05ef2ca629b4dba18dfb7754960` | SHA-256 ultra-render-helper-c8d3/index.bin, added 1.4.121 |
+| `788c2df949c84f93815d94b75732807044362875ff9640283ab803b12363e853` | SHA-256 ultra-render-helper-c8d3/state.cache, added 1.4.121 |
 
-43 MD5 and 33 SHA-256 entries, verified well-formed: every value is exactly 32 or 64 hexadecimal characters.
+51 MD5 and 41 SHA-256 entries, verified well-formed: every value is exactly 32 or 64 hexadecimal characters.
 
 ---
 ## Appendix G — Where the fingerprint coverage is thin
@@ -670,7 +818,7 @@ Published because a catalogue that only shows what is known invites the reader t
 
 ### Carried with an MD5 but no SHA-256
 
-17 of 34 fingerprinted samples. These were catalogued from analysis notes before SHA-256 was recorded alongside, and the files have not since been re-examined.
+17 of 38 fingerprinted samples. These were catalogued from analysis notes before SHA-256 was recorded alongside, and the files have not since been re-examined.
 
 | Sample | MD5 |
 | --- | --- |
@@ -702,7 +850,7 @@ Published because a catalogue that only shows what is known invites the reader t
 
 No hash in this catalogue was ever written from memory. Where a file has not been examined, the entry says so rather than carrying a plausible-looking value that would match nothing.
 
-This appendix is generated from `includes/class-blocker.php` and asserted against it by the test suite, so it cannot quietly fall out of date.
+Appendix F is regenerated from `includes/class-blocker.php` and checked against it by `tests/test-docs-sync.php`, which fails if the code carries a fingerprint this catalogue does not list or if the entry counts above drift. Before 1.4.125 this sentence claimed a test suite asserted that; none existed in this repository, and the appendix had fallen 16 hashes behind.
 
 ---
 ## Contributing a sample

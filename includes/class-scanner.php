@@ -13830,11 +13830,13 @@ class WPS_Scanner {
 	 * confirmed the deletion; and if quarantine is enabled but fails, nothing is
 	 * deleted, for the reason given in CRIT-002 there.
 	 *
-	 * The caller has already applied its own path-safety checks.
+	 * The caller has already applied its own path-safety checks. $permanent skips
+	 * quarantine: the policy-ban sweep uses it once a folder keeps coming back, so
+	 * a re-dropper cannot fill the quarantine store with copies of the same plugin.
 	 *
 	 * @return array{ok:bool,message:string,quarantined:?string,options:string[]}
 	 */
-	public static function remediate_manually( string $target ): array {
+	public static function remediate_manually( string $target, bool $permanent = false ): array {
 		$real = realpath( $target );
 		if ( ! $real ) {
 			return [ 'ok' => true, 'message' => 'Already gone.', 'quarantined' => null, 'options' => [] ];
@@ -13844,7 +13846,7 @@ class WPS_Scanner {
 		$state_options = self::state_options_for_path( $real );
 
 		$quarantined_id = null;
-		if ( self::quarantine_enabled() && class_exists( 'WPS_Quarantine' ) ) {
+		if ( ! $permanent && self::quarantine_enabled() && class_exists( 'WPS_Quarantine' ) ) {
 			$quarantined_id = WPS_Quarantine::quarantine(
 				$real,
 				[

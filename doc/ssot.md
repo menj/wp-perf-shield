@@ -23,7 +23,14 @@ doc/readme.md
 doc/upgrading.md
 doc/changelog.md
 doc/ssot.md
+doc/variants.md
+doc/remediation-roadmap.md
+doc/wappalyzer-submission.md
 ```
+
+`doc/variants.md` is the malware catalogue (families, samples, hashes, which check finds each). `doc/remediation-roadmap.md` is the handover document for the remediation programme and is current as of 1.4.61 except for its 1.4.125 addendum. `doc/wappalyzer-submission.md` is the draft technology-fingerprint submission. `tools/verify-package.ps1` requires only the first four.
+
+Development tests live in `tests/` at the repository root. They are not part of the release ZIP (see Tooling and ZIP Packaging).
 
 The operator-facing manual smoke-test checklist lives in `doc/upgrading.md` under the "Manual Smoke-Test Checklist" heading. Run it on staging before publishing each release.
 
@@ -79,6 +86,21 @@ every `policy_*` type is registered explicitly in `WPS_Utils::event_severity()`
 against its emitting call site. The denylist has an on/off switch
 (`policy_ban_enabled`, default on) so a control that has no legitimate off state
 is not created.
+
+## Policy Ban Enforcement on Disk (1.4.125)
+
+A banned plugin used to be refused only on WordPress's own routes (the upgrader's package options, the ZIP upload prefilter, activation, the active-plugins lists), and the scanner removed it only when a scan ran and only on an exact folder name. A folder written straight to disk bypassed all of that and kept returning.
+
+Decisions, recorded so they are not reversed by accident:
+
+- **Enforcement is per request, not per scan.** `WPS_Blocker::enforce_policy_ban()` runs from `init` at priority 1: every admin request, at most once a minute on the front end. It uses the same substring rule as the installer ban (`is_policy_banned()`), so the install guard and the disk guard cannot disagree about what counts as banned.
+- **Quarantine first, restorable.** Removal goes through `WPS_Scanner::remediate_manually()`, the routine behind the "Delete this path" button. After three returns of the same folder the removal becomes permanent, so a re-dropper cannot fill the quarantine store.
+- **A tombstone file is left in place.** A plain file with the folder's exact name; a zip extraction cannot create a directory over it. Only files whose first line is `WP-PERF-SHIELD-BAN-TOMBSTONE` are ever treated as tombstones, and they are deleted automatically when the ban is switched off or the slug leaves the list. A file that is merely named like a banned plugin is never touched.
+- **Returns are evidence.** Each return is counted in `wps_ban_redrops` and logged with the newest file's age and the files' owner against the web server's account. From the second return the event `policy_ban_redrop` is critical and the administrator is emailed (second return, then every tenth). The log names the class of cause (an account other than the web server's means FTP, SSH, a deploy or a restore); it does not name the cause.
+- **The plugin never removes itself**, even if its own folder name is added to the list.
+- **Limit, stated plainly.** Anything with the privilege to delete the tombstone and recreate the folder defeats this. The point is to make the return visible and attributable.
+
+The policy list is separate from the malware blocklist (above) and must stay so: a removal here is a policy decision, never labelled as malware.
 
 ## Event Chain Append Invariant (1.4.63, CRIT-005)
 
@@ -140,6 +162,17 @@ tools/verify-package.ps1
 ```
 
 It runs the parser fallback on every PHP and admin JS file, asserts version-marker consistency across the four declared release files, checks the required directory layout, and refuses any stray markdown at the package root. Run it from the repo root before building the release ZIP.
+
+Development tests are plain PHP scripts in:
+
+```text
+tests/test-plugin-malware-detection.php   headless/payload/installer/dropper/fake-image/loader checks (26 cases)
+tests/test-manual-removal.php             the "Delete this path" removal routine (11 cases)
+tests/test-policy-ban.php                 the on-disk policy ban (14 cases)
+tests/test-docs-sync.php                  version markers, changelog entries, and Appendix F against the code
+```
+
+Each runs from the command line with `php tests/<file>`, exits non-zero on failure, builds synthetic fixtures in a temporary directory (random bytes stand in for payloads, so no real malware is stored) and runs the real plugin code against small in-memory stand-ins for WordPress. They do not need the rebuilt harness described in `doc/remediation-roadmap.md`. `tests/` carries an `index.php` and an `.htaccess` that denies access, like `tools/`, and every test file exits unless run from the command line.
 
 ## Asset Layout
 
@@ -285,6 +318,8 @@ wp-perf-shield/
 ```
 
 All entry paths should use forward slashes.
+
+`tests/` is development material and must be left out of the release ZIP. `tools/verify-package.ps1` does not currently enforce that; check the archive listing before publishing.
 
 ## Security Audit History
 
@@ -539,6 +574,18 @@ Versions 1.3.58 and 1.3.59 are not formal protocol re-audits; they are increment
 **1.4.68 - permanent range ban + report-every-blocked-address (operator request, one override on record).** Two operator asks during a live low-and-slow /24 rotation attack. (1) **Permanent range ban**: Diagnostics field to permanently deny an address or CIDR; the permanent store, address-only since 1.4.31, now matches CIDR entries at the gate (exact addresses O(1), only range entries walked, list capped). Safety is a real containment test, not the /24-only `network_is_protected()` compare: a range holding an allowlisted or 30-day-remembered admin address is refused, and anything broader than /16 (v4) or /32 (v6) is refused outright. Tested 11/11. (2) **Report every blocked address to Akismet** - `akismet_report_all_blocks`, default on. **OVERRIDE RECORDED: the recommendation was to keep reporting conservative; the operator chose the aggressive posture. Their key, their call, same pattern as 1.4.20 and the 1.4.27 default-on decision.** The broadening reports the first-offence single-username block that was previously held back as a possible mistyped password - a real false-positive risk to the SHARED Akismet corpus, since a wrongly-reported address is degraded for every site that queries Akismet. **Two safeguards were kept as non-negotiable because they protect third parties who are neither the attacker nor the operator, and are therefore not the operator's to trade: (a) a CDN/proxy/private address is never auto-reported - `ip_looks_like_infrastructure()` still stands - so a shared edge is not flagged for every site behind it; (b) a CIDR is NEVER submitted to Akismet - submit-spam is per-address, so reporting a /24 would flag its innocent neighbours; instead the individual attacking members of a blocked range are reported, capped and deduplicated.** Each address reported at most once; both new behaviours have off switches. Refactor: the infra-guard + dedup + submit core extracted into `report_single_attacker()`, shared by the per-address, range-member, and manual paths. Tested 6/6 including report-off, report-all-off-holds-back, report-all-on-reports, once-per-address, infra-guard-still-skips, and submission-always-carries-an-address-never-a-CIDR. New event `range_blocked_permanently` (classified `high` by the existing `blocked` prefix rule, same as `ip_blocked_permanently`). Also: the posture panel's "blocks by rule" line now attributes single-address blocks beside range rotation, so 624-blocked-next-to-4-range reconciles instead of reading as idle. `INDICATOR_VERSION` unchanged. 
 
 **1.4.69 - documentation sync (recurring drift caught again).** Operator asked "did you update the documentation". Audit found the answer was *partly*: changelog, upgrading, readme.txt changelog and SSOT were current through 1.4.68, but doc/readme.md CONTENT and the readme.txt Description had not moved since 1.4.61 - only readme.md version line was bumped each release. This is the identical failure the 1.4.8 entry recorded ("the version line in doc/readme.md was bumped each release while CONTENT was never updated"), recurred across seven releases. Fixed by bringing readme.md Features/Sign-in/admin sections and the readme.txt Description forward to cover banned-plugins denylist, event-chain self-test, subnet-rotation trigger + range escalation ladder, XML-RPC multicall stripping, permanent range ban, and report-every-blocked-address. No code changed. **PROCESS NOTE: readme.md content is not covered by any assertion, which is why it drifts silently; the version-marker bump gives false confidence that the file was reviewed. A doc-freshness check belongs in the release routine.**
+
+**From 1.4.70 the per-release record lives in `doc/changelog.md` and `doc/upgrading.md` only.** The entries above stop at 1.4.69. The decisions that cut across releases since then are recorded here in digest form:
+
+**1.4.120-1.4.123 - plugin malware detection from recovered samples.** The headless-folder check now covers `mu-plugins`; new checks for a loader that decodes an encrypted data file from its own folder (review-only), an endpoint that unpacks an uploaded zip into a code directory behind a hard-coded token (conclusive, removes the loader first) and a plugin that plants bundled folders into `mu-plugins` (review-only). Decision: removal authority follows the strength of the evidence, so only the conjunction-based installer check was added to the conclusive list.
+
+**1.4.121 - fake images.** A file with an image extension, over 512 bytes, with none of the real signatures and at least 98 percent printable ASCII counts as hidden data. Root cause of the miss: the one check that looks for staged payloads skipped `.png` and `.gif` as harmless assets.
+
+**1.4.122 - a false positive that removed a genuine plugin.** `check_external_payload_loader` judged its three cues across a whole plugin folder; in a 916-file plugin (WP File Manager 8.0.5, verified against wordpress.org's checksums) they coincided by accident. Rule recorded: when a check needs several cues, they must come from one file, and the file must tie them together (here, by naming the blob). Verification against the official checksums for a genuine plugin is now part of triaging a surprising finding.
+
+**1.4.124 - the "Delete this path" button** quarantines, clears the options the target's own files identify, deactivates a removed plugin and records the redrop baseline, through `WPS_Scanner::remediate_manually()`. The remediation policy is deliberately not consulted: this is the control for findings the policy declined to remove, after an explicit confirmation.
+
+**1.4.125 - the policy ban on disk** (see Policy Ban Enforcement on Disk above) and a documentation sync.
 
 ## Product Roadmap - EDR Programme (adopted 2026-07-03)
 

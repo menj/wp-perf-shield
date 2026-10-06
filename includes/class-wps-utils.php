@@ -446,6 +446,9 @@ class WPS_Utils {
 			// 1.4.75: policy removal, not malware. Warning, not high: an ordinary
 			// plugin the site has chosen not to run is notable, not an incident.
 			'policy_banned_plugin_found'    => 'warning',
+			'policy_ban_enforced'            => 'warning',
+			'policy_ban_redrop'              => 'critical',
+			'policy_ban_enforce_failed'      => 'critical',
 			'htaccess_php_allowlist_found'  => 'critical',
 			'self_hiding_plugin_found'      => 'critical',
 			'split_string_obfuscation_found' => 'critical',
