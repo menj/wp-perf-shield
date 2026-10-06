@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.119
+
+**Repair release; update if 1.4.118 would not activate.** Leftover merge-conflict markers in three PHP files could stop the plugin from loading. They are fixed. A few admin elements (the green notice on Overview, the command chips on Remediation) now follow the dark colour scheme. Nothing to configure and no setting changed.
+
 ## 1.4.118
 
 **Harmless maintenance pages stop being flagged, and a way to hide a backdoor in them is closed.** If your scan report has been listing `maintenance.php`, `db-error.php` or `php-error.php` as "unknown publisher" and they are plain static pages, the finding clears by itself. If a file of that name contains executable code or reads request headers, it is now reported as high even when it carries a hosting tool's label; inspect it, and remove it if you did not write it. Nothing is ever removed automatically for this. Nothing to configure. The drop-in baseline guard no longer raises "appeared" or "modified" alerts when a theme writes or updates such a page, but still does if the page gains code, a script, or a reference to another site.

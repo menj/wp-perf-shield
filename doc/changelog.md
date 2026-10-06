@@ -1,5 +1,17 @@
 # WP Perf Shield changelog
 
+## 1.4.119
+
+Repair release: the plugin could not load, and the admin screens carried hard-coded colours.
+
+### Unresolved merge conflicts
+A bad merge left `<<<<<<<` / `=======` / `>>>>>>>` markers in `wp-perf-shield.php`, `includes/class-scanner.php`, `includes/class-remediation-policy.php`, `readme.txt` and three files under `doc/`. The three PHP files failed to parse, so the plugin could not activate. The 1.4.118 side was kept everywhere, which restores the version marker and the 1.4.114 `check_link_helper_worm` check and its policy entry. A docblock that the merge had left above the wrong function in `class-scanner.php` was moved back above `check_encoded_inline_script_injector`.
+
+### Inline styles
+22 inline `style` attributes in the admin classes and in `class-blocker.php` were replaced with utility classes at the end of `assets/css/admin.css` (`wps-w-*`, `wps-hidden`, `wps-callout-ok`, `wps-code-chip` and similar). The hard-coded colours (`#eaf3de`, `#f5f5f5` and others) now use the `--wps-*` tokens, so they follow the dark scheme. The one remaining attribute is the data-driven bar width in `class-admin-diagnostics.php`.
+
+No settings, defaults or detection behaviour changed. Version markers move to 1.4.119.
+
 ## 1.4.118
 
 Error-page drop-ins: a false positive on a real theme's files, and a blind spot found while fixing it.
