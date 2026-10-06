@@ -1,5 +1,26 @@
 # WP Perf Shield changelog
 
+## 1.4.122
+
+False positive: a genuine plugin was reported critical and auto-deleted by `check_external_payload_loader`.
+
+### The sample
+WP File Manager 8.0.5, 916 files, every one matching the checksums wordpress.org publishes for that release. `check_external_payload_loader` reported it as a fake plugin with an externalized obfuscated payload loader, critical, with the whole plugin folder as the delete path.
+
+### Why
+The check requires three cues, and its comment says that any one or two occur in legitimate plugins. But the cues were collected per plugin folder, not per file. In a 916-file plugin they coincide by accident: one library file mentions `file_get_contents` and `base64_decode`; an unrelated `lib/img/src/trashmesh.xcf` (an icon source) has an extension not in the known list and is over 512 bytes; and a third file splits an `include` path across two string literals. Three unrelated files satisfied "loader + blob + obfuscation tell", so a verified-legitimate plugin was condemned.
+
+### What changed
+- The loader, the obfuscation tell and the decode must all be in the SAME PHP file.
+- That file must NAME the blob. Adjacent string literals are joined before searching, since splitting the name is exactly the obfuscation being looked for.
+- The blob must be genuinely opaque: more than a quarter non-printable bytes in its first 2 KB.
+- A loader that reaches its blob without naming it (a directory glob, say) is no longer matched by this check. The headless-folder and payload-loader checks cover those shapes.
+- Two regression cases: a loader that names its split-literal blob (reported, auto-removable) and the same cues scattered across unrelated library files (quiet). 26 cases pass.
+- **Not changed, by decision:** `check_unauthenticated_file_manager` still reports elFinder library classes in this plugin (review-only, not auto-removable). They lack an ABSPATH guard and use mutators, and loosening a web-shell detector to quiet one genuine library is a worse trade than the noise. The site policy's default banned list still quarantines `wp-file-manager` by design, and says so in the finding.
+- Registered checks: 94.
+
+Version markers move to 1.4.122.
+
 ## 1.4.121
 
 New family: payload chunks disguised as images (comparetool, wishlistbuilder).

@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.121
+Stable tag: 1.4.122
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -111,6 +111,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.122 =
+Fixes a false positive in the externalized-payload loader check. It could report a genuine large plugin (WP File Manager 8.0.5, verified against the published checksums) as a fake one and remove it, because three unrelated files each satisfied one of its three conditions. The loader, its decoding and the obfuscation must now be in one file, and that file must name an opaque blob. Real fake plugins of that shape are still reported.
 
 = 1.4.121 =
 Image files that are really encoded text (a payload split into chunks and named .png/.gif) are now treated as hidden data. A header-less plugin folder holding them is reported and quarantined; inside a real plugin, mu-plugins or a theme they are reported for review. A plugin with genuine images is unaffected.

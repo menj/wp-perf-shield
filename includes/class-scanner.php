@@ -10845,9 +10845,8 @@ class WPS_Scanner {
 
 		$self_dir  = defined( 'WPS_DIR' ) ? realpath( WPS_DIR ) : false;
 		$known_ext = [ 'php','txt','md','pot','po','mo','json','css','js','scss','less','html','htm','xml','yml','yaml','svg','png','jpg','jpeg','gif','webp','ico','woff','woff2','ttf','eot','csv','sql','lock','dist','map' ];
-		$loaders = []; // plugin folder => loader filename (reads + decodes a file)
-		$blobs   = []; // plugin folder => opaque bundled blob rel path
-		$obf     = []; // plugin folder => has an obfuscation tell (split include / substitution loop)
+		$loaders = []; // plugin folder => loader paths (one file reads, decodes and carries the obfuscation tell)
+		$blobs   = []; // plugin folder => bundled non-text files of an unknown extension
 		$scanned = 0;
 
 		try {
@@ -10878,27 +10877,27 @@ class WPS_Scanner {
 					// chr(ord($table[ord(...))) substitution-decode loop. Legitimate
 					// plugins do not write either; malware uses them to hide the
 					// loader target and the payload transform.
-					if ( ! isset( $obf[ $folder ] ) ) {
-						if ( preg_match( '/(?:include|require)(?:_once)?\b[^;\n]*?[\'"][^\'"\n;]*[\'"]\s*\.\s*[\'"]/', $contents )
-							|| preg_match( '/chr\s*\(\s*ord\s*\(\s*\$\w+\s*\[\s*ord\s*\(/', $contents ) ) {
-							$obf[ $folder ] = true;
-						}
-					}
-
-					if ( ! isset( $loaders[ $folder ] ) ) {
-						$reads = strpos( $contents, 'file_get_contents' ) !== false || strpos( $contents, 'fread' ) !== false;
-						$decodes = strpos( $contents, 'gzinflate' ) !== false
-							|| strpos( $contents, 'gzuncompress' ) !== false
-							|| strpos( $contents, 'base64_decode' ) !== false
-							|| strpos( $contents, 'str_rot13' ) !== false
-							|| (bool) preg_match( '/chr\s*\(\s*ord\s*\(/', $contents );
-						if ( $reads && $decodes ) {
-							$loaders[ $folder ] = $file->getFilename();
-						}
+					//
+					// 1.4.121: all three cues must come from ONE file. Judged across a
+					// whole plugin folder they coincide by accident in any large
+					// library: a genuine, checksum-verified WP File Manager 8.0.5
+					// (916 files) was reported critical and auto-deleted because one
+					// file reads and decodes, an unrelated icon-source .xcf is an
+					// unknown extension, and a third file splits an include path.
+					$tell = (bool) ( preg_match( '/(?:include|require)(?:_once)?\b[^;\n]*?[\'"][^\'"\n;]*[\'"]\s*\.\s*[\'"]/', $contents )
+						|| preg_match( '/chr\s*\(\s*ord\s*\(\s*\$\w+\s*\[\s*ord\s*\(/', $contents ) );
+					$reads   = strpos( $contents, 'file_get_contents' ) !== false || strpos( $contents, 'fread' ) !== false;
+					$decodes = strpos( $contents, 'gzinflate' ) !== false
+						|| strpos( $contents, 'gzuncompress' ) !== false
+						|| strpos( $contents, 'base64_decode' ) !== false
+						|| strpos( $contents, 'str_rot13' ) !== false
+						|| (bool) preg_match( '/chr\s*\(\s*ord\s*\(/', $contents );
+					if ( $tell && $reads && $decodes && count( $loaders[ $folder ] ?? [] ) < 20 ) {
+						$loaders[ $folder ][] = $path;
 					}
 				} elseif ( $ext !== '' && ! in_array( $ext, $known_ext, true ) && $file->getSize() > 512 ) {
-					if ( ! isset( $blobs[ $folder ] ) ) {
-						$blobs[ $folder ] = ltrim( substr( $real, strlen( $folder ) ), DIRECTORY_SEPARATOR );
+					if ( count( $blobs[ $folder ] ?? [] ) < 200 ) {
+						$blobs[ $folder ][] = $real;
 					}
 				}
 			}
@@ -10906,21 +10905,43 @@ class WPS_Scanner {
 			WPS_Logger::write( 'external-payload scan error: ' . $e->getMessage() );
 		}
 
-		// Require all three cues: a read+decode loader file, an opaque bundled
-		// payload blob, and an obfuscation tell. Any one or two alone occur in
-		// legitimate plugins; the trio is the externalized-payload fake-plugin shape.
-		foreach ( $loaders as $folder => $loader_file ) {
-			if ( ! isset( $blobs[ $folder ] ) || ! isset( $obf[ $folder ] ) ) continue;
-			$found[] = [
-				'severity'    => 'critical',
-				'type'        => 'Plugin with externalized obfuscated payload loader (reads + decodes a bundled blob)',
-				'subject'     => basename( $folder ),
-				'path'        => $folder . DIRECTORY_SEPARATOR . $loader_file,
-				'action'      => 'Delete this plugin folder. ' . $loader_file . ' reads and decodes a bundled non-PHP payload blob (' . $blobs[ $folder ] . ') behind an obfuscated loader, the hallmark of an externalized-payload fake plugin.',
-				'match'       => 'decode-loader (' . $loader_file . ') + bundled blob (' . $blobs[ $folder ] . ') + obfuscation tell',
-				'auto_delete' => true,
-				'delete_path' => $folder,
-			];
+		// The loader must NAME the blob (adjacent string literals are joined
+		// first, since the obfuscation is exactly that split) and the blob must
+		// be genuinely opaque. A loader and a blob that merely share a folder
+		// are not a pair.
+		foreach ( $loaders as $folder => $loader_paths ) {
+			if ( empty( $blobs[ $folder ] ) ) continue;
+			foreach ( $loader_paths as $loader_path ) {
+				$src = @file_get_contents( $loader_path );
+				if ( ! is_string( $src ) ) continue;
+				$joined = preg_replace( '/[\'"]\s*\.\s*[\'"]/', '', $src );
+				foreach ( $blobs[ $folder ] as $blob_path ) {
+					$name = basename( $blob_path );
+					if ( false === stripos( (string) $joined, $name ) ) continue;
+					$head = @file_get_contents( $blob_path, false, null, 0, 2048 );
+					if ( ! is_string( $head ) || '' === $head ) continue;
+					$np  = 0;
+					$len = strlen( $head );
+					for ( $i = 0; $i < $len; $i++ ) {
+						$o = ord( $head[ $i ] );
+						if ( $o < 9 || ( $o > 13 && $o < 32 ) || $o > 126 ) ++$np;
+					}
+					if ( ( $np / $len ) <= 0.25 ) continue;
+					$loader_file = basename( $loader_path );
+					$blob_rel    = ltrim( substr( $blob_path, strlen( $folder ) ), DIRECTORY_SEPARATOR );
+					$found[] = [
+						'severity'    => 'critical',
+						'type'        => 'Plugin with externalized obfuscated payload loader (reads + decodes a bundled blob)',
+						'subject'     => basename( $folder ),
+						'path'        => $loader_path,
+						'action'      => 'Delete this plugin folder. ' . $loader_file . ' reads and decodes a bundled non-PHP payload blob (' . $blob_rel . ') behind an obfuscated loader, the hallmark of an externalized-payload fake plugin.',
+						'match'       => 'decode-loader (' . $loader_file . ') + bundled blob (' . $blob_rel . ') + obfuscation tell',
+						'auto_delete' => true,
+						'delete_path' => $folder,
+					];
+					continue 3;
+				}
+			}
 		}
 
 		return $found;

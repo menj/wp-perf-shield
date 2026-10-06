@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.122
+
+**A false positive is fixed.** If WP Perf Shield removed or quarantined a large genuine plugin such as WP File Manager as an "externalized payload loader", that was wrong; restore it from Diagnostics. The check now requires the loader, its decoding and the obfuscation to be in one file that names an opaque data file. Plugins that are really built that way are still reported and removed. Nothing to configure.
+
 ## 1.4.121
 
 **Fake images are recognised.** A folder in `wp-content/plugins` with no plugin in it and files named `.png` or `.gif` that are really text is now reported as critical and quarantined, like other staged payload folders. The same files inside a real plugin, `mu-plugins` or a theme are reported as high for your review and are never removed automatically. Plugins with real images are not affected. Nothing to configure.
