@@ -20,6 +20,17 @@ The external review that started this programme assessed **1.4.59**, archive SHA
 
 ---
 
+## Addendum, 1.4.125 (read this before trusting the rest)
+
+**The status ledger and task list below are current as of 1.4.61 and have not been re-audited since.** Treat their statuses as history, not as a statement about the current build. What is known to have changed since:
+
+- Releases 1.4.62 to 1.4.125 are recorded in `doc/changelog.md` and `doc/upgrading.md`. `doc/ssot.md` carries a digest of the decisions from 1.4.120 onward.
+- The "Delete this path" button, the policy ban on disk, and the plugin-malware checks added from 1.4.120 on are described in `doc/readme.md` and `doc/ssot.md`.
+- **Four self-contained tests now live in `tests/`** and run with plain `php` and no rebuilt harness: `test-plugin-malware-detection.php`, `test-manual-removal.php`, `test-policy-ban.php` and `test-docs-sync.php`. Section 2 below describes the older harness approach for the per-release suites; those suites (`harness/`, `fixtures14XX.php`) are not in this repository, and statements below that depend on them, including that `doc/variants.md` is machine-asserted by `fixtures1451.php`, are superseded by `tests/test-docs-sync.php` for the hash appendix.
+- Known gap recorded in `doc/variants.md`: nothing detects the hidden `<!--lh:s…-->` blocks the WP Link Helper worm writes into other sites' `index.html` files.
+
+---
+
 ## 2. Rebuild the test environment first
 
 **The build container does not persist between sessions.** No PHP, no harness, no fixtures. Every session rebuilds them. Budget for this before estimating any task.

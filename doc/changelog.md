@@ -18,14 +18,14 @@ Read from the code, not from the operator's site, which was not available. `wp-f
 ### What this does not do
 It cannot stop something that runs with the privilege to delete the tombstone and recreate the folder: a root cron job, a deployment pipeline, a compromised account. It makes the return visible within a request, removes it again and tells you who wrote it, which is what you need to find the source. The redrop log names the cause class; it does not name the cause.
 
-### Documentation sync (partial)
-Done in this release: `readme.txt` (features, a FAQ entry on why a banned plugin comes back, a FAQ entry on the "Delete this path" button, and Upgrade Notice entries for 1.4.120 to 1.4.125), `doc/upgrading.md`, this changelog, `tests/index.php` and `tests/.htaccess` (so `tests/` is guarded like `tools/`), and `tests/test-policy-ban.php` (14 cases). All three test files pass. `tests/` is development material and should not be included in the release ZIP.
-
-**Not done, and known to be stale:**
-- `doc/variants.md` does not list the 1.4.120 to 1.4.124 samples (staged blob folders, payload chunks disguised as images, the token-gated mu-plugin installer, the WP Link Helper worm, `total-render-toolkit-c58d`). Its Appendix F lists 43 MD5 and 33 SHA-256 fingerprints while `includes/class-blocker.php` carries 51 and 41: the 16 missing are the blob-folder hashes added in 1.4.120 and 1.4.121. The appendix also says it is "asserted against the code by the test suite"; no such test exists in this repository.
-- `doc/ssot.md` describes a documentation layout and tooling that predate `doc/variants.md`, `doc/remediation-roadmap.md`, `doc/wappalyzer-submission.md` and `tests/`, and its incremental log stops at 1.4.69.
-- `doc/readme.md` has the current version but its feature list and a Testing section have not been updated.
-- `doc/remediation-roadmap.md` is current as of 1.4.61 and has not been re-audited.
+### Documentation sync
+- `doc/variants.md`: four families added (16 staged payload folders, 17 payload chunks disguised as images, 18 the token-gated mu-plugin installer with its dropper, 19 the WP Link Helper worm) and `total-render-toolkit-c58d` added to the ClickFix members. Appendix B (option keys) and C (filenames) extended. Appendix F regenerated from `includes/class-blocker.php`: it listed 43 MD5 and 33 SHA-256 entries while the code carries 51 and 41, the 16 missing being the blob-folder hashes added in 1.4.120 and 1.4.121. Appendix G now counts 38 fingerprinted samples. The catalogue says plainly that nothing detects the worm's hidden link blocks in other sites' `index.html` files, and it does not reproduce the installer's token, only its first and last eight characters.
+- The appendix claimed it was "asserted against the code by the test suite". No such test existed in this repository. **`tests/test-docs-sync.php`** now makes it true: it checks the version markers across the four release files, that the current version has a changelog, upgrade-notes and `readme.txt` entry, that every fingerprint in the code is listed in Appendix F with the right counts, and that `doc/ssot.md` names every document in `doc/`. It failed on exactly the 16 missing hashes before they were added.
+- `doc/ssot.md`: the documentation layout, tooling and packaging now describe the files that exist (`doc/variants.md`, `doc/remediation-roadmap.md`, `doc/wappalyzer-submission.md`, `tests/`); a "Policy Ban Enforcement on Disk" section records the decisions; and the incremental log notes that per-release detail after 1.4.69 lives in the changelog, with a digest of 1.4.120 to 1.4.125.
+- `doc/remediation-roadmap.md`: an addendum records what changed since 1.4.61, that its status ledger has not been re-audited, and that four self-contained tests in `tests/` now run without the rebuilt harness.
+- `doc/readme.md`: features, a "Banned plugins" section and a "Testing" section. `readme.txt`: features, two FAQ entries and Upgrade Notice entries for 1.4.120 to 1.4.125. `doc/upgrading.md`: the 1.4.125 entry.
+- `tests/` carries an `index.php` and an `.htaccess` like `tools/`, and is documented as not part of the release ZIP. `tools/verify-package.ps1` does not enforce that exclusion.
+- Tests: `tests/test-policy-ban.php` (14 cases) and `tests/test-docs-sync.php`. All four test files pass.
 
 Version markers move to 1.4.125.
 

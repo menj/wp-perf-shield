@@ -34,6 +34,10 @@ It is built for incident response and post-compromise hardening rather than broa
 - Detection of injected casino/gambling/SEO-spam content in posts and comments, at scan time and in real time as a post is saved, tuned so it flags SEO-spam signatures without flagging legitimate writing that merely mentions gambling. Detection only — it never deletes content.
 - PHP-guarded structured event log under `wp-perf-shield/logs/events.php`.
 - Tamper-evident event chain with a concurrency-safe append, and an in-plugin Event-chain self-test in Diagnostics that verifies the chain against the live database on the host — including that its append lock excludes across two connections — without external tooling.
+- A site-policy banned-plugins list (WP File Manager, FileOrganizer and FileBird by default, plus your own) enforced on disk as well as at the installer: a banned folder is removed on the next request, quarantined first, a placeholder file is left where it was so a plain re-extract fails, and every return is counted, logged with who owns the files and emailed from the second return.
+- Detection of staged payloads that have no loader: header-less plugin folders (and `mu-plugins` subfolders) holding opaque data under changing names, and payload chunks disguised as `.png`/`.gif` files that are really base64 text.
+- Detection of an installer endpoint guarded only by a hard-coded token that unpacks an uploaded zip into a code directory (removed together with the loader that requires it), of plugins that plant bundled folders into `mu-plugins`, and of plugin code that decodes an encrypted data file from its own folder and runs it.
+- Removal from the findings list that does what automatic remediation does: "Delete this path" quarantines the item, quarantines the options its own files identify, and deactivates a removed plugin.
 - Modern minimalist admin UI with rounded panels, gradient accents, clean tabs, and responsive layout behavior.
 - Enqueued admin assets in `assets/css/admin.css` and `assets/js/admin.js` instead of large inline CSS/JavaScript blocks.
 - Hostile IP auto-blocking for sources that attempt known malware uploads or renamed ZIPs containing known malicious folders, hashes, option keys, handler classes, or payload markers.
@@ -220,6 +224,27 @@ different detector or a different spelling of the path. The policy fails closed
 when trust state cannot be read, never lets a behavioural finding remove an
 entire plugin or a WordPress core file, and halts all automatic removal if a
 Safe target ever reaches the destructive gate.
+
+## Banned plugins
+
+WP Perf Shield keeps a policy list of plugins this site has chosen not to run. It is separate from the malware blocklist: removal under it is a policy decision and is never described as malware. `wp-file-manager`, `fileorganizer` and `filebird` are on it by default; add more under **Settings, Banned plugins**. The whole policy can be switched off there, which also removes any placeholder files.
+
+A banned plugin is refused when installed, uploaded or activated, and since 1.4.125 it is also removed from the plugins folder on the next request, whoever put it there. The removal is quarantined first, so it can be restored from Diagnostics. A small placeholder file with the folder's name is left behind; a zip extraction cannot create a folder over a file. After three returns the folder is deleted instead of quarantined.
+
+If a banned plugin keeps returning, something is writing it straight to disk, outside the WordPress installer. The Events tab records each removal with the age of its newest file and the account that owns the files. An owner other than the web server's account points to an FTP or SSH login, a deployment, a backup restore or a staging sync; the same owner as the web server points to another plugin, a site-management service or a dropper. You are emailed from the second return. The plugin names the class of cause; finding the cause means checking those logins and jobs. It cannot stop something that has the privilege to delete the placeholder and recreate the folder.
+
+## Testing
+
+Development tests are in `tests/` and are not part of the release package. Each is a plain PHP script, run from the command line, that builds synthetic fixtures and runs the real plugin code against small in-memory stand-ins for WordPress; none needs a WordPress install.
+
+```bash
+php tests/test-plugin-malware-detection.php
+php tests/test-manual-removal.php
+php tests/test-policy-ban.php
+php tests/test-docs-sync.php
+```
+
+Each exits non-zero on failure. They do not replace running the plugin on a staging site; `doc/upgrading.md` has the manual smoke-test checklist.
 
 ## Safety notes
 
