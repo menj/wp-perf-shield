@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.134
+
+**Gambling doorway pages removed.** A static slot/togel landing page planted in uploads, a non-standard wp-content folder or a web-root folder is reported as critical and removed (to quarantine when enabled). If the scan reports one, the site was written to by an intruder: remove unknown administrators, reset passwords and salts, and ask Google Search Console to remove the URL. Plugin, theme and core folders are not searched. Nothing to configure.
+
 ## 1.4.133
 
 **Probe files blocked.** Uploads named `deep_check_<hex>.txt` or `upload_test_<hex>.txt` are refused, and existing copies are removed by the scan. If the scan reports one, someone tested writing to your site; look for what else arrived at the same time. Nothing to configure.
