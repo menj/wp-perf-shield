@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.133
+Stable tag: 1.4.134
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.134 =
+Detects and removes static gambling ("slot gacor") landing pages planted in uploads, wp-content and web-root folders.
 
 = 1.4.133 =
 Blocks and removes the deep_check and upload_test write-access probe files left by intruders.
@@ -635,6 +638,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.134 =
+Adds detection and removal of planted gambling doorway pages.
 
 = 1.4.133 =
 Refuses and removes intruder write-access probe files (deep_check and upload_test).

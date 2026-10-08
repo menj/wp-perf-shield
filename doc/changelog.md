@@ -1,5 +1,13 @@
 # WP Perf Shield changelog
 
+## 1.4.134
+
+**Gambling doorway pages are now detected and removed.** A sample upload (`slot-gacor/index.php`) was an AMP landing page for an Indonesian slot site: gambling keywords in the title and meta tags, a canonical URL claiming the victim's domain, and LOGIN / DAFTAR buttons to the operator. It holds no code; it exists to rank the victim's domain for gambling searches.
+- **Scanner:** new `check_gambling_doorway_page` searches uploads, non-standard wp-content folders and web-root folders (never plugins, themes, mu-plugins or core). A file is reported only when it is a full HTML document, `WPS_Spam_Signatures` finds conclusive gambling markers, and there is a funnel (an outbound login/register button, or cloaked markup). Critical; the file, or its folder when it holds nothing else, is removed.
+- A keyword-only page with no funnel, and an anti-gambling essay, are left alone (tested).
+
+Tests: `test-plugin-malware-detection.php` (4 new). Registered checks: 101 (was 100).
+
 ## 1.4.133
 
 **The write-access probe files are now blocked and removed.** `deep_check_<32 hex>.txt` and `upload_test_<32 hex>.txt` are one-line markers (`DEEP_CHECK_OK_<hex>`, `UPLOAD_TEST_OK_<hex>`) left by whoever tests whether a site accepts uploads, usually before placing a shell or kit. They do nothing themselves, but they are evidence of an intruder.

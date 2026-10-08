@@ -656,3 +656,6 @@ Decision: all four are matched on behaviour, not on names or hashes (easypost is
 
 ### Probe marker files (1.4.133)
 Decision: block by name at upload time and remove by name plus matching content on scan; name alone is not enough to delete. Digest 1.4.133: `check_probe_marker_files`, `WPS_Blocker::is_probe_marker_name()`; registered checks 100.
+
+### Gambling doorway pages (1.4.134)
+Decision: match on content, not name, reusing `WPS_Spam_Signatures` (one list of markers); require HTML document plus conclusive markers plus a funnel, because this site's owner writes about gambling in a religious register. Plugin, theme and core folders are out of scope. Digest 1.4.134: `check_gambling_doorway_page`; registered checks 101.
