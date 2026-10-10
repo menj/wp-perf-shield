@@ -608,6 +608,7 @@ class WPS_Scanner {
 			'check_redirect_doorway' => [ __CLASS__, 'check_redirect_doorway' ], // 1.4.132: tiny uploads page that only forwards the visitor (and URL fragment) to another site, or a blanked one
 			'check_probe_marker_files' => [ __CLASS__, 'check_probe_marker_files' ], // 1.4.133: deep_check_<hex>.txt / upload_test_<hex>.txt write-access probes
 			'check_gambling_doorway_page' => [ __CLASS__, 'check_gambling_doorway_page' ], // 1.4.134: static slot/togel landing page planted in uploads, wp-content or the web root
+			'check_embedded_js_injector' => [ __CLASS__, 'check_embedded_js_injector' ], // 1.4.135: plugin that keeps a large encoded script and prints it to visitors on every page
 			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
 			'check_mu_plugin_dropper' => [ __CLASS__, 'check_mu_plugin_dropper' ], // 1.4.120: plugin that copies bundled folders into mu-plugins and writes require loaders for them
 			'check_fake_image_payload' => [ __CLASS__, 'check_fake_image_payload' ], // 1.4.121: image-named files that are really encoded text, inside plugins that do have a header, mu-plugins and themes
@@ -7396,6 +7397,70 @@ class WPS_Scanner {
 				}
 			} catch ( \Throwable $t ) {
 				continue;
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.135: a plugin that stores a large script as an encoded block and prints
+	 * it into the pages of visitors.
+	 *
+	 * Recovered shape (wp-spam/cms-addons.php, "wp-warden"): a 260 KB base64
+	 * heredoc that decodes to 190 KB of self-decrypting JavaScript, echoed inside
+	 * a script tag split as `<scr' . 'ipt>` on wp_head, wp_footer, login_head and
+	 * more, skipped for administrators, also served to anyone through a
+	 * `wp_ajax_nopriv_` action, and removed from the Plugins list. Detected on
+	 * behaviour: the encoded block must decode to script (not PHP), and the same
+	 * file must print it through a page hook.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_embedded_js_injector(): array {
+		$found = [];
+		foreach ( self::plugin_php_files() as [ $path, $root ] ) {
+			$size = @filesize( $path );
+			if ( false === $size || $size < 6000 ) {
+				continue;
+			}
+			$raw = @file_get_contents( $path );
+			if ( ! is_string( $raw ) || ! preg_match( '/base64_decode\s*\(/i', $raw ) || ! preg_match( '/add_action\s*\(\s*[\'"](?:wp_head|wp_footer|login_head|login_footer|wp_body_open|wp_print_footer_scripts)[\'"]/i', $raw ) ) {
+				continue;
+			}
+			$block = '';
+			if ( preg_match( '/<<<[\'"]?(\w+)[\'"]?\r?\n([A-Za-z0-9+\/=\r\n]{4000,}?)\r?\n\s*\1\s*;/', $raw, $m ) ) {
+				$block = $m[2];
+			} elseif ( preg_match( '/[\'"]([A-Za-z0-9+\/=]{4000,})[\'"]/', $raw, $m ) ) {
+				$block = $m[1];
+			}
+			if ( '' === $block ) {
+				continue;
+			}
+			$dec = base64_decode( preg_replace( '/\s+/', '', substr( $block, 0, 4000 ) ), false );
+			if ( ! is_string( $dec ) || '' === $dec || false !== strpos( $dec, '<?php' ) ) {
+				continue;
+			}
+			// Looks like script, not binary data.
+			if ( ! preg_match( '/^\s*(?:\(\s*function|var\s|!function|function\s|\(\(\)\s*=>|"use strict")/', $dec ) ) {
+				continue;
+			}
+			// It is printed into pages: a script tag (possibly split) next to an echo.
+			if ( ! preg_match( '/echo\s+[\'"]<scr[\'"]\s*\.\s*[\'"]ipt>|echo\s+[\'"]<script|<\/scr[\'"]\s*\.\s*[\'"]ipt>/i', $raw ) ) {
+				continue;
+			}
+			$top     = self::top_folder_under( $path, $root );
+			$delete  = '' !== $top ? $root . '/' . $top : $path;
+			$found[] = [
+				'severity'    => 'critical',
+				'type'        => 'Plugin that prints a hidden encoded script into visitors\' pages',
+				'subject'     => self::display_path( $path ) . ' holds ~' . (int) round( strlen( $block ) / 1024 ) . ' KB of encoded script and prints it on page hooks',
+				'path'        => $path,
+				'action'      => 'This plugin keeps a large script as an encoded block, so it cannot be read in the file, and writes it into the pages shown to visitors (not to administrators, so you will not see it while logged in). That is how redirect, ad and spam injectors work. The plugin is removed. Check pages as a signed-out visitor, and look for the same code in the theme and database.',
+				'auto_delete' => true,
+				'delete_path' => $delete,
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'embedded_js_injector_found', self::display_path( $path ) );
 			}
 		}
 		return $found;
