@@ -1,5 +1,21 @@
 # WP Perf Shield changelog
 
+## 1.4.134
+
+Four uploads triaged statically (nothing executed). Two gaps closed.
+
+### Samples
+- **wp-spam/cms-addons.php ("wp-warden"):** a front-end script injector. A 260 KB base64 heredoc decodes to 190 KB of self-decrypting JavaScript (xorshift stream cipher, run through an indirect call). It is printed as `<scr' . 'ipt>` on wp_head, wp_footer, login_head, wp_body_open and more, skipped for administrators and logged-in managers, also served to anyone through `wp_ajax_nopriv_wp_warden_boot`, and the plugin removes itself from the Plugins list. Only the self-hiding check caught it, at "high".
+- **slot-gacor/index.php:** a 16 KB static AMP gambling landing page (Indonesian slot terms, a canonical pointing at an unrelated site, a Telegram link), no PHP. Caught only as a generic "PHP in uploads" review, and not at all outside uploads.
+- **total-layout-insights-e884:** the payload half of the headless family (opaque `metadata.bin`/`metadata.dat`, no loader). Already caught by `check_headless_plugin_folder`.
+- **core-render-checker-5921:** the `webanalytics-cdn.sbs` / Polygon EtherHiding family, same as smart-health-monitor, with the loader missing. Already caught by eight checks.
+
+### Added
+- **`check_embedded_js_injector`:** a plugin whose file holds a large base64 block that decodes to script (not PHP and not binary), prints it with a script tag on a page hook, and is not an admin screen. Critical, removed with its folder. A plugin with a binary base64 block is not reported (tested).
+- **`check_gambling_doorway_page`:** a static page in its own folder under wp-content, uploads or the web root with at least four distinct gambling terms in its head. Critical, removed with its folder when it is the only file. A page that mentions only "casino" or "slot" is not reported (tested).
+
+Tests: `test-plugin-malware-detection.php`  checks (4 new). Registered checks: 102 (was 100).
+
 ## 1.4.133
 
 **The write-access probe files are now blocked and removed.** `deep_check_<32 hex>.txt` and `upload_test_<32 hex>.txt` are one-line markers (`DEEP_CHECK_OK_<hex>`, `UPLOAD_TEST_OK_<hex>`) left by whoever tests whether a site accepts uploads, usually before placing a shell or kit. They do nothing themselves, but they are evidence of an intruder.

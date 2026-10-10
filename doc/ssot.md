@@ -656,3 +656,6 @@ Decision: all four are matched on behaviour, not on names or hashes (easypost is
 
 ### Probe marker files (1.4.133)
 Decision: block by name at upload time and remove by name plus matching content on scan; name alone is not enough to delete. Digest 1.4.133: `check_probe_marker_files`, `WPS_Blocker::is_probe_marker_name()`; registered checks 100.
+
+### Embedded script injector and gambling doorway (1.4.134)
+Decision: behaviour-matched. The injector needs an encoded block that decodes to script, a page hook and a script-tag echo together; the doorway needs four distinct gambling terms. Digest 1.4.134: `check_embedded_js_injector`, `check_gambling_doorway_page`; registered checks 102.
