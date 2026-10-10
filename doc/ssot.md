@@ -169,7 +169,7 @@ It runs the parser fallback on every PHP and admin JS file, asserts version-mark
 Development tests are plain PHP scripts in:
 
 ```text
-tests/test-plugin-malware-detection.php   headless/payload/installer/dropper/fake-image/loader/web-shell/embedded-dropper/admin-endpoint/card-kit/doorway checks ( cases)
+tests/test-plugin-malware-detection.php   headless/payload/installer/dropper/fake-image/loader/web-shell/embedded-dropper/admin-endpoint/card-kit/doorway checks (64 cases)
 tests/test-manual-removal.php             the "Delete this path" removal routine (16 cases)
 tests/test-policy-ban.php                 the on-disk policy ban (43 cases)
 tests/test-forensics-sql.php              the Forensics media-trace query: placeholders equal arguments (5 cases)
@@ -657,5 +657,8 @@ Decision: all four are matched on behaviour, not on names or hashes (easypost is
 ### Probe marker files (1.4.133)
 Decision: block by name at upload time and remove by name plus matching content on scan; name alone is not enough to delete. Digest 1.4.133: `check_probe_marker_files`, `WPS_Blocker::is_probe_marker_name()`; registered checks 100.
 
-### Embedded script injector and gambling doorway (1.4.134)
-Decision: behaviour-matched. The injector needs an encoded block that decodes to script, a page hook and a script-tag echo together; the doorway needs four distinct gambling terms. Digest 1.4.134: `check_embedded_js_injector`, `check_gambling_doorway_page`; registered checks 102.
+### Gambling doorway pages (1.4.134)
+Decision: match on content, not name, reusing `WPS_Spam_Signatures` (one list of markers); require HTML document plus conclusive markers plus a funnel, because this site's owner writes about gambling in a religious register. Plugin, theme and core folders are out of scope. Digest 1.4.134: `check_gambling_doorway_page`; registered checks 101.
+
+### Embedded script injector (1.4.135)
+Decision: behaviour-matched (encoded block that decodes to script, a script-tag echo and a page hook together). Digest 1.4.135: `check_embedded_js_injector`; registered checks . Reconciled with the parallel 1.4.134 gambling doorway release by keeping the merged one.

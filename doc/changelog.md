@@ -1,20 +1,21 @@
 # WP Perf Shield changelog
 
+## 1.4.135
+
+**Encoded front-end script injectors.** The `wp-spam/cms-addons.php` ("wp-warden") plugin, uploaded again as `comet-blocks-migrate/cms-addons.php` with a new folder name, keeps a 260 KB base64 block that decodes to 190 KB of self-decrypting JavaScript and prints it into visitors' pages on wp_head, wp_footer, login_head and more. It skips administrators, also serves the script through an unauthenticated `wp_ajax_nopriv_` action, and hides itself from the Plugins list. Only the self-hiding check caught it, at "high".
+- **New `check_embedded_js_injector`:** a plugin file holding a large base64 block that decodes to script (not PHP, not binary), printing it with a script tag, with a page hook registered. Critical, removed with its folder. A plugin with a binary base64 block is not reported (tested).
+- Two sessions had worked on 1.4.134 in parallel; the gambling doorway check that merged first is kept, and this release adds only the injector check.
+- Also triaged with no change needed: `total-layout-insights-e884` (headless payload folder, caught by `check_headless_plugin_folder`), and `core-render-checker-5921` and `auto-database-scanner-e52f` (the webanalytics-cdn.sbs EtherHiding family, caught by eight checks each).
+
+Tests: `test-plugin-malware-detection.php` 64 checks (2 new). Registered checks: 102 (was 101).
+
 ## 1.4.134
 
-Four uploads triaged statically (nothing executed). Two gaps closed.
+**Gambling doorway pages are now detected and removed.** A sample upload (`slot-gacor/index.php`) was an AMP landing page for an Indonesian slot site: gambling keywords in the title and meta tags, a canonical URL claiming the victim's domain, and LOGIN / DAFTAR buttons to the operator. It holds no code; it exists to rank the victim's domain for gambling searches.
+- **Scanner:** new `check_gambling_doorway_page` searches uploads, non-standard wp-content folders and web-root folders (never plugins, themes, mu-plugins or core). A file is reported only when it is a full HTML document, `WPS_Spam_Signatures` finds conclusive gambling markers, and there is a funnel (an outbound login/register button, or cloaked markup). Critical; the file, or its folder when it holds nothing else, is removed.
+- A keyword-only page with no funnel, and an anti-gambling essay, are left alone (tested).
 
-### Samples
-- **wp-spam/cms-addons.php ("wp-warden"):** a front-end script injector. A 260 KB base64 heredoc decodes to 190 KB of self-decrypting JavaScript (xorshift stream cipher, run through an indirect call). It is printed as `<scr' . 'ipt>` on wp_head, wp_footer, login_head, wp_body_open and more, skipped for administrators and logged-in managers, also served to anyone through `wp_ajax_nopriv_wp_warden_boot`, and the plugin removes itself from the Plugins list. Only the self-hiding check caught it, at "high".
-- **slot-gacor/index.php:** a 16 KB static AMP gambling landing page (Indonesian slot terms, a canonical pointing at an unrelated site, a Telegram link), no PHP. Caught only as a generic "PHP in uploads" review, and not at all outside uploads.
-- **total-layout-insights-e884:** the payload half of the headless family (opaque `metadata.bin`/`metadata.dat`, no loader). Already caught by `check_headless_plugin_folder`.
-- **core-render-checker-5921:** the `webanalytics-cdn.sbs` / Polygon EtherHiding family, same as smart-health-monitor, with the loader missing. Already caught by eight checks.
-
-### Added
-- **`check_embedded_js_injector`:** a plugin whose file holds a large base64 block that decodes to script (not PHP and not binary), prints it with a script tag on a page hook, and is not an admin screen. Critical, removed with its folder. A plugin with a binary base64 block is not reported (tested).
-- **`check_gambling_doorway_page`:** a static page in its own folder under wp-content, uploads or the web root with at least four distinct gambling terms in its head. Critical, removed with its folder when it is the only file. A page that mentions only "casino" or "slot" is not reported (tested).
-
-Tests: `test-plugin-malware-detection.php`  checks (4 new). Registered checks: 102 (was 100).
+Tests: `test-plugin-malware-detection.php` (4 new). Registered checks: 101 (was 100).
 
 ## 1.4.133
 
@@ -23,7 +24,7 @@ Tests: `test-plugin-malware-detection.php`  checks (4 new). Registered checks: 1
 - **Scanner:** new `check_probe_marker_files` finds existing copies in uploads, wp-content and the web root and removes them. Both name and content must agree (same hex), so a same-named file with other content, or the marker text under another name, is left alone.
 - This cannot stop a direct write that bypasses WordPress (a shell, FTP); the scan removes those on the next run.
 
-Tests: `test-plugin-malware-detection.php`  checks (5 new). Registered checks: 100 (was 99).
+Tests: `test-plugin-malware-detection.php` 58 checks (5 new). Registered checks: 100 (was 99).
 
 ## 1.4.132
 
@@ -42,7 +43,7 @@ Six uploads triaged statically (nothing executed). Four gaps closed; the rest we
 - **Card-harvesting kit (new `check_card_harvester_kit`).** Behaviour match: Telegram bot API plus card fields plus request input, or a tiny file defining both bot credentials. A plain Telegram order notification does not match (tested).
 - **Redirect doorways (new `check_redirect_doorway`).** Previously only the generic "PHP in uploads" review. A tiny page in uploads that forwards to another site using the fragment, or a blanked script, is critical and removed with its folder when it is the only file in it.
 
-Tests: `test-plugin-malware-detection.php`  checks (10 new, with near-miss controls); the others unchanged. Registered checks: 99 (was 95).
+Tests: `test-plugin-malware-detection.php` 53 checks (10 new, with near-miss controls); the others unchanged. Registered checks: 99 (was 95).
 
 ## 1.4.131
 

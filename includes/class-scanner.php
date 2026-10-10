@@ -607,8 +607,8 @@ class WPS_Scanner {
 			'check_card_harvester_kit' => [ __CLASS__, 'check_card_harvester_kit' ], // 1.4.132: phishing kit PHP that sends card details to a Telegram bot
 			'check_redirect_doorway' => [ __CLASS__, 'check_redirect_doorway' ], // 1.4.132: tiny uploads page that only forwards the visitor (and URL fragment) to another site, or a blanked one
 			'check_probe_marker_files' => [ __CLASS__, 'check_probe_marker_files' ], // 1.4.133: deep_check_<hex>.txt / upload_test_<hex>.txt write-access probes
-			'check_embedded_js_injector' => [ __CLASS__, 'check_embedded_js_injector' ], // 1.4.134: plugin that keeps a large encoded script and prints it to visitors on every page
-			'check_gambling_doorway_page' => [ __CLASS__, 'check_gambling_doorway_page' ], // 1.4.134: static slot/gambling SEO landing page dropped as index.php/html in its own folder
+			'check_gambling_doorway_page' => [ __CLASS__, 'check_gambling_doorway_page' ], // 1.4.134: static slot/togel landing page planted in uploads, wp-content or the web root
+			'check_embedded_js_injector' => [ __CLASS__, 'check_embedded_js_injector' ], // 1.4.135: plugin that keeps a large encoded script and prints it to visitors on every page
 			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
 			'check_mu_plugin_dropper' => [ __CLASS__, 'check_mu_plugin_dropper' ], // 1.4.120: plugin that copies bundled folders into mu-plugins and writes require loaders for them
 			'check_fake_image_payload' => [ __CLASS__, 'check_fake_image_payload' ], // 1.4.121: image-named files that are really encoded text, inside plugins that do have a header, mu-plugins and themes
@@ -7288,7 +7288,122 @@ class WPS_Scanner {
 	}
 
 	/**
-	 * 1.4.134: a plugin that stores a large script as an encoded block and prints
+	 * 1.4.134: a static gambling landing page ("slot gacor" doorway) planted in
+	 * uploads, a non-standard wp-content folder or a web-root folder.
+	 *
+	 * Recovered shape: a single index.php (really HTML, often AMP) in a folder of
+	 * its own, with Indonesian slot/togel keywords in the title, meta tags and
+	 * body, a canonical URL claiming the victim's domain, and LOGIN / DAFTAR
+	 * buttons that send the visitor to the operator's site. It exists to rank the
+	 * victim's domain for gambling searches. There is no malicious code in it,
+	 * so the content signatures decide: a full HTML document, a conclusive
+	 * gambling-spam marker set (WPS_Spam_Signatures), and a funnel (an outbound
+	 * login/register button, or cloaked markup). Plugin, theme and core folders
+	 * are not searched.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_gambling_doorway_page(): array {
+		$found = [];
+		if ( ! class_exists( 'WPS_Spam_Signatures' ) ) {
+			return $found;
+		}
+		$roots = [];
+		$up    = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
+		$base  = is_array( $up ) && empty( $up['error'] ) && ! empty( $up['basedir'] ) && is_dir( $up['basedir'] ) ? rtrim( $up['basedir'], '/\\' ) : '';
+		if ( '' !== $base ) {
+			$roots[] = $base;
+		}
+		$skip = [ 'plugins', 'themes', 'mu-plugins', 'languages', 'upgrade', 'uploads' ];
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
+			try {
+				foreach ( new DirectoryIterator( WP_CONTENT_DIR ) as $d ) {
+					if ( ! $d->isDot() && $d->isDir() && ! in_array( $d->getFilename(), $skip, true ) ) {
+						$roots[] = $d->getPathname();
+					}
+				}
+			} catch ( \Throwable $t ) {} // phpcs:ignore
+		}
+		if ( defined( 'ABSPATH' ) && is_dir( ABSPATH ) ) {
+			try {
+				foreach ( new DirectoryIterator( ABSPATH ) as $d ) {
+					if ( ! $d->isDot() && $d->isDir() && ! in_array( $d->getFilename(), [ 'wp-admin', 'wp-includes', 'wp-content', 'cgi-bin' ], true ) ) {
+						$roots[] = $d->getPathname();
+					}
+				}
+			} catch ( \Throwable $t ) {} // phpcs:ignore
+		}
+		$seen = [];
+		$n    = 0;
+		foreach ( array_unique( $roots ) as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 5 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() || ++$n > 20000 ) {
+						return $found;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
+						continue;
+					}
+					if ( ! in_array( strtolower( $f->getExtension() ), [ 'php', 'phtml', 'html', 'htm' ], true ) ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( false === $size || $size < 400 || $size > 300000 ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) || ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) ) {
+						continue;
+					}
+					$raw = @file_get_contents( $path, false, null, 0, 200000 );
+					if ( ! is_string( $raw ) || ! preg_match( '/<!doctype\s+html|<html\b|<title\b/i', $raw ) ) {
+						continue;
+					}
+					$eval = WPS_Spam_Signatures::evaluate( $raw );
+					if ( empty( $eval['spam'] ) || 'high' !== $eval['confidence'] ) {
+						continue;
+					}
+					$button = (bool) preg_match( '/<a\b[^>]*href\s*=\s*["\']https?:\/\/[^"\']+["\'][^>]*>\s*(?:<[^>]+>\s*)*(?:login|masuk|daftar|register|sign\s*up|join|link\s+alternatif)\b/i', $raw );
+					$cloak  = in_array( 'cloaked/hidden markup', (array) $eval['signals'], true );
+					if ( ! $button && ! $cloak ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					$count         = 0;
+					$dir           = dirname( $path );
+					foreach ( new DirectoryIterator( $dir ) as $sib ) {
+						if ( ! $sib->isDot() ) {
+							++$count;
+						}
+					}
+					$found[] = [
+						'severity'    => 'critical',
+						'type'        => 'Gambling spam doorway page',
+						'subject'     => self::display_path( $path ) . ' is a static gambling landing page (' . $eval['reason'] . ')',
+						'path'        => $path,
+						'action'      => 'This page ranks your domain for gambling searches and sends visitors to the operator. It was planted, not written by you. The page (and its folder when it holds nothing else) is removed. Treat the site as compromised: find how the file was written, remove unknown administrators, reset passwords and salts, then ask Google Search Console to recrawl and remove the URL.',
+						'auto_delete' => true,
+						'delete_path' => 1 === $count && realpath( $dir ) !== realpath( $root ) && realpath( $dir ) !== realpath( ABSPATH ) ? $dir : $path,
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'gambling_doorway_found', self::display_path( $path ) );
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.135: a plugin that stores a large script as an encoded block and prints
 	 * it into the pages of visitors.
 	 *
 	 * Recovered shape (wp-spam/cms-addons.php, "wp-warden"): a 260 KB base64
@@ -7346,103 +7461,6 @@ class WPS_Scanner {
 			];
 			if ( class_exists( 'WPS_Logger' ) ) {
 				WPS_Logger::log_event( 'embedded_js_injector_found', self::display_path( $path ) );
-			}
-		}
-		return $found;
-	}
-
-	/**
-	 * 1.4.134: a static gambling landing page dropped into its own folder.
-	 *
-	 * Recovered shape (slot-gacor/index.php): a 16 KB AMP page, no PHP at all,
-	 * with a title, description and keywords stuffed with slot/gacor/login/link
-	 * terms, a canonical pointing at an unrelated site, and links to
-	 * a Telegram channel. Uploaded to rank for gambling searches on the
-	 * victim's domain. Four distinct gambling terms are required, so an article
-	 * that merely mentions one does not match.
-	 *
-	 * @return array<int, array<string, mixed>>
-	 */
-	private static function check_gambling_doorway_page(): array {
-		$found = [];
-		$roots = self::kit_roots();
-		$up    = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
-		if ( is_array( $up ) && empty( $up['error'] ) && ! empty( $up['basedir'] ) && is_dir( $up['basedir'] ) ) {
-			$roots[] = $up['basedir'];
-		}
-		$terms    = [ 'slot gacor', 'slot777', 'situs slot', 'slot online', 'judi online', 'judi slot', 'togel', 'rtp slot', 'link alternatif', 'maxwin', 'bandar', 'gacor', 'daftar slot', 'slot88', 'sbobet', 'casino online', 'judi bola' ];
-		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
-		$n        = 0;
-		$seen     = [];
-		foreach ( array_unique( $roots ) as $root ) {
-			try {
-				$iter = new RecursiveIteratorIterator(
-					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
-					RecursiveIteratorIterator::LEAVES_ONLY
-				);
-				$iter->setMaxDepth( 4 );
-				foreach ( $iter as $f ) {
-					if ( self::out_of_time() || ++$n > 20000 ) {
-						return $found;
-					}
-					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
-						continue;
-					}
-					if ( ! in_array( strtolower( $f->getExtension() ), [ 'php', 'html', 'htm', 'phtml' ], true ) ) {
-						continue;
-					}
-					$size = $f->getSize();
-					if ( false === $size || $size < 1500 || $size > 400000 ) {
-						continue;
-					}
-					$path = $f->getPathname();
-					$real = realpath( $path ) ?: $path;
-					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
-						continue;
-					}
-					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
-						continue;
-					}
-					if ( isset( $seen[ $real ] ) ) {
-						continue;
-					}
-					$seen[ $real ] = true;
-					$head = strtolower( (string) @file_get_contents( $path, false, null, 0, 6000 ) );
-					if ( '' === $head || false === strpos( $head, '<title' ) ) {
-						continue;
-					}
-					$hits = 0;
-					foreach ( $terms as $t ) {
-						if ( false !== strpos( $head, $t ) ) {
-							++$hits;
-						}
-					}
-					if ( $hits < 4 ) {
-						continue;
-					}
-					$dir   = dirname( $path );
-					$count = 0;
-					foreach ( new DirectoryIterator( $dir ) as $sib ) {
-						if ( ! $sib->isDot() ) {
-							++$count;
-						}
-					}
-					$is_root = realpath( $dir ) === realpath( $root );
-					$found[] = [
-						'severity'    => 'critical',
-						'type'        => 'Gambling landing page planted on the site',
-						'subject'     => self::display_path( $path ) . ' is a slot/gambling SEO page (' . $hits . ' gambling terms in its head)',
-						'path'        => $path,
-						'action'      => 'This is a gambling landing page uploaded to borrow your domain\'s ranking, usually with a canonical link pointing at the real gambling site. The page (and its folder when it holds nothing else) is removed. Search Google for site:yourdomain.com slot to find others, check Search Console for hacked-content warnings, and find how the file was written.',
-						'auto_delete' => true,
-						'delete_path' => ( 1 === $count && ! $is_root ) ? $dir : $path,
-					];
-					if ( class_exists( 'WPS_Logger' ) ) {
-						WPS_Logger::log_event( 'gambling_doorway_found', self::display_path( $path ) );
-					}
-				}
-			} catch ( \Throwable $t ) {
-				continue;
 			}
 		}
 		return $found;
