@@ -7353,7 +7353,7 @@ class WPS_Scanner {
 						continue;
 					}
 					$size = $f->getSize();
-					if ( false === $size || $size < 400 || $size > 300000 ) {
+					if ( false === $size || $size < 400 || $size > 3000000 ) {
 						continue;
 					}
 					$path = $f->getPathname();
@@ -7378,7 +7378,10 @@ class WPS_Scanner {
 					$count         = 0;
 					$dir           = dirname( $path );
 					foreach ( new DirectoryIterator( $dir ) as $sib ) {
-						if ( ! $sib->isDot() ) {
+						// 1.4.136: the page's own companions (a Search Console ownership
+						// stub, a sitemap, robots.txt) do not stop the folder going with it.
+						if ( ! $sib->isDot() && $sib->getPathname() !== $path
+							&& ! preg_match( '/^(?:google[0-9a-f]{16}\.html|sitemap[\w-]*\.xml|robots\.txt)$/i', $sib->getFilename() ) ) {
 							++$count;
 						}
 					}
@@ -7389,7 +7392,7 @@ class WPS_Scanner {
 						'path'        => $path,
 						'action'      => 'This page ranks your domain for gambling searches and sends visitors to the operator. It was planted, not written by you. The page (and its folder when it holds nothing else) is removed. Treat the site as compromised: find how the file was written, remove unknown administrators, reset passwords and salts, then ask Google Search Console to recrawl and remove the URL.',
 						'auto_delete' => true,
-						'delete_path' => 1 === $count && realpath( $dir ) !== realpath( $root ) && realpath( $dir ) !== realpath( ABSPATH ) ? $dir : $path,
+						'delete_path' => 0 === $count && realpath( $dir ) !== realpath( $root ) && realpath( $dir ) !== realpath( ABSPATH ) ? $dir : $path,
 					];
 					if ( class_exists( 'WPS_Logger' ) ) {
 						WPS_Logger::log_event( 'gambling_doorway_found', self::display_path( $path ) );
