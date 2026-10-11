@@ -1,5 +1,12 @@
 # WP Perf Shield changelog
 
+## 1.4.136
+
+**The gambling doorway check missed a real sample because it was too big.** `blog.zip` held `blog/index.html` (877 KB, a scraped storefront rewritten as an "ALEXISTOGEL" slot/togel page with a canonical pointing at the victim's domain and a sibling pages.dev site), a Google Search Console ownership stub (`google471b9cce54b5a1ab.html`) and a sitemap submitting it. The 1.4.134 check ignored any file over 300 KB, so it reported nothing.
+- **Size cap raised** from 300 KB to 3 MB. Only the first 200 KB of a file is read, as before.
+- **Companions no longer pin the folder.** A Search Console stub (`google<16 hex>.html`), `sitemap*.xml` and `robots.txt` beside the page are removed with it; a folder holding anything else loses only the page. The stub proves the operator controls the domain in Search Console: remove it, then check Search Console for unknown owners and submitted sitemaps.
+- Tests: `test-plugin-malware-detection.php` 66 checks (2 new). Registered checks: 102 (unchanged).
+
 ## 1.4.135
 
 **Encoded front-end script injectors.** The `wp-spam/cms-addons.php` ("wp-warden") plugin, uploaded again as `comet-blocks-migrate/cms-addons.php` with a new folder name, keeps a 260 KB base64 block that decodes to 190 KB of self-decrypting JavaScript and prints it into visitors' pages on wp_head, wp_footer, login_head and more. It skips administrators, also serves the script through an unauthenticated `wp_ajax_nopriv_` action, and hides itself from the Plugins list. Only the self-hiding check caught it, at "high".

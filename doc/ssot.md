@@ -662,3 +662,6 @@ Decision: match on content, not name, reusing `WPS_Spam_Signatures` (one list of
 
 ### Embedded script injector (1.4.135)
 Decision: behaviour-matched (encoded block that decodes to script, a script-tag echo and a page hook together). Digest 1.4.135: `check_embedded_js_injector`; registered checks . Reconciled with the parallel 1.4.134 gambling doorway release by keeping the merged one.
+
+### Gambling doorway size cap (1.4.136)
+Decision: the file-size cap bounds memory, not meaning, and attackers clone whole storefronts; reading stays capped at 200 KB so the cap can be 3 MB. Companion ownership stubs and sitemaps are part of the kit. Digest 1.4.136: `check_gambling_doorway_page` size cap and companions; registered checks 102.
