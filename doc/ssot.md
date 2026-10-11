@@ -669,3 +669,6 @@ Decision: the file-size cap bounds memory, not meaning, and attackers clone whol
 
 ### Search Console stubs and the Site Kit setting (1.4.137)
 Decision: a subfolder stub is never legitimate, so it is always acted on; a root stub is acted on only when the operator states the site uses Site Kit, since removing a real verification file breaks ownership. The setting is `site_kit_search_console`, default off. Digest 1.4.137: `check_search_console_stub`; registered checks 103.
+
+### Review findings on the exposure guard (1.4.138)
+Both CodeAnt findings on PR 12 were valid and fixed: the endpoint is the whole path, not its last segment, and a REST exemption matches whole namespace segments. Lesson: read the bot review before merging, not after. Digest 1.4.138: `endpoint_of`, `rest_gate`.

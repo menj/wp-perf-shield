@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.137
+Stable tag: 1.4.138
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.138 =
+Fixes two matching bugs in the optional XML-RPC endpoint and REST exemptions (nested paths and longer namespaces were matched too broadly).
 
 = 1.4.137 =
 New optional setting for Site Kit sites: quarantine Search Console verification files and report a physical sitemap.xml. Stubs inside subfolders are always reported.
@@ -647,6 +650,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.138 =
+Tightens matching of the custom XML-RPC endpoint and REST namespace exemptions. Only matters if you enabled them.
 
 = 1.4.137 =
 Adds detection of planted Search Console ownership stubs and an optional Site Kit setting.

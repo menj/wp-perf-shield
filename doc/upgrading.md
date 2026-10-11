@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.138
+
+**Two fixes to the optional XML-RPC and exposure controls.** If you use a custom XML-RPC endpoint, only that exact path serves it now, not any path ending in the slug. If you use "REST API for signed-in users only" with exempt namespaces, an exemption such as `my-app/v1` no longer also covers `my-app/v10`; list each namespace you want exempt. Nothing changes if these options are off.
+
 ## 1.4.137
 
 **New optional setting for Site Kit sites.** Settings, Detection: "This site verifies Search Console through Site Kit". Turn it on if you do not use a `google....html` verification file or a hand-made `sitemap.xml`; a stub at the web root is then quarantined and a root sitemap.xml reported. Off by default. A stub in a subfolder is always reported, with or without the setting. After removing one, open Search Console and remove owners you did not add.
