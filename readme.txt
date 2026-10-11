@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.135
+Stable tag: 1.4.137
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,12 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.137 =
+New optional setting for Site Kit sites: quarantine Search Console verification files and report a physical sitemap.xml. Stubs inside subfolders are always reported.
+
+= 1.4.136 =
+Finds large gambling doorway pages (the old size limit skipped them) and removes the Search Console stub and sitemap beside them.
 
 = 1.4.135 =
 New detection and removal of plugins that print an encoded script into visitors' pages while hiding from administrators.
@@ -641,6 +647,12 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.137 =
+Adds detection of planted Search Console ownership stubs and an optional Site Kit setting.
+
+= 1.4.136 =
+Fixes a size limit that let a large gambling doorway page go undetected.
 
 = 1.4.135 =
 Adds detection and removal of encoded front-end script injectors.

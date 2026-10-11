@@ -455,6 +455,18 @@ class WPS_Admin_Settings {
 							</td>
 						</tr>
 						<tr>
+							<th><label for="site_kit_search_console">Search Console files</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="site_kit_search_console" name="site_kit_search_console" value="1" <?php checked( ( $settings['site_kit_search_console'] ?? '0' ) === '1' ); ?>>
+									<span>
+										<strong>This site verifies Search Console through Site Kit</strong><br>
+										<span class="description">Turn this on if you do not use a <code>google&hellip;.html</code> verification file or a hand-made <code>sitemap.xml</code> (Site Kit verifies with a meta tag and WordPress serves its own sitemap). Gambling-spam kits plant that file so the operator can own your domain in Search Console; with this on, one at the web root is moved to quarantine and a physical <code>sitemap.xml</code> is reported. One inside any subfolder is always reported, whatever this setting says. Off by default, because many sites verify with that file.</span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						<tr>
 							<th><label for="spam_content_guard_enabled">Gambling-spam scanner</label></th>
 							<td>
 								<label class="wps-toggle-row">

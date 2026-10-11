@@ -59,6 +59,14 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.137
+
+**New optional setting for Site Kit sites.** Settings, Detection: "This site verifies Search Console through Site Kit". Turn it on if you do not use a `google....html` verification file or a hand-made `sitemap.xml`; a stub at the web root is then quarantined and a root sitemap.xml reported. Off by default. A stub in a subfolder is always reported, with or without the setting. After removing one, open Search Console and remove owners you did not add.
+
+## 1.4.136
+
+**Large gambling doorway pages are now found.** The 1.4.134 check skipped files over 300 KB; the limit is now 3 MB, and a Search Console ownership stub and sitemap beside the page go with it. If you find one on a site, also open Search Console and remove owners and sitemaps you did not add. Nothing to configure.
+
 ## 1.4.135
 
 **New detection: plugins that print an encoded script into visitors' pages.** Matches are critical and removed automatically. If the scan reports one, view the site signed out (the script hides from administrators) and look for the same code in the theme and database. Nothing to configure.
