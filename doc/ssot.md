@@ -175,6 +175,7 @@ tests/test-policy-ban.php                 the on-disk policy ban (43 cases)
 tests/test-forensics-sql.php              the Forensics media-trace query: placeholders equal arguments (5 cases)
 tests/test-exposure-guard.php             XML-RPC and exposure guard: hooks, IP/CIDR, slug, REST gate, exiting behaviour via subprocess (50 cases)
 tests/test-settings-render.php            the real Settings tab renders and every xr_ field is saved and read (15 cases)
+tests/test-search-console-stub.php        Search Console stub check with the Site Kit setting off and on (7 cases)
 tests/test-docs-sync.php                  version markers, changelog entries, and Appendix F against the code
 ```
 
@@ -665,3 +666,6 @@ Decision: behaviour-matched (encoded block that decodes to script, a script-tag 
 
 ### Gambling doorway size cap (1.4.136)
 Decision: the file-size cap bounds memory, not meaning, and attackers clone whole storefronts; reading stays capped at 200 KB so the cap can be 3 MB. Companion ownership stubs and sitemaps are part of the kit. Digest 1.4.136: `check_gambling_doorway_page` size cap and companions; registered checks 102.
+
+### Search Console stubs and the Site Kit setting (1.4.137)
+Decision: a subfolder stub is never legitimate, so it is always acted on; a root stub is acted on only when the operator states the site uses Site Kit, since removing a real verification file breaks ownership. The setting is `site_kit_search_console`, default off. Digest 1.4.137: `check_search_console_stub`; registered checks 103.

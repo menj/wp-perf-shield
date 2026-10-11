@@ -124,6 +124,7 @@ class WPS_Admin {
 			'account_guard_disable_app_passwords'  => isset( $_POST['account_guard_disable_app_passwords'] ) ? '1' : '0',
 			'spam_content_guard_enabled'           => isset( $_POST['spam_content_guard_enabled'] ) ? '1' : '0',
 			'block_sso_bypass'     => isset( $_POST['block_sso_bypass'] ) ? '1' : '0',
+			'site_kit_search_console' => isset( $_POST['site_kit_search_console'] ) ? '1' : '0',
 			'login_network_guard'  => isset( $_POST['login_network_guard'] ) ? '1' : '0',
 			'login_report_spam'    => isset( $_POST['login_report_spam'] ) ? '1' : '0',
 			'akismet_report_all_blocks' => isset( $_POST['akismet_report_all_blocks'] ) ? '1' : '0',

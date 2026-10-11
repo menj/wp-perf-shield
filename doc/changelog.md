@@ -1,5 +1,13 @@
 # WP Perf Shield changelog
 
+## 1.4.137
+
+**Search Console ownership stubs planted by doorway kits.** Both gambling kits (`blog.zip`, `rebuttals.zip`) carried the same `google471b9cce54b5a1ab.html` verification stub and a sitemap naming the planted page, so the operator controls the domain in Search Console and can request indexing. 1.4.136 removes them with the page; this release also handles a stub that is left behind or planted on its own.
+- **New `check_search_console_stub`.** A `google<16 hex>.html` file whose content is exactly `google-site-verification: <its own name>` is reported and moved to quarantine when it is in any subfolder (a genuine one lives at the web root), whatever the settings say.
+- **New setting, off by default: "This site verifies Search Console through Site Kit"** (Settings, Detection). With it on, a stub at the web root is also quarantined, and a physical root `sitemap.xml` is reported at medium and never removed automatically (WordPress serves its own sitemap). Off by default because many sites verify with the file, and removing a real one would break their verification.
+- A file named like a stub but with other content is ignored (tested).
+- Tests: new `test-search-console-stub.php`, 7 cases. Registered checks: 103 (was 102).
+
 ## 1.4.136
 
 **The gambling doorway check missed a real sample because it was too big.** `blog.zip` held `blog/index.html` (877 KB, a scraped storefront rewritten as an "ALEXISTOGEL" slot/togel page with a canonical pointing at the victim's domain and a sibling pages.dev site), a Google Search Console ownership stub (`google471b9cce54b5a1ab.html`) and a sitemap submitting it. The 1.4.134 check ignored any file over 300 KB, so it reported nothing.

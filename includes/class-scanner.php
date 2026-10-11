@@ -609,6 +609,7 @@ class WPS_Scanner {
 			'check_probe_marker_files' => [ __CLASS__, 'check_probe_marker_files' ], // 1.4.133: deep_check_<hex>.txt / upload_test_<hex>.txt write-access probes
 			'check_gambling_doorway_page' => [ __CLASS__, 'check_gambling_doorway_page' ], // 1.4.134: static slot/togel landing page planted in uploads, wp-content or the web root
 			'check_embedded_js_injector' => [ __CLASS__, 'check_embedded_js_injector' ], // 1.4.135: plugin that keeps a large encoded script and prints it to visitors on every page
+			'check_search_console_stub' => [ __CLASS__, 'check_search_console_stub' ], // 1.4.137: Search Console ownership stubs planted by doorway kits (and, on Site Kit sites, any at the root)
 			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
 			'check_mu_plugin_dropper' => [ __CLASS__, 'check_mu_plugin_dropper' ], // 1.4.120: plugin that copies bundled folders into mu-plugins and writes require loaders for them
 			'check_fake_image_payload' => [ __CLASS__, 'check_fake_image_payload' ], // 1.4.121: image-named files that are really encoded text, inside plugins that do have a header, mu-plugins and themes
@@ -7464,6 +7465,102 @@ class WPS_Scanner {
 			];
 			if ( class_exists( 'WPS_Logger' ) ) {
 				WPS_Logger::log_event( 'embedded_js_injector_found', self::display_path( $path ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.137: Search Console ownership stubs (`google<16 hex>.html`) and hand-made
+	 * sitemaps planted by gambling doorway kits.
+	 *
+	 * The stub proves to Google that whoever placed it owns the domain, which
+	 * lets the operator submit sitemaps and request indexing for planted pages.
+	 * A genuine one lives at the web root. One inside a subfolder is always
+	 * reported. At the root it is reported only when the operator has said the
+	 * site verifies through Site Kit (setting `site_kit_search_console`), because
+	 * many sites verify with the file. The content must be exactly
+	 * `google-site-verification: <its own file name>`.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_search_console_stub(): array {
+		$found = [];
+		if ( ! defined( 'ABSPATH' ) || ! is_dir( ABSPATH ) ) {
+			return $found;
+		}
+		$opts     = function_exists( 'get_option' ) ? get_option( WPS_OPTION, [] ) : [];
+		$site_kit = is_array( $opts ) && ( $opts['site_kit_search_console'] ?? '0' ) === '1';
+		$abs      = rtrim( (string) ( realpath( ABSPATH ) ?: ABSPATH ), '/\\' );
+		$roots    = [ $abs ];
+		$skip     = [ 'wp-admin', 'wp-includes', 'cgi-bin', 'plugins', 'themes', 'mu-plugins' ];
+		foreach ( [ 'WP_CONTENT_DIR' ] as $c ) {
+			if ( defined( $c ) && is_dir( constant( $c ) ) ) {
+				$roots[] = rtrim( constant( $c ), '/\\' );
+			}
+		}
+		$up = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
+		if ( is_array( $up ) && empty( $up['error'] ) && ! empty( $up['basedir'] ) && is_dir( $up['basedir'] ) ) {
+			$roots[] = rtrim( $up['basedir'], '/\\' );
+		}
+		$seen = [];
+		$n    = 0;
+		foreach ( array_unique( $roots ) as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( $root === $abs ? 1 : 5 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() || ++$n > 20000 ) {
+						return $found;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
+						continue;
+					}
+					$name = $f->getFilename();
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) ) {
+						continue;
+					}
+					$dir     = rtrim( (string) ( realpath( dirname( $path ) ) ?: dirname( $path ) ), '/\\' );
+					$at_root = ( $dir === $abs );
+					if ( ! $at_root && in_array( basename( $dir ), $skip, true ) && dirname( $dir ) === $abs ) {
+						continue;
+					}
+					if ( preg_match( '/^google[0-9a-f]{16}\.html$/i', $name ) ) {
+						$body = trim( (string) @file_get_contents( $path, false, null, 0, 300 ) );
+						if ( 0 !== strcasecmp( $body, 'google-site-verification: ' . $name ) ) {
+							continue;
+						}
+						if ( $at_root && ! $site_kit ) {
+							continue;
+						}
+						$seen[ $real ] = true;
+						$found[]       = [
+							'severity'    => 'high',
+							'type'        => $at_root ? 'Search Console verification file on a Site Kit site' : 'Search Console verification file inside a subfolder',
+							'subject'     => self::display_path( $path ) . ( $at_root ? ' (you said Site Kit handles verification)' : ' (a genuine one lives at the web root)' ),
+							'path'        => $path,
+							'action'      => 'This file proves to Google that whoever placed it owns the domain, which lets them submit sitemaps and request indexing for pages they planted. ' . ( $at_root ? 'You have said this site verifies through Site Kit, so the file is not yours; it is moved to quarantine.' : 'It sits in a subfolder, where a real verification file never is; it is moved to quarantine.' ) . ' Then open Search Console, Settings, Users and permissions, and remove any owner you did not add, and delete sitemaps you did not submit.',
+							'auto_delete' => $at_root ? $site_kit : true,
+							'delete_path' => $path,
+						];
+					} elseif ( $site_kit && $at_root && 'sitemap.xml' === strtolower( $name ) ) {
+						$seen[ $real ] = true;
+						$found[]       = [
+							'severity'    => 'medium',
+							'type'        => 'Physical sitemap.xml on a site whose sitemap is generated',
+							'subject'     => self::display_path( $path ) . ' (WordPress serves its own sitemap; Site Kit does not need this file)',
+							'path'        => $path,
+							'action'      => 'A static sitemap.xml at the web root can list pages you did not create. Open it and check every URL; delete it if you do not use it. Nothing is removed automatically.',
+						];
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
 			}
 		}
 		return $found;
