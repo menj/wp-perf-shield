@@ -86,8 +86,9 @@ check( 'a token with stray characters is dropped whole, never repaired', "system
 check( 'a plain endpoint name is kept', 'wp-rpc-1a2b' === WPS_Exposure_Guard::sanitize_slug( ' WP-RPC-1a2b ' ) );
 check( '.php, spaces and symbols are stripped', 'myendpoint' === WPS_Exposure_Guard::sanitize_slug( 'my endpoint!.php' ) );
 check( 'reserved and too-short names are refused', '' === WPS_Exposure_Guard::sanitize_slug( 'xmlrpc.php' ) && '' === WPS_Exposure_Guard::sanitize_slug( 'wp-login' ) && '' === WPS_Exposure_Guard::sanitize_slug( 'abc' ) && '' === WPS_Exposure_Guard::sanitize_slug( str_repeat( 'a', 41 ) ) );
-check( 'the endpoint is the last path segment, without query or trailing slash', 'wp-rpc-1a2b' === WPS_Exposure_Guard::endpoint_of( '/wp-rpc-1a2b/?x=1' ) );
+check( 'the endpoint is the whole path below the site root, without query or trailing slash', 'wp-rpc-1a2b' === WPS_Exposure_Guard::endpoint_of( '/wp-rpc-1a2b/?x=1' ) );
 check( 'a sub-folder install is handled', 'wp-rpc-1a2b' === WPS_Exposure_Guard::endpoint_of( '/blog/wp-rpc-1a2b', '/blog' ) && 'xmlrpc.php' === WPS_Exposure_Guard::endpoint_of( '/blog/xmlrpc.php', '/blog' ) );
+check( 'a nested path ending in the slug or xmlrpc.php is not the endpoint', 'blog/wp-rpc-1a2b' === WPS_Exposure_Guard::endpoint_of( '/blog/wp-rpc-1a2b' ) && 'shop/xmlrpc.php' === WPS_Exposure_Guard::endpoint_of( '/shop/xmlrpc.php' ) );
 check( 'index.php/ in the path is ignored', 'wp-rpc-1a2b' === WPS_Exposure_Guard::endpoint_of( '/index.php/wp-rpc-1a2b' ) );
 
 // ---- address rules
@@ -117,6 +118,10 @@ $_SERVER['REQUEST_URI'] = '/wp-json/contact-form-7/v1/contact-forms/5/feedback';
 check( 'an exempted namespace passes when signed out', null === WPS_Exposure_Guard::rest_gate( null ) );
 $_SERVER['REQUEST_URI'] = '/wp-json/my-app/v1/ping';
 check( 'a second exempted prefix passes', null === WPS_Exposure_Guard::rest_gate( null ) );
+$_SERVER['REQUEST_URI'] = '/wp-json/my-app/v10/ping';
+check( 'my-app/v1 does not exempt my-app/v10', WPS_Exposure_Guard::rest_gate( null ) instanceof WP_Error );
+$_SERVER['REQUEST_URI'] = '/wp-json/my-app/v1';
+check( 'the exempted namespace root itself passes', null === WPS_Exposure_Guard::rest_gate( null ) );
 unset( $_SERVER['REQUEST_URI'] );
 $_GET['rest_route'] = '/wp/v2/users';
 check( 'plain-permalink rest_route is read too', WPS_Exposure_Guard::rest_gate( null ) instanceof WP_Error );

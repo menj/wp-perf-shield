@@ -1,5 +1,12 @@
 # WP Perf Shield changelog
 
+## 1.4.138
+
+**Two findings from CodeAnt AI's review of PR 12 (the XML-RPC and exposure guard), checked against the code and both real.** They were posted before PR 12 merged and I had not read them. Both concern options that are off by default, so no site was exposed unless it had switched them on.
+- **Nested paths were treated as the endpoint (Major).** `endpoint_of()` compared only the last path segment, so with a custom endpoint set, `/anything/<slug>` was served XML-RPC (outside its configured URL) and `/shop/xmlrpc.php` was answered 404 although it is not the XML-RPC file. It now compares the whole path below the site root, and strips a leading `index.php/` only at the start.
+- **A REST exemption matched longer namespaces (Major, security).** The "REST API for signed-in users only" exemption was a plain string prefix, so `my-app/v1` also exempted `my-app/v10`. Matching is now on whole segments: the namespace itself or anything below `my-app/v1/`.
+- Tests: `test-exposure-guard.php` $N cases (3 new). Registered checks unchanged at 103.
+
 ## 1.4.137
 
 **Search Console ownership stubs planted by doorway kits.** Both gambling kits (`blog.zip`, `rebuttals.zip`) carried the same `google471b9cce54b5a1ab.html` verification stub and a sitemap naming the planted page, so the operator controls the domain in Search Console and can request indexing. 1.4.136 removes them with the page; this release also handles a stub that is left behind or planted on its own.

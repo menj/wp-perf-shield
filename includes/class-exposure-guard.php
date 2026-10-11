@@ -200,9 +200,9 @@ class WPS_Exposure_Guard {
 		if ( '/' !== $home && 0 === strpos( $path, $home . '/' ) ) {
 			$path = substr( $path, strlen( $home ) );
 		}
-		$path = str_replace( 'index.php/', '', trim( $path, '/' ) );
-		$parts = explode( '/', $path );
-		return strtolower( (string) end( $parts ) );
+		// The whole path below the site root, so /anything/<slug> is not the endpoint.
+		$path = (string) preg_replace( '#^index\.php(?:/|$)#', '', trim( $path, '/' ) );
+		return strtolower( $path );
 	}
 
 	/**
@@ -417,7 +417,10 @@ class WPS_Exposure_Guard {
 		}
 		$route = self::rest_route_of_request();
 		foreach ( self::rest_exemptions() as $prefix ) {
-			if ( '' !== $prefix && 0 === strpos( ltrim( $route, '/' ), $prefix ) ) {
+			// Whole namespace segments only: my-app/v1 must not exempt my-app/v10.
+			$prefix = trim( $prefix, '/' );
+			$bare   = trim( $route, '/' );
+			if ( '' !== $prefix && ( $bare === $prefix || 0 === strpos( $bare, $prefix . '/' ) ) ) {
 				return $result;
 			}
 		}
