@@ -7043,8 +7043,17 @@ class WPS_Scanner {
 	 */
 	private static function kit_roots(): array {
 		$roots = [];
+		// Each folder directly under wp-content except the trees other checks own.
+		// Walking plugins/ and themes/ here would spend the file budget before the
+		// scan reached uploads/ or an odd folder on a site with tens of thousands of files.
 		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
-			$roots[] = rtrim( WP_CONTENT_DIR, '/\\' );
+			try {
+				foreach ( new DirectoryIterator( WP_CONTENT_DIR ) as $d ) {
+					if ( ! $d->isDot() && $d->isDir() && ! in_array( $d->getFilename(), [ 'plugins', 'themes', 'mu-plugins', 'languages', 'upgrade', 'upgrade-temp-backup' ], true ) ) {
+						$roots[] = $d->getPathname();
+					}
+				}
+			} catch ( \Throwable $t ) {} // phpcs:ignore
 		}
 		if ( defined( 'ABSPATH' ) && is_dir( ABSPATH ) ) {
 			try {
@@ -7235,20 +7244,38 @@ class WPS_Scanner {
 		$roots = self::kit_roots();
 		$up    = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
 		if ( is_array( $up ) && empty( $up['error'] ) && ! empty( $up['basedir'] ) && is_dir( $up['basedir'] ) ) {
-			$roots[] = $up['basedir'];
+			// A custom uploads location; the default one is already below wp-content.
+			$base   = rtrim( (string) $up['basedir'], '/\\' );
+			$nested = false;
+			foreach ( $roots as $r ) {
+				if ( $base === $r || 0 === strpos( $base . '/', rtrim( $r, '/\\' ) . '/' ) ) {
+					$nested = true;
+					break;
+				}
+			}
+			if ( ! $nested ) {
+				$roots[] = $base;
+			}
 		}
-		if ( defined( 'ABSPATH' ) && is_dir( ABSPATH ) ) {
-			$roots[] = rtrim( ABSPATH, '/\\' );
+		// The web root and wp-content are searched for loose files only, not recursed.
+		foreach ( [ 'ABSPATH', 'WP_CONTENT_DIR' ] as $c ) {
+			if ( defined( $c ) && is_dir( constant( $c ) ) ) {
+				$roots[] = rtrim( constant( $c ), '/\\' ) . '/*';
+			}
 		}
 		$seen = [];
 		$n    = 0;
 		foreach ( array_unique( $roots ) as $root ) {
 			try {
+				$shallow = '/*' === substr( $root, -2 );
+				if ( $shallow ) {
+					$root = substr( $root, 0, -2 );
+				}
 				$iter = new RecursiveIteratorIterator(
 					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
 					RecursiveIteratorIterator::LEAVES_ONLY
 				);
-				$iter->setMaxDepth( 5 );
+				$iter->setMaxDepth( $shallow ? 0 : 5 );
 				foreach ( $iter as $f ) {
 					if ( self::out_of_time() || ++$n > 20000 ) {
 						return $found;
@@ -7492,14 +7519,10 @@ class WPS_Scanner {
 		$opts     = function_exists( 'get_option' ) ? get_option( WPS_OPTION, [] ) : [];
 		$site_kit = is_array( $opts ) && ( $opts['site_kit_search_console'] ?? '0' ) === '1';
 		$abs      = rtrim( (string) ( realpath( ABSPATH ) ?: ABSPATH ), '/\\' );
-		$roots    = [ $abs ];
-		$skip     = [ 'wp-admin', 'wp-includes', 'cgi-bin', 'plugins', 'themes', 'mu-plugins' ];
-		foreach ( [ 'WP_CONTENT_DIR' ] as $c ) {
-			if ( defined( $c ) && is_dir( constant( $c ) ) ) {
-				$roots[] = rtrim( constant( $c ), '/\\' );
-			}
-		}
-		$up = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
+		// The web root one level deep, then the folders other checks do not own.
+		$roots = array_merge( [ $abs ], self::kit_roots() );
+		$skip  = [ 'wp-admin', 'wp-includes', 'cgi-bin', 'plugins', 'themes', 'mu-plugins' ];
+		$up    = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
 		if ( is_array( $up ) && empty( $up['error'] ) && ! empty( $up['basedir'] ) && is_dir( $up['basedir'] ) ) {
 			$roots[] = rtrim( $up['basedir'], '/\\' );
 		}
