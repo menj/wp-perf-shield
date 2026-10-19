@@ -7946,7 +7946,7 @@ class WPS_Scanner {
 				continue;
 			}
 			$head = (string) @file_get_contents( $path, false, null, 0, 120 );
-			if ( ! preg_match( '/^\s*<!--([A-Za-z0-9]{8})-->/', $head, $m ) || preg_match_all( '/[A-Z]/', $m[1] ) < 3 || ! preg_match( '/[a-z]/', $m[1] ) ) {
+			if ( ! preg_match( '/^\s*<!--([A-Za-z0-9]{8})-->/', $head, $m ) || ( $caps = preg_match_all( '/[A-Z]/', $m[1] ) ) < 2 || ! preg_match( '/[a-z]/', $m[1] ) || ( $caps < 3 && ! preg_match( '/\d/', $m[1] ) ) ) {
 				continue;
 			}
 			if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
