@@ -687,3 +687,6 @@ Operator decision, not a malware finding: the genuine plugin (3.10.2, all 518 fi
 
 ### Character-code payload (1.4.143)
 Decoded in the scanner, judged on what it spells, and gated on an eval in code. Lesson: a regex with a large repeated group can fail silently on a large literal (PCRE JIT stack); use a flat character class and validate in PHP. Digest 1.4.143: `check_charcode_eval_payload`, `CONCLUSIVE_TYPES`.
+
+### Key-gated command backdoor (1.4.144)
+The real file carried a weak capability check (`read`) on an unrelated page, which defeated a first version of the check that required no auth anywhere; protection now means an administrator-level capability or a nonce. Digest 1.4.144: `check_keyed_command_backdoor`, the marker rule, `CONCLUSIVE_TYPES`.

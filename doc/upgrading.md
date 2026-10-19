@@ -59,13 +59,17 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.144
+
+**New detection: a command-execution backdoor whose only gate is a fixed key written into the file** (the plugin `wp-shell.php` is an example). It is removed automatically. If the scan reports one, anyone who knew the key could run commands on the server: check administrator users and application passwords, reset passwords and salts, and ask your host to check for processes and cron jobs. Nothing to configure.
+
 ## 1.4.143
 
 **New detection: PHP stored as a list of decimal character codes and run through eval.** The file is removed automatically. If the scan reports one, it was probably inside a copy of a real plugin under a random folder name (Protect Uploads, Akismet and others have been used): check the genuine files against wordpress.org checksums and remove the carrier. Nothing to configure.
 
 ## 1.4.142
 
-**Code Snippets is now on the banned-plugin list.** It cannot be installed or activated, and a copy on disk is removed on the next admin request (within about a minute on the front end). Its snippets stay in the database table `wp_snippets` and stop running; read them before you drop the table. Any plugin whose slug contains `code-snippets` is refused too. To allow it again, remove it under Settings, Banned plugins, or switch the policy off there.
+**Code Snippets is now on the banned-plugin list.** It cannot be installed or activated, and a copy on disk is removed on the next admin request (within about a minute on the front end). Its snippets stay in the database table `wp_snippets` and stop running; read them before you drop the table. A name with `code-snippets` as a whole word is refused too (`code-snippets-pro`); longer words such as `shortcode-snippets` are not. To allow it again, remove it under Settings, Banned plugins, or switch the policy off there.
 
 ## 1.4.141
 
