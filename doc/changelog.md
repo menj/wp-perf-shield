@@ -1,5 +1,16 @@
 # WP Perf Shield changelog
 
+## 1.4.140
+
+**The Medusa FM kit: a trojanised Protect Uploads that turns the site into a crawler-cloaking gate.** Uploaded as folder `mcurcff` (the real Protect Uploads files, which are banned on this site, plus extras) with the extras again as loose files, a cache purger `clr.php` and an empty `uconvert.php`.
+- **What it does.** `medusa.php` is an encrypted loader. `fm_index_heal.php` replaces the site's `index.php` and `.htaccess` with a gate that shows search crawlers a page fetched from `istanbulescortladys.com/ist.txt`, backs both up, locks them read-only (0444), and installs a mu-plugin (`ms-index-heal.php`) that restores them from the backup if you delete them. `fm_early_router.php` is written into `advanced-cache.php` so crawlers are answered before WordPress loads, serving a `license.html` from the web root, and edits `WP_CACHE` in `wp-config.php`. `clr.php` is a generic cache purger used to make the gate live; on its own it is not malicious, so it is not flagged. `uconvert.php` is empty (nothing to analyse).
+- **What was already caught.** The Protect Uploads folder is removed by the on-disk ban whatever it is called (its main file `protect-uploads.php` carries the plugin header); `medusa.php` by the encoded-payload check; `fm_index_heal.php` as cloaking but report-only. `fm_early_router.php` was not caught at all.
+- **New `check_medusa_fm_kit`.** Matches the kit's own function and constant names, two at once in a file (or its remote content host): `fm_early_router_source`, `fm_index_gate_source`, `fm_mu_heal_source`, `ms_gate_heal_restore`, `FM_E104_LOADER`, `MSENC-V2`, `Medusa FM` and others. Critical and removed automatically (the file only, so a legitimate plugin that was trojanised keeps its own code). One stray mention is not enough (tested).
+- **Indicators** (`INDICATOR_VERSION` 1.4.140-1): the content host `istanbulescortladys.com` joins the known C2 domains, and the kit's file names `fm_index_heal.php`, `fm_early_router.php`, `ms-index-heal.php`, `.ms_index.bak.php` and `.ms_htaccess.bak` are known loose dropper components.
+- **Cleaning up after removal.** Order matters, because the heal mu-plugin puts the gate back: remove `wp-content/mu-plugins/ms-index-heal.php` first, then the `.ms_index.bak.php` and `.ms_htaccess.bak` backups, then restore `index.php` and `.htaccess` (the kit sets them 0444; make them writable first), check `wp-content/advanced-cache.php` and the `WP_CACHE` line in `wp-config.php`, and delete the web-root `license.html`.
+
+Tests: `test-plugin-malware-detection.php` 82 cases. Registered checks: NC (was 103).
+
 ## 1.4.139
 
 **Review of everything added since 1.4.131, by an independent reviewer who tried to break it, and then CodeAnt AI's review of the pull request.** Ten findings, each checked against the code before changing anything; all were real except one that could not be verified here (see the last item).

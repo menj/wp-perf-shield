@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.139
+Stable tag: 1.4.140
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.140 =
+New detection and removal of the Medusa FM kit (crawler-cloaking gate that rewrites index.php and .htaccess and heals itself through a mu-plugin), including its remote content host and file names.
 
 = 1.4.139 =
 Independent review of the 1.4.131 to 1.4.138 additions. Automatic removal now works for the new checks (the removal policy denied it before), the XML-RPC 404 can no longer be bypassed, IPv4-mapped IPv6 clients match IPv4 deny rules, and several scan-scope and false-positive fixes.
@@ -653,6 +656,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.140 =
+Adds detection of the Medusa FM crawler-cloaking kit hidden inside a trojanised Protect Uploads.
 
 = 1.4.139 =
 Important: the new detections added since 1.4.131 now remove what they find (the policy denied it before), and the XML-RPC endpoint rename can no longer be bypassed.

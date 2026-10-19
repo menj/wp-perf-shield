@@ -188,6 +188,8 @@ final class WPS_Remediation_Policy {
 		'Write-access probe file left by an intruder',
 		'Search Console verification file on a Site Kit site',
 		'Gambling spam doorway page',
+		// 1.4.140: the kit's own function and constant names, two at once, or its remote content host.
+		'Medusa FM kit file',
 	];
 
 	/*

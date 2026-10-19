@@ -609,6 +609,7 @@ class WPS_Scanner {
 			'check_probe_marker_files' => [ __CLASS__, 'check_probe_marker_files' ], // 1.4.133: deep_check_<hex>.txt / upload_test_<hex>.txt write-access probes
 			'check_gambling_doorway_page' => [ __CLASS__, 'check_gambling_doorway_page' ], // 1.4.134: static slot/togel landing page planted in uploads, wp-content or the web root
 			'check_embedded_js_injector' => [ __CLASS__, 'check_embedded_js_injector' ], // 1.4.135: plugin that keeps a large encoded script and prints it to visitors on every page
+			'check_medusa_fm_kit' => [ __CLASS__, 'check_medusa_fm_kit' ], // 1.4.140: Medusa FM kit files (encrypted loader, index/.htaccess self-heal, early crawler router) by their own markers
 			'check_search_console_stub' => [ __CLASS__, 'check_search_console_stub' ], // 1.4.137: Search Console ownership stubs planted by doorway kits (and, on Site Kit sites, any at the root)
 			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
 			'check_mu_plugin_dropper' => [ __CLASS__, 'check_mu_plugin_dropper' ], // 1.4.120: plugin that copies bundled folders into mu-plugins and writes require loaders for them
@@ -7635,6 +7636,90 @@ class WPS_Scanner {
 				}
 			} catch ( \Throwable $t ) {
 				continue;
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.140: the Medusa FM kit, found by its own markers in any PHP file.
+	 *
+	 * Recovered shape (a trojanised copy of Protect Uploads, folder `mcurcff`):
+	 * `medusa.php` (an encrypted loader), `fm_index_heal.php` (replaces the site's
+	 * index.php and .htaccess with a gate that shows crawlers a page fetched from a
+	 * remote server, locks both read-only, and installs a mu-plugin that puts them
+	 * back if you delete them) and `fm_early_router.php` (hooks advanced-cache.php so
+	 * crawlers are answered before WordPress loads). The files carry the kit's
+	 * function and constant names, which the authors did not hide. Two distinct
+	 * markers are required in one file, or its remote content host.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_medusa_fm_kit(): array {
+		$found   = [];
+		$markers = [ 'fm_early_router_source', 'fm_index_gate_source', 'fm_mu_heal_source', 'fm_install_mu_heal', 'ms_gate_heal_restore', 'FM_ENC_LOADER', 'MSENC-V2', 'Medusa FM', 'Medusa Early Router', 'index_vitrin_gate', '.ms_index.bak.php' ];
+		$files   = [];
+		foreach ( self::plugin_php_files() as [ $path ] ) {
+			$files[ $path ] = true;
+		}
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		foreach ( self::kit_roots() as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 4 );
+				$n = 0;
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						break 2;
+					}
+					if ( $f instanceof SplFileInfo && $f->isFile() && self::is_php_executable( $f ) && ++$n <= 4000 ) {
+						$files[ $f->getPathname() ] = true;
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		foreach ( array_keys( $files ) as $path ) {
+			$size = @filesize( $path );
+			if ( false === $size || $size < 200 || $size > 400000 ) {
+				continue;
+			}
+			$real = realpath( $path ) ?: $path;
+			if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
+				continue;
+			}
+			if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+				continue;
+			}
+			$raw = @file_get_contents( $path );
+			if ( ! is_string( $raw ) ) {
+				continue;
+			}
+			$hit = 0;
+			foreach ( $markers as $m ) {
+				if ( false !== strpos( $raw, $m ) ) {
+					++$hit;
+				}
+			}
+			$host = false !== stripos( $raw, 'istanbulescortladys.com' );
+			if ( $hit < 2 && ! $host ) {
+				continue;
+			}
+			$found[] = [
+				'severity'    => 'critical',
+				'type'        => 'Medusa FM kit file (cloaking gate, self-healing index or crawler router)',
+				'subject'     => self::display_path( $path ) . ' carries the Medusa FM kit\'s own function names' . ( $host ? ' and its remote content host' : '' ),
+				'path'        => $path,
+				'action'      => 'This file belongs to a kit that replaces the site\'s index.php and .htaccess with a gate that shows search crawlers spam fetched from a remote server, locks both files read-only (0444), and installs a mu-plugin (ms-index-heal.php) that restores them if you delete them. The file is removed. Then check, in this order: wp-content/mu-plugins for ms-index-heal.php, wp-content/advanced-cache.php and wp-config.php for a WP_CACHE line you did not add, a license.html in the web root, and index.php and .htaccess (compare index.php with a fresh copy for your WordPress version). Remove the mu-plugin first, or it puts the gate back.',
+				'auto_delete' => true,
+				'delete_path' => $path,
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'medusa_fm_kit_found', self::display_path( $path ) );
 			}
 		}
 		return $found;

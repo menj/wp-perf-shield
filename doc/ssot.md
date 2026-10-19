@@ -675,3 +675,6 @@ Both CodeAnt findings on PR 12 were valid and fixed: the endpoint is the whole p
 
 ### Independent review of 1.4.131 to 1.4.138 (1.4.139)
 A subagent was asked to break the new code, read-only, and every finding was verified before a change. The serious one was structural: `WPS_Remediation_Policy` is the real gate for every auto-delete, a finding type it does not list is treated as a guess, and a new check that sets `auto_delete` without the type being listed reports removal that the policy then denies. Rule going forward: a new auto-removing check is not done until its type is in `CONCLUSIVE_TYPES` (when it rests on a conjunction) or its text says it is report-only, and a test asserts it through `is_conclusive`. Digest 1.4.139: `CONCLUSIVE_TYPES`, `endpoint_of`, `route_endpoint`, `ip_matches`, `keep_if_unparsable`, `kit_roots`.
+
+### Medusa FM kit (1.4.140)
+Decision: the kit is matched by its own names (two markers in one file, or its content host), and removal is file-level so a trojanised legitimate plugin keeps its code. `clr.php` (a plain cache purger) is deliberately not flagged. Digest 1.4.140: `check_medusa_fm_kit`, `cookie_exfil_c2_domains`, `secondary_backdoor_filenames`, `INDICATOR_VERSION` 1.4.140-1, `CONCLUSIVE_TYPES`.
