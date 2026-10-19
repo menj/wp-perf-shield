@@ -8033,10 +8033,14 @@ class WPS_Scanner {
 		$found    = [];
 		$roots    = [];
 		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
-		foreach ( [ 'WP_PLUGIN_DIR', 'WPMU_PLUGIN_DIR', 'WP_CONTENT_DIR' ] as $c ) {
+		foreach ( [ 'WP_PLUGIN_DIR', 'WPMU_PLUGIN_DIR', 'WP_CONTENT_DIR', 'ABSPATH' ] as $c ) {
 			if ( defined( $c ) && is_dir( constant( $c ) ) ) {
 				$roots[] = rtrim( constant( $c ), '/\\' );
 			}
+		}
+		$up = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
+		if ( is_array( $up ) && empty( $up['error'] ) && ! empty( $up['basedir'] ) && is_dir( $up['basedir'] ) ) {
+			$roots[] = rtrim( $up['basedir'], '/\\' );
 		}
 		$n = 0;
 		foreach ( array_unique( $roots ) as $root ) {
@@ -8050,7 +8054,9 @@ class WPS_Scanner {
 					}
 					$name = $d->getFilename();
 					$dir  = $d->getPathname();
-					if ( ! is_file( $dir . '/.bt_' . $name ) || ! is_file( $dir . '/.swm_' . $name ) ) {
+					// The kit's hidden staging folder: `.sc_` and eight hex characters, in any of these places.
+					$staging = (bool) preg_match( '/^\.sc_[0-9a-f]{8}$/', $name );
+					if ( ! $staging && ( ! is_file( $dir . '/.bt_' . $name ) || ! is_file( $dir . '/.swm_' . $name ) ) ) {
 						continue;
 					}
 					$real = realpath( $dir ) ?: $dir;
@@ -8063,7 +8069,7 @@ class WPS_Scanner {
 					$found[] = [
 						'severity'    => 'critical',
 						'type'        => 'Folder tagged by a plugin-folder kit',
-						'subject'     => self::display_path( $dir ) . ' holds both .bt_' . $name . ' and .swm_' . $name,
+						'subject'     => self::display_path( $dir ) . ( $staging ? ' is the kit\'s hidden staging folder (.sc_ and eight hex characters)' : ' holds both .bt_' . $name . ' and .swm_' . $name ),
 						'path'        => $dir,
 						'action'      => 'A folder that holds two dot-files named after itself (.bt_<folder> and .swm_<folder>) is a folder the kit created, often with everything inside emptied but these tags left. The folder is removed. Check the same site for other folders with a similar look and for the loader that creates them.',
 						'auto_delete' => true,
