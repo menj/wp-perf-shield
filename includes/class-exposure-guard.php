@@ -304,12 +304,24 @@ class WPS_Exposure_Guard {
 				continue;
 			}
 			[ $addr, $bits ] = explode( '/', $rule, 2 );
-			$net = @inet_pton( $addr );
+			$net  = @inet_pton( $addr );
+			$bits = (int) $bits;
+			if ( false !== $net && 16 === strlen( $net ) && self::native_bytes( $net ) !== $net ) {
+				// A mapped range: the prefix counts from the start of the 128-bit form, so
+				// the part that falls inside the four IPv4 bytes is bits - 96. A prefix
+				// shorter than 96 covers more than the mapped space and is not an IPv4 rule.
+				if ( $bits < 96 ) {
+					continue;
+				}
+				$bits -= 96;
+			}
 			$net = false === $net ? false : self::native_bytes( $net );
 			if ( false === $net || strlen( $net ) !== strlen( $bin ) ) {
 				continue; // an IPv4 range never matches an IPv6 address
 			}
-			$bits  = (int) $bits;
+			if ( $bits < 0 || $bits > 8 * strlen( $bin ) ) {
+				continue; // not a valid prefix length for this address family
+			}
 			$bytes = intdiv( $bits, 8 );
 			if ( $bytes > 0 && substr( $bin, 0, $bytes ) !== substr( $net, 0, $bytes ) ) {
 				continue;

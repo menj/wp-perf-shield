@@ -2,7 +2,7 @@
 
 ## 1.4.139
 
-**Review of everything added since 1.4.131, by an independent reviewer who tried to break it.** Eight findings, each checked against the code before changing anything; all were real except one that could not be verified here (see the last item).
+**Review of everything added since 1.4.131, by an independent reviewer who tried to break it, and then CodeAnt AI's review of the pull request.** Ten findings, each checked against the code before changing anything; all were real except one that could not be verified here (see the last item).
 
 ### Most serious
 - **Auto-removal was refused by the removal policy for most of the new checks.** `WPS_Remediation_Policy` treats any finding type it has not been told about as a guess, and refuses to remove a guess outside uploads, cache and similar places, or an entire plugin folder. The new checks (embedded-PHP dropper, remote admin endpoint, embedded script injector, card kit, probe marker, Site Kit stub, and the gambling doorway merged in 1.4.134) set `auto_delete` and their text said "removed", but the policy denied the removal and appended "REMOVAL DENIED BY POLICY". The easypost endpoint folder would have been reported and left in place. Each of these detectors establishes its own conjunction (decoded PHP plus a file write; an administrator-creating endpoint with a signed-request gate; and so on), so all are now listed as conclusive. Two stay deliberately non-conclusive: a bare bot-credentials file and a Search Console stub inside a subfolder.
@@ -18,10 +18,14 @@
 - **A typo in an IP list silently became an empty list.** An allow list with every entry mistyped parsed to nothing, which means "allow everyone". The previous saved value is kept instead.
 - **A PHP warning** on `?rest_route[]=x` with the REST gate on, and a **constant-redefinition warning** from defining `XMLRPC_REQUEST` before including core's `xmlrpc.php`, which defines it itself. Both removed.
 
+### From CodeAnt AI's review of this release's PR
+- **A mapped CIDR rule matched only its network address.** `::ffff:203.0.113.0/120` was shortened to four bytes but kept the prefix length 120, so it never matched the rest of the /24. The prefix now counts from the 128-bit form (bits minus 96); a mapped rule shorter than /96 is not treated as an IPv4 rule, and a prefix longer than the address is ignored (it also read past the end of the address before).
+- **The easypost endpoint marker matched in comments and string lists, and this type is removed automatically.** A file that only mentions `EASYPOST_ENDPOINT_CONFIG` (a security note, another scanner's signature list) could have lost its file or folder. The marker must now be defined in code (`define( 'EASYPOST_ENDPOINT_CONFIG', ... )`) and the file must also create administrators or application passwords.
+
 ### Not changed
 - IP rules read the connecting address (`REMOTE_ADDR`), so behind Cloudflare or another proxy an allow list locks everyone out and a deny list never matches. This was already documented; it stays a stated limit.
 
-Tests: `test-plugin-malware-detection.php` 72 cases, `test-exposure-guard.php` 66, `test-search-console-stub.php` 8. Registered checks unchanged at 103.
+Tests: `test-plugin-malware-detection.php` 75 cases, `test-exposure-guard.php` 68, `test-search-console-stub.php` 8. Registered checks unchanged at 103.
 
 ## 1.4.138
 

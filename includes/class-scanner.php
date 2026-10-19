@@ -7008,11 +7008,14 @@ class WPS_Scanner {
 						continue;
 					}
 					$code   = self::code_without_comments( $raw );
-					$marker = false !== strpos( $raw, 'EASYPOST_ENDPOINT_CONFIG' );
+					// The marker must be defined in code, not mentioned in a comment or listed as a
+					// string in a signature list, and the file must also create administrators or
+					// application passwords: this type is removed automatically.
+					$marker = (bool) preg_match( '/\bdefine\s*\(\s*[\'"]EASYPOST_ENDPOINT_CONFIG[\'"]\s*,/', $code );
 					$admin  = preg_match( '/wp_create_user\s*\(/i', $code ) && preg_match( '/set_role\s*\(\s*[\'"]administrator[\'"]/i', $code );
 					$gate   = preg_match( '/openssl_verify\s*\(|hash_hmac\s*\(|hash_equals\s*\(/i', $code ) && preg_match( '/wp-load\.php|wp_load/i', $code );
 					$appw   = preg_match( '/WP_Application_Passwords|application_password/i', $code );
-					if ( ! $marker && ! ( $admin && $gate && $appw ) ) {
+					if ( ! ( $marker && ( $admin || $appw ) ) && ! ( $admin && $gate && $appw ) ) {
 						continue;
 					}
 					$found[] = [
