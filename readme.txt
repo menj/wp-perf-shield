@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.142
+Stable tag: 1.4.143
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.143 =
+Detects and removes web shells stored as long lists of decimal character codes and run through eval.
 
 = 1.4.142 =
 Code Snippets is now banned: refused at install and activation and removed from disk, with its database snippets left in place. Add or remove entries under Settings, Banned plugins.
@@ -662,6 +665,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.143 =
+Adds removal of a web shell hidden as a list of character codes, found in a trojanised Protect Uploads.
 
 = 1.4.142 =
 Code Snippets is now on the banned-plugin list and will be removed if present. Read its snippets in the database before dropping the table.

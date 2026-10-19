@@ -614,6 +614,7 @@ class WPS_Scanner {
 			'check_tiny_file_manager_shell' => [ __CLASS__, 'check_tiny_file_manager_shell' ], // 1.4.141: the stand-alone Tiny File Manager script placed inside wp-content (a web shell by location)
 			'check_marker_comment_php' => [ __CLASS__, 'check_marker_comment_php' ], // 1.4.141: PHP file that opens with a random-token HTML comment, the tag a shell kit stamps on its files
 			'check_kit_folder_tags' => [ __CLASS__, 'check_kit_folder_tags' ], // 1.4.142: a plugin folder holding both .bt_<folder> and .swm_<folder> tag files, even when everything else has been emptied
+			'check_charcode_eval_payload' => [ __CLASS__, 'check_charcode_eval_payload' ], // 1.4.143: PHP stored as a long list of decimal character codes and run through eval
 			'check_shell_use_evidence' => [ __CLASS__, 'check_shell_use_evidence' ], // 1.4.141: error_log lines showing a shell was fed commands that wrote payload files to /tmp/.<name> (report only)
 			'check_search_console_stub' => [ __CLASS__, 'check_search_console_stub' ], // 1.4.137: Search Console ownership stubs planted by doorway kits (and, on Site Kit sites, any at the root)
 			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
@@ -8081,6 +8082,92 @@ class WPS_Scanner {
 				}
 			} catch ( \Throwable $t ) {
 				continue;
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.143: PHP stored as a long comma-separated list of decimal character codes
+	 * and run through eval.
+	 *
+	 * Recovered shape (`feedsback.php`, 300 KB, inside a copy of Protect Uploads): a
+	 * few string variables each holding tens of thousands of numbers such as
+	 * `115,101,116,95,116,...`, which spell `set_time_limit(0); error_reporting(0);`
+	 * and the rest of a password-protected web shell with a self-healing feature that
+	 * recreates itself, shell_exec and base64-hidden function names. No readable code
+	 * and no decoder name appears in the file, so signature and decoder-chain checks
+	 * saw nothing. The first numbers are decoded here, in the scanner, and judged:
+	 * a long list that spells PHP, in a file that also calls eval.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_charcode_eval_payload(): array {
+		$found    = [];
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		foreach ( array_keys( self::kit_and_plugin_php_files() ) as $path ) {
+			$size = @filesize( $path );
+			if ( false === $size || $size < 8000 || $size > 3000000 ) {
+				continue;
+			}
+			$real = realpath( $path ) ?: $path;
+			if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
+				continue;
+			}
+			if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+				continue;
+			}
+			$raw = @file_get_contents( $path );
+			if ( ! is_string( $raw ) || false === stripos( $raw, 'eval' ) ) {
+				continue;
+			}
+			// A flat character class, not a repeated group: the group form exhausts the regex
+			// engine's stack on a 300 KB literal and the match silently fails. The numbers are
+			// checked in PHP.
+			$list = '';
+			if ( preg_match_all( '/[\'"]([0-9,]{6000,})[\'"]/', $raw, $lm ) ) {
+				foreach ( $lm[1] as $cand ) {
+					if ( preg_match( '/^\d{2,3},\d/', $cand ) && substr_count( $cand, ',' ) >= 1500 && ! preg_match( '/,,|,$/', $cand ) ) {
+						$list = $cand;
+						break;
+					}
+				}
+			}
+			if ( '' === $list ) {
+				continue;
+			}
+			if ( ! preg_match( '/\beval\s*\(/i', self::code_without_comments( $raw ) ) ) {
+				continue;
+			}
+			$decoded = '';
+			$ok      = true;
+			foreach ( array_slice( explode( ',', substr( $list, 0, 4000 ) ), 0, 600 ) as $num ) {
+				$c = (int) $num;
+				if ( $c > 65535 ) {
+					$ok = false;
+					break;
+				}
+				// chr() wraps modulo 256, which is what the evaluated code does too.
+				$decoded .= chr( $c % 256 );
+			}
+			if ( ! $ok || ! preg_match( '/set_time_limit|error_reporting|<\?php|\$_(?:POST|GET|REQUEST|SERVER|SESSION)|\bfunction\s|shell_exec|base64_decode|file_put_contents|\beval\s*\(/i', $decoded ) ) {
+				continue;
+			}
+			$printable = preg_match_all( '/[\x09\x0a\x0d\x20-\x7e]/', $decoded );
+			if ( $printable < 0.95 * strlen( $decoded ) ) {
+				continue;
+			}
+			$found[] = [
+				'severity'    => 'critical',
+				'type'        => 'Character-code encoded PHP payload run through eval',
+				'subject'     => self::display_path( $path ) . ' stores PHP as a list of decimal character codes and evaluates it',
+				'path'        => $path,
+				'action'      => 'The file holds tens of thousands of numbers that spell a PHP program, and runs it with eval; no readable code is in the file. The decoded start is a web shell (password check, command execution, and a "self-healing" option that recreates the file). It is removed. If it sat inside a copy of a real plugin under a random folder name, that folder is a carrier: compare the plugin files against wordpress.org checksums and remove the carrier. Treat the site as compromised: check administrator users and application passwords and reset passwords and salts.',
+				'auto_delete' => true,
+				'delete_path' => $path,
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'charcode_eval_payload_found', self::display_path( $path ) );
 			}
 		}
 		return $found;

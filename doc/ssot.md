@@ -684,3 +684,6 @@ The three existing file-manager checks report and set no removal target by desig
 
 ### Code Snippets ban (1.4.142)
 Operator decision, not a malware finding: the genuine plugin (3.10.2, all 518 files matching wordpress.org) is banned because it executes database-stored PHP, which a file scanner cannot see and which survives replacing every file. Same substring rule as Protect Uploads, quarantine tier. Its snippets stay in the database. Digest 1.4.142: `get_policy_banned_slugs`, the Banned plugins settings text, `test-policy-ban.php`.
+
+### Character-code payload (1.4.143)
+Decoded in the scanner, judged on what it spells, and gated on an eval in code. Lesson: a regex with a large repeated group can fail silently on a large literal (PCRE JIT stack); use a flat character class and validate in PHP. Digest 1.4.143: `check_charcode_eval_payload`, `CONCLUSIVE_TYPES`.

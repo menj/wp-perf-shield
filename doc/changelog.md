@@ -1,5 +1,14 @@
 # WP Perf Shield changelog
 
+## 1.4.143
+
+**A web shell stored as a list of character codes, inside a trojanised Protect Uploads.** `mtgamhd/` is the real Protect Uploads (banned here, removed by the on-disk ban under any folder name) plus one 300 KB file, `feedsback.php`, and the scanner reported nothing on it.
+- **What the file is.** A few string variables each hold tens of thousands of numbers (`115,101,116,95,116,...`), run with `eval(implode('', array_map('chr', explode(',', $var))))`. Decoded, they spell a password-protected web shell: an MD5 login hash, a session timeout, shell_exec and file functions with their names hidden in base64, and an "anti-delete / self-healing" option that recreates the file. No readable code and no decoder name appears, so the signature and decoder-chain checks saw nothing.
+- **New `check_charcode_eval_payload`.** The file must hold a quoted list of 1,500 or more numbers, call `eval` in code, and the first 600 numbers must decode (with `chr()`'s modulo-256 wrap, since the list contains values such as 8226) to mostly printable text that contains PHP. A numeric data table with no eval of it, and a list that spells plain words beside an unrelated eval, are not reported (tested). Critical, conclusive, file-level removal; an end-to-end run through the removal policy reports it allowed.
+- **A defect in my first version, found on the real file.** The first regex repeated a group (`\d{1,3},` fifteen hundred times) and PHP's regex engine ran out of JIT stack on a 300 KB literal: the match failed silently and the check reported nothing. It now finds the literal with a flat character class and validates the numbers in PHP. Worth remembering for any future check that matches a very large literal.
+
+Tests: `test-plugin-malware-detection.php` 112 cases. Registered checks: 110 (was 109).
+
 ## 1.4.142
 
 **Code Snippets is banned.** An operator decision, the same kind as Protect Uploads: `code-snippets` joins the built-in policy list, so the plugin cannot be uploaded, installed or activated, and a copy found on disk is removed.

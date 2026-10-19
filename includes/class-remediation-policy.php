@@ -198,6 +198,8 @@ final class WPS_Remediation_Policy {
 		'PHP file stamped with a shell kit',
 		// 1.4.142: two dot-files named after their own folder, .bt_<folder> and .swm_<folder>.
 		'Folder tagged by a plugin-folder kit',
+		// 1.4.143: a list of 1,500+ decimal character codes whose start decodes to PHP, in a file that calls eval.
+		'Character-code encoded PHP payload',
 	];
 
 	/*
