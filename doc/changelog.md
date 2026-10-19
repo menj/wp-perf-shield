@@ -1,5 +1,18 @@
 # WP Perf Shield changelog
 
+## 1.4.146
+
+**A ClamAV-format signature engine.** The scanner can now use a signature database in the formats ClamAV uses, so a database written for ClamAV (or by hand) works on a host that cannot run ClamAV. Written from the ClamAV 1.5.4 manual; no ClamAV code is copied and nothing calls a binary. Full description in `doc/signatures.md`.
+
+- **What is read.** `.hdb` and `.hsb` (MD5, SHA-1, SHA-256, size `*`), `.ndb` extended signatures, `.ldb` logical signatures, `.fp` and `.sfp` exceptions, `.ign` and `.ign2` ignore lists. Hex signatures take `??`, `a?`, `?a`, `*`, `{n}` `{-n}` `{n-}` `{n-m}`, `[x-y]`, `(B)` `(L)` `(W)` and alternates, including negated and generic ones. Logical expressions take `&`, `|`, parentheses, `=X` `>X` `<X` with `,Y`, and the `::i` `::w` `::f` `::a` modifiers. Offsets: `*`, `n`, `EOF-n`, floating `n,max`.
+- **Text is normalised the way ClamAV does it.** Targets 7 (text) and 3 (HTML) match a lower-cased copy with whitespace collapsed, and HTML comments removed for target 3, so an HTML comment cannot be used to split a signature.
+- **Bounded matching.** Each signature is anchored on its longest run of fixed bytes through a three-byte index before any pattern runs; `*` and `{n-}` split a signature into parts matched in order, never a backtracking `.*`; a pattern error counts as no match. A signature with six `*` parts over a 900 KB file returns at once (tested).
+- **Safe by default.** A whole-file hash match is exact and the file is removed. A body or logical match is reported and only removed if the operator turns that on (Settings, Detection). `PUA.`, `Heuristics.` and `Hunting.` names are never removed. A body signature with fewer than eight fixed bytes (four per logical subsignature) is rejected as too generic; this is stricter than ClamAV on purpose.
+- **Left out, counted as skipped.** Executable, document, image and mail targets; entry-point and section offsets; container conditions; macro and PCRE subsignatures; the signed `.cvd` and `.cld` bundles (unpack with `sigtool --unpack`).
+- **Where.** `wp-content/wps-signatures/` (filter `wps_signature_dir`). Nothing is scanned until the folder holds a usable database. Settings, Detection shows what loaded, what was skipped and the first rejected lines.
+- New check `check_signature_database` (registered checks 111 to 112); two conclusive types, `Known malicious file (hash signature)` and `Signature database match, removal enabled`, and a report-only one. New test `tests/test-signature-engine.php` (71 cases, including the scanner check run through the removal policy).
+- Not done, and why: bytecode and YARA (need an interpreter), archive and document unpacking (a different engine), a freshclam-style updater (the signature host is not reachable from here, and a plugin that downloads and then deletes files on a schedule needs its own review).
+
 ## 1.4.145
 
 **Filester is banned.** It is an elFinder-based full-filesystem file manager (Ninja Team), the same risk class as `wp-file-manager` and `fileorganizer`, and an earlier copy of it (2.1.2) was found carrying a planted loader. It is refused at install, upload and activation and removed from the plugins folder (quarantined first, so it can be restored from Diagnostics). It is on the soft tier, not the hard one.

@@ -616,6 +616,7 @@ class WPS_Scanner {
 			'check_kit_folder_tags' => [ __CLASS__, 'check_kit_folder_tags' ], // 1.4.142: a plugin folder holding both .bt_<folder> and .swm_<folder> tag files, even when everything else has been emptied
 			'check_charcode_eval_payload' => [ __CLASS__, 'check_charcode_eval_payload' ], // 1.4.143: PHP stored as a long list of decimal character codes and run through eval
 			'check_keyed_command_backdoor' => [ __CLASS__, 'check_keyed_command_backdoor' ], // 1.4.144: plugin that runs a request-supplied command, gated only by a hard-coded key
+			'check_signature_database' => [ __CLASS__, 'check_signature_database' ], // 1.4.146: files that match a ClamAV-format signature database the operator has installed in wp-content/wps-signatures
 			'check_shell_use_evidence' => [ __CLASS__, 'check_shell_use_evidence' ], // 1.4.141: error_log lines showing a shell was fed commands that wrote payload files to /tmp/.<name> (report only)
 			'check_search_console_stub' => [ __CLASS__, 'check_search_console_stub' ], // 1.4.137: Search Console ownership stubs planted by doorway kits (and, on Site Kit sites, any at the root)
 			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
@@ -7995,6 +7996,114 @@ class WPS_Scanner {
 			];
 			if ( class_exists( 'WPS_Logger' ) ) {
 				WPS_Logger::log_event( 'marker_comment_php_found', self::display_path( $path ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.146: files that match a signature database the operator has installed.
+	 *
+	 * The database is ClamAV-format (hash, extended and logical signatures; see
+	 * class-signature-engine.php and doc/signatures.md) in `wp-content/wps-signatures/`.
+	 * Nothing is read unless that folder holds a usable database, so a site that
+	 * has not installed one pays nothing. A whole-file hash match is exact and the
+	 * file is removed. A body or logical match is only as good as the signature,
+	 * so it is reported, and removed only when the operator has turned that on
+	 * (`signature_auto_remove`). Names that start PUA., Heuristics. or Hunting. are
+	 * reported and never removed. Files in this plugin, the quarantine, the
+	 * database folder and symlinks are never read.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_signature_database(): array {
+		$opts = get_option( WPS_OPTION, [] );
+		if ( is_array( $opts ) && '1' !== (string) ( $opts['signature_db_enabled'] ?? '1' ) ) {
+			return [];
+		}
+		if ( ! class_exists( 'WPS_Signature_Engine' ) ) {
+			return [];
+		}
+		$dir = WPS_Signature_Engine::default_dir();
+		if ( '' === $dir || ! is_dir( $dir ) ) {
+			return [];
+		}
+		$db = WPS_Signature_Engine::load( $dir );
+		if ( ! $db['counts']['hash'] && ! $db['body'] ) {
+			return [];
+		}
+		$remove   = is_array( $opts ) && '1' === (string) ( $opts['signature_auto_remove'] ?? '0' );
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		$sig_dir  = realpath( $dir ) ?: $dir;
+		$roots    = [];
+		foreach ( [ defined( 'WP_PLUGIN_DIR' ) ? WP_PLUGIN_DIR : '', defined( 'WPMU_PLUGIN_DIR' ) ? WPMU_PLUGIN_DIR : '', defined( 'WP_CONTENT_DIR' ) ? WP_CONTENT_DIR . '/themes' : '' ] as $r ) {
+			if ( '' !== $r && is_dir( $r ) ) {
+				$roots[ realpath( $r ) ?: $r ] = true;
+			}
+		}
+		foreach ( self::kit_roots() as $r ) {
+			$roots[ realpath( $r ) ?: $r ] = true;
+		}
+		$exts  = array_merge( self::PHP_INVENTORY_EXTS, [ 'js', 'html', 'htm', 'htaccess', 'ini' ] );
+		$found = [];
+		$seen  = [];
+		$n     = 0;
+		foreach ( array_keys( $roots ) as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 8 );
+				foreach ( $iter as $f ) {
+					if ( ++$n > 25000 || self::out_of_time() || self::scan_budget_exceeded() ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || $f->isLink() || ! $f->isFile() || ! in_array( strtolower( $f->getExtension() ), $exts, true ) ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) || self::is_self_path( $real, $sig_dir ) || ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+						continue;
+					}
+					$hit = WPS_Signature_Engine::scan_file( $db, $path );
+					if ( null === $hit ) {
+						continue;
+					}
+					$name        = $hit['name'];
+					$report_only = WPS_Signature_Engine::is_report_only( $name );
+					$by_hash     = 'hash' === $hit['kind'];
+					$delete      = ! $report_only && ( $by_hash || $remove );
+					if ( $delete ) {
+						$type = $by_hash ? 'Known malicious file (hash signature)' : 'Signature database match, removal enabled';
+					} else {
+						$type = 'Signature database match (report only)';
+					}
+					$found[] = [
+						'severity'    => $delete ? 'critical' : 'high',
+						'type'        => $type,
+						'subject'     => self::display_path( $path ) . ' matches the signature ' . $name,
+						'path'        => $path,
+						'match'       => $name . ' (' . ( $by_hash ? 'whole-file hash' : ( 'ldb' === $hit['kind'] ? 'logical signature' : 'body signature' ) ) . ')',
+						'action'      => $delete
+							? 'The file matches a signature in the database installed in wp-content/wps-signatures' . ( $by_hash ? ' by its exact hash' : '' ) . ' and is removed. If the signature is a false positive, add its name to an .ign2 file in that folder, or the file\'s hash to a .fp file, and restore the file from Diagnostics.'
+							: 'The file matches a signature in the database installed in wp-content/wps-signatures, but a ' . ( $report_only ? 'PUA, heuristic or hunting' : 'body-based' ) . ' match is only as reliable as the signature, so nothing is removed. Read the file. If it is not yours, replace it from a clean copy' . ( $report_only ? '' : ', or turn on removal of signature matches under Settings, Detection' ) . '.',
+						'auto_delete' => $delete,
+					];
+					if ( $delete ) {
+						$found[ count( $found ) - 1 ]['delete_path'] = $path;
+					}
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'signature_database_match', self::display_path( $path ) . ' ' . $name );
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
 			}
 		}
 		return $found;

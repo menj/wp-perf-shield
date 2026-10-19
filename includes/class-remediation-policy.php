@@ -202,6 +202,9 @@ final class WPS_Remediation_Policy {
 		'Character-code encoded PHP payload',
 		// 1.4.144: a request value reaching an execution function, a hard-coded-value gate, and no auth check, together.
 		'Command-execution backdoor gated by a hard-coded key',
+		// 1.4.146: a file whose whole-file hash is in the operator's signature database; and a body match when the operator has turned removal on.
+		'Known malicious file (hash signature)',
+		'Signature database match, removal enabled',
 	];
 
 	/*

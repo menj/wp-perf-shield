@@ -26,6 +26,7 @@ doc/ssot.md
 doc/variants.md
 doc/remediation-roadmap.md
 doc/wappalyzer-submission.md
+doc/signatures.md
 ```
 
 `doc/variants.md` is the malware catalogue (families, samples, hashes, which check finds each). `doc/remediation-roadmap.md` is the handover document for the remediation programme and is current as of 1.4.61 except for its 1.4.125 addendum. `doc/wappalyzer-submission.md` is the draft technology-fingerprint submission. `tools/verify-package.ps1` requires only the first four.
@@ -693,3 +694,6 @@ The real file carried a weak capability check (`read`) on an unrelated page, whi
 
 ### Filester ban (1.4.145)
 Banned on the soft tier by name boundary plus main-file header, like Code Snippets. Not hard-banned: the hard tier deletes with no quarantine copy and is kept for the two plugins with a CVE history of their own.
+
+### Signature engine (1.4.146)
+ClamAV formats, not ClamAV: hash signatures are exact and remove; body signatures report unless the operator opts in; PUA/Heuristics/Hunting never remove. Body signatures under eight fixed bytes are rejected (stricter than ClamAV, because this scans a live site). `*` and `{n-}` are matched as ordered parts, not as a backtracking `.*`.
