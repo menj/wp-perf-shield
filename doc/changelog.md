@@ -8,8 +8,9 @@
 - **What removal does not do.** The snippets themselves are in the database table `wp_snippets` and stay there. With the plugin gone they no longer run, which is the point, but read them before you drop the table: a snippet that decodes text or fetches from another domain is evidence of how the site was entered.
 - **Side effect to know about.** The match is on the name, so any other plugin with `code-snippets` in its slug is also refused. Add or remove entries under Settings, Banned plugins; the whole list can be switched off there.
 - Also triaged with no change needed: `civic-font-balancer-4697` and `cedar-database-tuner-8354` (more payload-only folders with the loader missing, caught by `check_headless_plugin_folder` and removable), `cloud-seo-checker-2fb8` and `auto-security-engine-8ef3` (the same families again).
+- **A fourth marker stub slipped past the marker check, and the rule was tightened.** `contact-1791852130` (another Akismet 5.7 copy, genuine except for one file) carries `archlve.php` (an `l` for the `i` in `archive`), 16 bytes: `<!--kLzEcEGn-->`. The 1.4.141 rule demanded a digit in the token and this one has none. All four tokens seen (`z3woRLP0`, `j3btCRiG`, `kLzEcEGn`, and the earlier ones) are eight characters with at least three capitals and a lower-case letter, so the rule is now exactly that; a camel-case word such as `HeaderTop` does not reach three capitals (tested). `analytics-1791852176` is a clean Akismet 5.7 under a numbered folder (no extra or modified file), and `alpine-review-scribe-14aa` is one more payload-only folder, already flagged and removable.
 
-Tests: `test-policy-ban.php` 47 cases (4 new).
+Tests: `test-policy-ban.php` cases above; `test-plugin-malware-detection.php` 101 cases (2 new).
 
 ## 1.4.141
 
