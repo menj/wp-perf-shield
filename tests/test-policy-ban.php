@@ -147,6 +147,9 @@ put( $P . '/filester-pro/x.php', "<?php\n" );
 put( $P . '/qq-renamed-47/ninja-file-manager.php', $fs );
 put( $P . '/ninja-file-manager-compat/ninja-file-manager.php', "<?php\n/**\n * Plugin Name: Filester - File Manager Pro Compatible\n */\n" );
 put( $P . '/filesterx-addon/x.php', "<?php\n" );
+// The install and activation guards see a renamed copy by its main file before any sweep runs (CodeAnt, PR 22).
+check( 'the activation guard refuses a renamed Filester by its main file', WPS_Blocker::is_policy_banned( 'qq-renamed-47/ninja-file-manager.php' ) );
+check( 'the activation guard leaves a same-named main file with a different plugin name alone', ! WPS_Blocker::is_policy_banned( 'ninja-file-manager-compat/ninja-file-manager.php' ) && ! WPS_Blocker::is_policy_banned( 'no-such-folder/ninja-file-manager.php' ) );
 $removed = WPS_Blocker::enforce_policy_ban();
 check( 'Filester is removed under its own name and as the pro variant', in_array( 'filester', $removed, true ) && in_array( 'filester-pro', $removed, true ), json_encode( $removed ) );
 check( 'Filester under an unlisted folder name is removed by its main file', in_array( 'qq-renamed-47', $removed, true ), json_encode( $removed ) );

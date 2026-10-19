@@ -504,13 +504,18 @@ class WPS_Blocker {
             if ( '' === $slug || ! in_array( $slug, $slugs, true ) ) {
                 continue;
             }
-            $head = @file_get_contents( $dir . '/' . $f, false, null, 0, 8192 );
             // The header must be the plugin's name and nothing more: a prefix match would
             // also take "WP File Manager Compatible" or "WP File Manager Add-on", and a
             // hard ban deletes without a copy to restore.
-            $tail = '' !== $header ? preg_quote( $header, '/' ) . '[ \t]*(?:\*\/)?[ \t]*\r?$' : '';
-            if ( ! is_string( $head ) || ! preg_match( '/^[ \t\/*#@]*Plugin Name\s*:\s*' . $tail . '/mi', $head ) ) {
-                continue;
+            if ( '' !== $header ) {
+                if ( ! self::main_file_has_header( $dir . '/' . $f, $header ) ) {
+                    continue;
+                }
+            } else {
+                $head = @file_get_contents( $dir . '/' . $f, false, null, 0, 8192 );
+                if ( ! is_string( $head ) || ! preg_match( '/^[ \t\/*#@]*Plugin Name\s*:\s*/mi', $head ) ) {
+                    continue;
+                }
             }
             return $slug;
         }
@@ -590,7 +595,25 @@ class WPS_Blocker {
                 return true;
             }
         }
+        // A banned plugin under a folder nobody listed: its main file is named like the plugin's and
+        // the file on disk carries the plugin's exact name. Without this the activation and install
+        // guards would pass such a copy and only the disk sweep would catch it.
+        $main = strtolower( basename( $plugin_file ) );
+        if ( isset( self::BAN_MAIN_FILES[ $main ] ) && defined( 'WP_PLUGIN_DIR' ) && false === strpos( $plugin_file, '..' ) ) {
+            $map = self::BAN_MAIN_FILES[ $main ];
+            if ( in_array( $map['slug'], array_map( 'strtolower', self::get_policy_banned_slugs() ), true )
+                && self::main_file_has_header( rtrim( WP_PLUGIN_DIR, '/\\' ) . '/' . ltrim( $plugin_file, '/\\' ), $map['header'] ) ) {
+                return true;
+            }
+        }
         return false;
+    }
+
+    /** Does the plugin file carry exactly this Plugin Name (nothing after it)? A prefix match would also take add-ons. */
+    private static function main_file_has_header( string $path, string $header ): bool {
+        $head = is_file( $path ) ? @file_get_contents( $path, false, null, 0, 8192 ) : false;
+        $tail = preg_quote( $header, '/' ) . '[ \t]*(?:\*\/)?[ \t]*\r?$';
+        return is_string( $head ) && (bool) preg_match( '/^[ \t\/*#@]*Plugin Name\s*:\s*' . $tail . '/mi', $head );
     }
 
     /**
