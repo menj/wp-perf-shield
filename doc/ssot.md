@@ -681,3 +681,6 @@ Decision: the kit is matched by its own names (two markers in one file, or its c
 
 ### Tiny File Manager and marker-stamped files (1.4.141)
 The three existing file-manager checks report and set no removal target by design, because a file manager can be a legitimate plugin. The stand-alone Tiny File Manager program is different: its banner, constants and write calls together, in wp-content, are a shell by location. Detection that never removes is not done: this release was found by running a sample through the removal policy, not only the scan. Digest 1.4.141: `check_tiny_file_manager_shell`, `check_marker_comment_php`, `plugin_php_files` min-size parameter, `CONCLUSIVE_TYPES`.
+
+### Code Snippets ban (1.4.142)
+Operator decision, not a malware finding: the genuine plugin (3.10.2, all 518 files matching wordpress.org) is banned because it executes database-stored PHP, which a file scanner cannot see and which survives replacing every file. Same substring rule as Protect Uploads, quarantine tier. Its snippets stay in the database. Digest 1.4.142: `get_policy_banned_slugs`, the Banned plugins settings text, `test-policy-ban.php`.

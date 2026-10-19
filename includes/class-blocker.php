@@ -105,6 +105,7 @@ class WPS_Blocker {
             'filebird',        // media-library folder organiser; operator preference
             'fileorganizer',   // elFinder-based full-filesystem file manager (Softaculous); same risk class as wp-file-manager. Substring match also catches the fileorganizer-pro add-on.
             'protect-uploads', // operator preference (1.4.128): not sanctioned on this site. Substring match covers the plugin's own files wherever it is installed.
+            'code-snippets',   // operator ban (1.4.142): runs PHP stored in the database, so a stolen admin login becomes code that survives replacing every file. Substring match also takes Code Snippets Pro and a renamed folder via its main file.
             'rcromlb',         // folder name the same plugin has been found under (1.4.128); a random name, so it cannot collide with a real slug
             'hvmosjt',         // second such folder name (1.4.128)
         ];

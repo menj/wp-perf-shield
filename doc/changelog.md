@@ -1,5 +1,16 @@
 # WP Perf Shield changelog
 
+## 1.4.142
+
+**Code Snippets is banned.** An operator decision, the same kind as Protect Uploads: `code-snippets` joins the built-in policy list, so the plugin cannot be uploaded, installed or activated, and a copy found on disk is removed.
+- **Why it is on the list.** It runs PHP that is stored in the database. A stolen administrator login (or a planted snippet) becomes code that survives replacing every file on disk and that a file scanner cannot see. The copy checked this session (3.10.2) was byte-identical to the official release, so the ban is a policy choice, not a malware finding.
+- **How it matches.** The same substring rule as the other bans: a plugin folder or zip whose name contains `code-snippets` (so Code Snippets Pro too), and any folder, whatever it is called, whose top-level `code-snippets.php` carries the `Plugin Name:` header. Checked against the real 3.10.2 files: the upload is refused, a renamed zip (`zzz-renamed-folder/code-snippets.php`) is refused, and a folder holding the plugin is identified. An unrelated plugin is untouched. It is not on the hard tier, so removal goes through quarantine like the others.
+- **What removal does not do.** The snippets themselves are in the database table `wp_snippets` and stay there. With the plugin gone they no longer run, which is the point, but read them before you drop the table: a snippet that decodes text or fetches from another domain is evidence of how the site was entered.
+- **Side effect to know about.** The match is on the name, so any other plugin with `code-snippets` in its slug is also refused. Add or remove entries under Settings, Banned plugins; the whole list can be switched off there.
+- Also triaged with no change needed: `civic-font-balancer-4697` and `cedar-database-tuner-8354` (more payload-only folders with the loader missing, caught by `check_headless_plugin_folder` and removable), `cloud-seo-checker-2fb8` and `auto-security-engine-8ef3` (the same families again).
+
+Tests: `test-policy-ban.php` 47 cases (4 new).
+
 ## 1.4.141
 
 **Trojanised Akismet: detected, but the shells were never removed.** Three uploads (`widget_1791852124`, `widget-1791852130`, `widget-1792360616`) are copies of the real Akismet 5.7 under random folder names. Compared against the official 5.7 checksums, every genuine file is unmodified in all three; only the added files differ, so the carrier itself is clean and the extras are the attack.
