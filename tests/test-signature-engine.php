@@ -183,6 +183,14 @@ $d = db( [ 'a.ndb' => [ 'Php.T.Gap:0:*:' . hx( 'aaaa' ) . '{4000}' . hx( 'zzzz' 
 $t0 = microtime( true );
 $r  = hit( $d, $big );
 check( 'a large bounded gap on a large file stays quick', '' === $r && ( microtime( true ) - $t0 ) < 3.0, round( microtime( true ) - $t0, 2 ) . 's' );
+$many = [];
+for ( $i = 0; $i < 40; $i++ ) {
+	$many[] = 'Php.T.Slow' . $i . ':0:*:' . hx( 'aaaa' ) . '{1-4000}' . hx( 'aaaa' ) . '{1-4000}' . hx( 'zzzz' );
+}
+$d  = db( [ 'a.ndb' => $many ] );
+$t0 = microtime( true );
+$r  = WPS_Signature_Engine::scan_data( $d, $big, 0.5 );
+check( 'a time budget stops a file from being held by many slow signatures', null === $r && ( microtime( true ) - $t0 ) < 4.0, round( microtime( true ) - $t0, 2 ) . 's' );
 check( 'PUA, Heuristics and Hunting names are report-only', WPS_Signature_Engine::is_report_only( 'PUA.Php.Tool' ) && WPS_Signature_Engine::is_report_only( 'Heuristics.Php.X' ) && ! WPS_Signature_Engine::is_report_only( 'Php.Trojan.Agent-1-0' ) );
 $d = db( [ 'a.ndb' => [ 'Php.T.Ok:0:*:' . hx( 'long_enough_text' ) ] ] );
 $st = WPS_Signature_Engine::status( $tmp . '/db' . 'zzz' );

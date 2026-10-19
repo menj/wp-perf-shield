@@ -40,7 +40,7 @@ Files in this plugin, the quarantine, the signature folder and symlinks are neve
 
 ## Limits
 
-Up to 20,000 body signatures and 500,000 hash signatures are loaded; a file over 1 MB is checked by hash only; a database file over 32 MB is not read. Matching is bounded: each signature is anchored on its longest run of fixed bytes through a three-byte index before any pattern runs, `*` and `{n-}` split a signature into parts matched in order (never a backtracking `.*`), and a pattern error counts as no match.
+Up to 20,000 body signatures and 500,000 hash signatures are loaded; a file over 1 MB is checked by hash only; a database file over 32 MB is not read. Matching is bounded: each signature is anchored on its longest run of fixed bytes through a three-byte index before any pattern runs, `*` and `{n-}` split a signature into parts matched in order (never a backtracking `.*`), a pattern error counts as no match, and a file gets a three-second budget, after which the remaining signatures are not tried on it.
 
 ## Where the idea comes from
 

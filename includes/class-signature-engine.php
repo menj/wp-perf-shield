@@ -29,7 +29,7 @@
  * against a lower-cased, whitespace-collapsed copy of the file, the way ClamAV
  * normalises text, so a signature written for ClamAV sees the same bytes.
  *
- * Matching is bounded: each signature is anchored on its longest run of fixed
+ * Matching is bounded (and a file gets a time budget, three seconds): each signature is anchored on its longest run of fixed
  * bytes, found through a three-byte index before any pattern runs; `*` and
  * `{n-}` split a signature into parts matched one after another, never as a
  * backtracking `.*`; and a pattern error counts as no match.
@@ -55,6 +55,7 @@ final class WPS_Signature_Engine {
 	const MIN_FIXED_SUB  = 4;
 	const MIN_ANCHOR     = 3;
 	const MAX_GAP        = 4096;
+	const MAX_FILE_SECS  = 3.0;
 
 	/** Names that are reported but never removed, whatever the operator's removal setting. */
 	const REPORT_ONLY_PREFIXES = [ 'PUA.', 'Heuristics.', 'Hunting.' ];
@@ -905,8 +906,9 @@ final class WPS_Signature_Engine {
 	 * @param array<string, mixed> $db
 	 * @return array{name:string,kind:string}|null
 	 */
-	public static function scan_data( array $db, string $data ): ?array {
-		$raw_len = strlen( $data );
+	public static function scan_data( array $db, string $data, float $budget = self::MAX_FILE_SECS ): ?array {
+		$raw_len  = strlen( $data );
+		$deadline = microtime( true ) + $budget;
 		foreach ( [ 'raw', 'n7', 'n3' ] as $variant ) {
 			if ( empty( $db['variants'][ $variant ] ) ) {
 				continue;
@@ -934,6 +936,11 @@ final class WPS_Signature_Engine {
 			}
 			ksort( $cand );
 			foreach ( array_keys( $cand ) as $id ) {
+				// A database full of signatures with wide ranged gaps could otherwise hold one file for a
+				// long time: past the budget the remaining signatures are not tried on this file.
+				if ( microtime( true ) > $deadline ) {
+					return null;
+				}
 				$sig = $db['body'][ $id ];
 				if ( null !== $sig['size'] && ( $raw_len < $sig['size'][0] || $raw_len > $sig['size'][1] ) ) {
 					continue;
