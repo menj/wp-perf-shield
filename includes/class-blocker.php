@@ -106,6 +106,7 @@ class WPS_Blocker {
             'fileorganizer',   // elFinder-based full-filesystem file manager (Softaculous); same risk class as wp-file-manager. Substring match also catches the fileorganizer-pro add-on.
             'protect-uploads', // operator preference (1.4.128): not sanctioned on this site. Substring match covers the plugin's own files wherever it is installed.
             'code-snippets',   // operator ban (1.4.142): runs PHP stored in the database, so a stolen admin login becomes code that survives replacing every file. Substring match also takes Code Snippets Pro and a renamed folder via its main file.
+            'filester',        // operator ban (1.4.145): elFinder-based full-filesystem file manager (Ninja Team), the same risk class as wp-file-manager and fileorganizer; a copy of it was found carrying a planted loader. Matched on a name boundary, so it also takes filester-pro and a renamed copy, not an unrelated name that merely contains the word.
             'rcromlb',         // folder name the same plugin has been found under (1.4.128); a random name, so it cannot collide with a real slug
             'hvmosjt',         // second such folder name (1.4.128)
         ];
@@ -260,9 +261,12 @@ class WPS_Blocker {
     /**
      * Main files that identify a banned plugin whose main file does not carry its
      * slug: WP File Manager's is file_folder_manager.php. Matched by exact name
-     * plus a Plugin Name header, so the plugin is found under any folder name.
+     * plus a Plugin Name header, so the plugin is found under any folder name. Filester's is ninja-file-manager.php.
      */
-    const BAN_MAIN_FILES = [ 'file_folder_manager.php' => [ 'slug' => 'wp-file-manager', 'header' => 'WP File Manager' ] ];
+    const BAN_MAIN_FILES = [
+        'file_folder_manager.php' => [ 'slug' => 'wp-file-manager', 'header' => 'WP File Manager' ],
+        'ninja-file-manager.php'  => [ 'slug' => 'filester', 'header' => 'Filester - File Manager Pro' ],
+    ];
 
     public static function is_hard_banned( string $slug ): bool {
         return in_array( strtolower( $slug ), self::HARD_BAN_SLUGS, true );
@@ -500,13 +504,18 @@ class WPS_Blocker {
             if ( '' === $slug || ! in_array( $slug, $slugs, true ) ) {
                 continue;
             }
-            $head = @file_get_contents( $dir . '/' . $f, false, null, 0, 8192 );
             // The header must be the plugin's name and nothing more: a prefix match would
             // also take "WP File Manager Compatible" or "WP File Manager Add-on", and a
             // hard ban deletes without a copy to restore.
-            $tail = '' !== $header ? preg_quote( $header, '/' ) . '[ \t]*(?:\*\/)?[ \t]*\r?$' : '';
-            if ( ! is_string( $head ) || ! preg_match( '/^[ \t\/*#@]*Plugin Name\s*:\s*' . $tail . '/mi', $head ) ) {
-                continue;
+            if ( '' !== $header ) {
+                if ( ! self::main_file_has_header( $dir . '/' . $f, $header ) ) {
+                    continue;
+                }
+            } else {
+                $head = @file_get_contents( $dir . '/' . $f, false, null, 0, 8192 );
+                if ( ! is_string( $head ) || ! preg_match( '/^[ \t\/*#@]*Plugin Name\s*:\s*/mi', $head ) ) {
+                    continue;
+                }
             }
             return $slug;
         }
@@ -563,7 +572,7 @@ class WPS_Blocker {
      * letter or digit, or the start or end of the name, so `code-snippets-pro` and
      * `code-snippets/code-snippets.php` still match.
      */
-    private const BOUNDARY_SLUGS = [ 'code-snippets' ];
+    private const BOUNDARY_SLUGS = [ 'code-snippets', 'filester' ];
 
     /** Does the lower-case name contain the banned slug, under the matching rule that slug uses? */
     public static function slug_in( string $lower, string $slug ): bool {
@@ -586,7 +595,25 @@ class WPS_Blocker {
                 return true;
             }
         }
+        // A banned plugin under a folder nobody listed: its main file is named like the plugin's and
+        // the file on disk carries the plugin's exact name. Without this the activation and install
+        // guards would pass such a copy and only the disk sweep would catch it.
+        $main = strtolower( basename( $plugin_file ) );
+        if ( isset( self::BAN_MAIN_FILES[ $main ] ) && defined( 'WP_PLUGIN_DIR' ) && false === strpos( $plugin_file, '..' ) ) {
+            $map = self::BAN_MAIN_FILES[ $main ];
+            if ( in_array( $map['slug'], array_map( 'strtolower', self::get_policy_banned_slugs() ), true )
+                && self::main_file_has_header( rtrim( WP_PLUGIN_DIR, '/\\' ) . '/' . ltrim( $plugin_file, '/\\' ), $map['header'] ) ) {
+                return true;
+            }
+        }
         return false;
+    }
+
+    /** Does the plugin file carry exactly this Plugin Name (nothing after it)? A prefix match would also take add-ons. */
+    private static function main_file_has_header( string $path, string $header ): bool {
+        $head = is_file( $path ) ? @file_get_contents( $path, false, null, 0, 8192 ) : false;
+        $tail = preg_quote( $header, '/' ) . '[ \t]*(?:\*\/)?[ \t]*\r?$';
+        return is_string( $head ) && (bool) preg_match( '/^[ \t\/*#@]*Plugin Name\s*:\s*' . $tail . '/mi', $head );
     }
 
     /**

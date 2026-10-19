@@ -690,3 +690,6 @@ Decoded in the scanner, judged on what it spells, and gated on an eval in code. 
 
 ### Key-gated command backdoor (1.4.144)
 The real file carried a weak capability check (`read`) on an unrelated page, which defeated a first version of the check that required no auth anywhere; protection now means an administrator-level capability or a nonce. Digest 1.4.144: `check_keyed_command_backdoor`, the marker rule, `CONCLUSIVE_TYPES`.
+
+### Filester ban (1.4.145)
+Banned on the soft tier by name boundary plus main-file header, like Code Snippets. Not hard-banned: the hard tier deletes with no quarantine copy and is kept for the two plugins with a CVE history of their own.

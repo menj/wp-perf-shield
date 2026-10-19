@@ -1,5 +1,15 @@
 # WP Perf Shield changelog
 
+## 1.4.145
+
+**Filester is banned.** It is an elFinder-based full-filesystem file manager (Ninja Team), the same risk class as `wp-file-manager` and `fileorganizer`, and an earlier copy of it (2.1.2) was found carrying a planted loader. It is refused at install, upload and activation and removed from the plugins folder (quarantined first, so it can be restored from Diagnostics). It is on the soft tier, not the hard one.
+
+- The slug `filester` is matched on a name boundary, like `code-snippets`: `filester-pro` and a prefixed copy are banned, `filesterx` is not.
+- A copy under another folder name is found by its main file `ninja-file-manager.php` plus the exact Plugin Name header `Filester - File Manager Pro`; a header that only starts with that text is left alone.
+- The activation and install guards also recognise a renamed copy by its main file and exact header, not only the disk sweep (CodeAnt review). This covers WP File Manager's `file_folder_manager.php` too.
+- Six plugins now ship banned; the Settings text names all of them (it had left out Code Snippets).
+- Triaged, no change: `ember-nav-installer-03e4` and the five payload-only folders before it, and the genuine Filester 2.1.4 (all 312 files match the wordpress.org checksums; its two report-only elFinder findings are expected).
+
 ## 1.4.144
 
 Eight uploads triaged statically (nothing executed). One new detection, one widened rule, and the rest already caught.

@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.144
+Stable tag: 1.4.145
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.145 =
+Filester is now banned: refused at install and activation and removed from disk, like WP File Manager and FileOrganizer.
 
 = 1.4.144 =
 Detects and removes a command-execution backdoor plugin gated only by a hard-coded key, and widens the kit-marker rule.
@@ -668,6 +671,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.145 =
+Filester (an elFinder file manager) is now on the banned-plugin list and will be removed if present.
 
 = 1.4.144 =
 Adds removal of a key-gated command backdoor that existing checks missed.
