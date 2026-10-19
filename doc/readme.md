@@ -226,6 +226,10 @@ when trust state cannot be read, never lets a behavioural finding remove an
 entire plugin or a WordPress core file, and halts all automatic removal if a
 Safe target ever reaches the destructive gate.
 
+## Signature database
+
+The scanner can use a ClamAV-format signature database (hash, extended and logical signatures) placed in `wp-content/wps-signatures/`. See `signatures.md` in this folder for the formats, what is left out, and how matches are handled.
+
 ## Banned plugins
 
 WP Perf Shield keeps a policy list of plugins this site has chosen not to run. It is separate from the malware blocklist: removal under it is a policy decision and is never described as malware. `wp-file-manager`, `fileorganizer`, `filebird`, `code-snippets`, `filester` and `protect-uploads` are on it by default, along with the folder names `rcromlb` and `hvmosjt` that Protect Uploads has been found under; add more under **Settings, Banned plugins**. The whole policy can be switched off there, which also removes any placeholder files.
@@ -256,7 +260,7 @@ Each exits non-zero on failure. They do not replace running the plugin on a stag
 
 ## Version
 
-Current plugin version: `1.4.145`
+Current plugin version: `1.4.146`
 
 Author: [MENJ](https://github.com/menj)
 

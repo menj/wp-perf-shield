@@ -108,6 +108,8 @@ final class WPS_Remediation_Policy {
 		'Malware signature in cache directory PHP file',
 		'Malware signature in plugin file',
 		'Known malware hash',
+		// 1.4.146: the same standing for a whole-file hash in the operator's signature database. The body type is deliberately absent: a body signature is the likeliest to misfire on a genuine plugin file, and the official-release check should keep protecting those.
+		'Known malicious file (hash signature)',
 		'Known malware-created admin user',
 		'Malicious wp-content drop-in persistence loader',
 		'Malicious wp-content drop-in re-dropper',
@@ -202,6 +204,9 @@ final class WPS_Remediation_Policy {
 		'Character-code encoded PHP payload',
 		// 1.4.144: a request value reaching an execution function, a hard-coded-value gate, and no auth check, together.
 		'Command-execution backdoor gated by a hard-coded key',
+		// 1.4.146: a file whose whole-file hash is in the operator's signature database; and a body match when the operator has turned removal on.
+		'Known malicious file (hash signature)',
+		'Signature database match, removal enabled',
 	];
 
 	/*

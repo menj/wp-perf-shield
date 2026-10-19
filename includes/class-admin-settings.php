@@ -467,6 +467,39 @@ class WPS_Admin_Settings {
 							</td>
 						</tr>
 						<tr>
+							<th><label for="signature_db_enabled">Signature database</label></th>
+							<td>
+								<?php
+								$wps_sig_dir = class_exists( 'WPS_Signature_Engine' ) ? WPS_Signature_Engine::default_dir() : '';
+								$wps_sig     = '' !== $wps_sig_dir ? WPS_Signature_Engine::status( $wps_sig_dir ) : [ 'usable' => false, 'errors' => [] ];
+								?>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="signature_db_enabled" name="signature_db_enabled" value="1" <?php checked( ( $settings['signature_db_enabled'] ?? '1' ) === '1' ); ?>>
+									<span>
+										<strong>Scan with a ClamAV-format signature database</strong><br>
+										<span class="description">Put ClamAV-format files (<code>.hdb</code> <code>.hsb</code> <code>.ndb</code> <code>.ldb</code>, with <code>.fp</code> and <code>.ign2</code> exceptions) in <code><?php echo esc_html( str_replace( ABSPATH, '', $wps_sig_dir ) ); ?></code>. Nothing is scanned until that folder holds a database. <strong>On by default.</strong></span>
+									</span>
+								</label>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="signature_auto_remove" name="signature_auto_remove" value="1" <?php checked( ( $settings['signature_auto_remove'] ?? '0' ) === '1' ); ?>>
+									<span>
+										<strong>Also remove files that match a body signature</strong><br>
+										<span class="description">A whole-file hash match is exact and the file is removed (when Auto-delete is on). A body or logical match is only as reliable as its signature, so it is reported, and removed only if you turn this on. Names starting <code>PUA.</code>, <code>Heuristics.</code> or <code>Hunting.</code> are never removed. <strong>Off by default.</strong></span>
+									</span>
+								</label>
+								<span class="wps-field-status">
+									<?php if ( ! empty( $wps_sig['usable'] ) ) : ?>
+										Loaded: <strong><?php echo (int) $wps_sig['hash']; ?></strong> hash, <strong><?php echo (int) $wps_sig['ndb']; ?></strong> extended, <strong><?php echo (int) $wps_sig['ldb']; ?></strong> logical signatures<?php echo ( (int) $wps_sig['skipped'] ) ? '; ' . (int) $wps_sig['skipped'] . ' skipped (executables, documents and other formats this scanner does not read)' : ''; ?><?php echo ( (int) $wps_sig['rejected'] ) ? '; <strong class="wps-bad-t">' . (int) $wps_sig['rejected'] . ' rejected</strong>' : ''; ?>.
+									<?php else : ?>
+										No usable signatures loaded.
+									<?php endif; ?>
+								</span>
+								<?php if ( ! empty( $wps_sig['errors'] ) ) : ?>
+									<span class="wps-sm wps-muted">First rejected lines: <?php echo esc_html( implode( '; ', array_slice( $wps_sig['errors'], 0, 3 ) ) ); ?></span>
+								<?php endif; ?>
+							</td>
+						</tr>
+						<tr>
 							<th><label for="spam_content_guard_enabled">Gambling-spam scanner</label></th>
 							<td>
 								<label class="wps-toggle-row">

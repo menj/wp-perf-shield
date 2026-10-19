@@ -135,6 +135,9 @@ class WPS_Admin {
 			'spam_content_guard_enabled'           => isset( $_POST['spam_content_guard_enabled'] ) ? '1' : '0',
 			'block_sso_bypass'     => isset( $_POST['block_sso_bypass'] ) ? '1' : '0',
 			'site_kit_search_console' => isset( $_POST['site_kit_search_console'] ) ? '1' : '0',
+			// 1.4.146: ClamAV-format signature database in wp-content/wps-signatures.
+			'signature_db_enabled'   => isset( $_POST['signature_db_enabled'] ) ? '1' : '0',
+			'signature_auto_remove'  => isset( $_POST['signature_auto_remove'] ) ? '1' : '0',
 			'login_network_guard'  => isset( $_POST['login_network_guard'] ) ? '1' : '0',
 			'login_report_spam'    => isset( $_POST['login_report_spam'] ) ? '1' : '0',
 			'akismet_report_all_blocks' => isset( $_POST['akismet_report_all_blocks'] ) ? '1' : '0',

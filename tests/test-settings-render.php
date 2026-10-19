@@ -97,6 +97,7 @@ check( 'unset toggles render unchecked', 0 === preg_match( '/name="xr_disable_fe
 check( 'saved curated methods render checked, the others do not', 1 === preg_match( '/value="wp\.getUsers"[^>]*checked/', $panel ) && 1 === preg_match( '/value="system\.listMethods"[^>]*checked/', $panel ) && 0 === preg_match( '/value="wp\.getPosts"[^>]*checked/', $panel ) );
 check( 'a non-curated saved method appears in the free-text box, a curated one does not', false !== strpos( $panel, 'my.customMethod' ) && 1 === preg_match( '/name="xr_methods_extra"[^>]*>my\.customMethod<\/textarea>/', $panel ) );
 check( 'the endpoint name and address lists show their saved values', false !== strpos( $panel, 'value="wp-rpc-1a2b"' ) && false !== strpos( $panel, '198.51.100.0/24' ) && false !== strpos( $panel, 'contact-form-7/' ) );
+check( 'the signature database settings render, the scan on and removal off by default', 1 === preg_match( '/name="signature_db_enabled"[^>]*checked/', $html ) && 1 === preg_match( '/name="signature_auto_remove"/', $html ) && 0 === preg_match( '/name="signature_auto_remove"[^>]*checked/', $html ) );
 check( 'no inline style attribute was added to the panel', false === strpos( $panel, 'style="' ), 'found style=' );
 check( 'no inline script was added to the panel', false === stripos( $panel, '<script' ) );
 check( 'every curated method has a checkbox', substr_count( $panel, 'name="xr_methods[]"' ) === count( WPS_Exposure_Guard::CURATED_METHODS ) );

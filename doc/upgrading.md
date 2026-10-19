@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.146
+
+**New: a ClamAV-format signature database.** Nothing changes until you put database files in `wp-content/wps-signatures/`. A whole-file hash match is removed; a body or logical match is only reported unless you turn on removal under Settings, Detection. Read `doc/signatures.md` first, and test a database on a copy: a signature with a false positive on a hash match removes the file (quarantined, restorable from Diagnostics). To switch it off, untick "Scan with a ClamAV-format signature database".
+
 ## 1.4.145
 
 **Filester is now banned.** It is refused at install and activation and removed from disk if present (quarantined first, restorable from Diagnostics). If you rely on it, untick the enforcement option under Settings, Banned plugins before updating (that switches the whole list off). Its settings and uploaded files are not touched.
