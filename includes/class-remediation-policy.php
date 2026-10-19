@@ -207,6 +207,9 @@ final class WPS_Remediation_Policy {
 		// 1.4.146: a file whose whole-file hash is in the operator's signature database; and a body match when the operator has turned removal on.
 		'Known malicious file (hash signature)',
 		'Signature database match, removal enabled',
+		// 1.4.147: a file that runs a stored payload only for search crawlers; and one that appends hidden gambling links to content.
+		'Crawler-only payload runner',
+		'Hidden gambling-link injector',
 	];
 
 	/*

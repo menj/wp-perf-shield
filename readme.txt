@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.146
+Stable tag: 1.4.147
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.147 =
+Detects the casino-spam injector described in a public write-up: a payload that runs only for search crawlers, hidden gambling links added to content, rewrite rules to a PHP script in uploads, and its encoded payload options.
 
 = 1.4.146 =
 The scanner can use a ClamAV-format signature database (hash, extended and logical signatures) from wp-content/wps-signatures. Nothing changes until you add one.
@@ -674,6 +677,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.147 =
+Adds detection of a casino-spam injector that shows spam only to search crawlers.
 
 = 1.4.146 =
 Adds support for a ClamAV-format signature database. Off in effect until you put a database in wp-content/wps-signatures.

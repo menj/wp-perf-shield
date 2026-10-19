@@ -616,6 +616,10 @@ class WPS_Scanner {
 			'check_kit_folder_tags' => [ __CLASS__, 'check_kit_folder_tags' ], // 1.4.142: a plugin folder holding both .bt_<folder> and .swm_<folder> tag files, even when everything else has been emptied
 			'check_charcode_eval_payload' => [ __CLASS__, 'check_charcode_eval_payload' ], // 1.4.143: PHP stored as a long list of decimal character codes and run through eval
 			'check_keyed_command_backdoor' => [ __CLASS__, 'check_keyed_command_backdoor' ], // 1.4.144: plugin that runs a request-supplied command, gated only by a hard-coded key
+			'check_crawler_gated_eval' => [ __CLASS__, 'check_crawler_gated_eval' ], // 1.4.147: code that runs a stored or decoded payload only when the visitor is a search crawler
+			'check_hidden_link_filter' => [ __CLASS__, 'check_hidden_link_filter' ], // 1.4.147: a content filter that appends hidden gambling links
+			'check_htaccess_php_doorway' => [ __CLASS__, 'check_htaccess_php_doorway' ], // 1.4.147: .htaccess rewrite rules that send URLs to a PHP script in uploads or cache (report only)
+			'check_casino_spam_options' => [ __CLASS__, 'check_casino_spam_options' ], // 1.4.147: an encoded payload stored under a casino-spam kit's option name
 			'check_signature_database' => [ __CLASS__, 'check_signature_database' ], // 1.4.146: files that match a ClamAV-format signature database the operator has installed in wp-content/wps-signatures
 			'check_shell_use_evidence' => [ __CLASS__, 'check_shell_use_evidence' ], // 1.4.141: error_log lines showing a shell was fed commands that wrote payload files to /tmp/.<name> (report only)
 			'check_search_console_stub' => [ __CLASS__, 'check_search_console_stub' ], // 1.4.137: Search Console ownership stubs planted by doorway kits (and, on Site Kit sites, any at the root)
@@ -7997,6 +8001,300 @@ class WPS_Scanner {
 			if ( class_exists( 'WPS_Logger' ) ) {
 				WPS_Logger::log_event( 'marker_comment_php_found', self::display_path( $path ) );
 			}
+		}
+		return $found;
+	}
+
+	/**
+	 * Whether a flagged file has no business existing, so removing it is the fix: a file dropped
+	 * into mu-plugins or outside the plugin and theme folders, or a small plugin file (a few
+	 * kilobytes) that is only the payload. A large plugin or theme file with the code spliced in
+	 * is reported for cleaning by hand, because removing it would remove the plugin or the theme.
+	 */
+	private static function is_dropped_file( string $path, int $size ): bool {
+		$norm = strtolower( str_replace( '\\', '/', $path ) );
+		if ( false !== strpos( $norm, '/mu-plugins/' ) ) {
+			return true;
+		}
+		if ( false === strpos( $norm, '/plugins/' ) && false === strpos( $norm, '/themes/' ) ) {
+			return true;
+		}
+		return $size <= 12000 && false !== strpos( $norm, '/plugins/' );
+	}
+
+	/**
+	 * 1.4.147: code that runs a stored or decoded payload only for search crawlers.
+	 *
+	 * From a public write-up of a casino-spam injector: an `init` hook tests the
+	 * User-Agent for Googlebot or Bingbot, and if it matches, decodes a payload kept
+	 * in an option and `eval`s it, so site owners see a normal page while Google
+	 * indexes casino pages. The conjunction is the evidence: a crawler name tested
+	 * against the User-Agent, with an `eval` of a decoded or variable value a short
+	 * distance away, in one file. Search plugins list crawlers and do not eval.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_crawler_gated_eval(): array {
+		$found    = [];
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		foreach ( array_keys( self::kit_and_plugin_php_files( 1 ) ) as $path ) {
+			if ( self::out_of_time() ) {
+				break;
+			}
+			$size = @filesize( $path );
+			if ( false === $size || $size < 100 || $size > 600000 ) {
+				continue;
+			}
+			$real = realpath( $path ) ?: $path;
+			if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
+				continue;
+			}
+			$raw = @file_get_contents( $path );
+			if ( ! is_string( $raw ) || false === stripos( $raw, 'eval' ) || ( false === stripos( $raw, 'HTTP_USER_AGENT' ) && false === stripos( $raw, 'wp_get_user_agent' ) ) ) {
+				continue;
+			}
+			if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+				continue;
+			}
+			$code = self::code_without_comments( $raw );
+			$ok   = @preg_match_all( '/googlebot|bingbot|adsbot-google|yandexbot|baiduspider|duckduckbot|applebot|slurp/i', $code, $cm, PREG_OFFSET_CAPTURE );
+			$ev   = @preg_match_all( '/\beval\s*\(\s*(?:[\'"]\?>[\'"]\s*\.\s*)?(?:@\s*)?(?:(?:base64_decode|gzinflate|gzuncompress|gzdecode|str_rot13|hex2bin|convert_uudecode)\s*\(|\$\w+)/i', $code, $em, PREG_OFFSET_CAPTURE );
+			if ( ! $ok || ! $ev ) {
+				continue;
+			}
+			$near = false;
+			foreach ( $cm[0] as $c ) {
+				foreach ( $em[0] as $e ) {
+					if ( abs( $c[1] - $e[1] ) <= 1200 ) {
+						$near = true;
+						break 2;
+					}
+				}
+			}
+			if ( ! $near ) {
+				continue;
+			}
+			$delete  = self::is_dropped_file( $path, (int) $size );
+			$entry   = [
+				'severity' => 'critical',
+				'type'     => $delete ? 'Crawler-only payload runner' : 'Crawler-only payload runner (report only)',
+				'subject'  => self::display_path( $path ) . ' tests for a search crawler and then runs a stored or decoded payload with eval',
+				'path'     => $path,
+				'action'   => 'This is the shape of a black-hat SEO injector: the page looks normal to you and shows casino or other spam to Googlebot and Bingbot. ' . ( $delete
+					? 'The file is removed. Then look for the payload it ran (an option such as _gg_link_cache), for an hourly cron event that re-downloads it, for rewrite rules in .htaccess, and for other files dropped beside it.'
+					: 'It sits inside a plugin or theme file that holds other code, so nothing is removed automatically; cut the block out by hand, or replace the file from a clean copy. Then look for the payload option, an hourly cron event that re-downloads it, and rewrite rules in .htaccess.' ),
+				'auto_delete' => $delete,
+			];
+			if ( $delete ) {
+				$entry['delete_path'] = $path;
+			}
+			$found[] = $entry;
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'crawler_gated_eval_found', self::display_path( $path ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.147: a content filter that appends hidden gambling links.
+	 *
+	 * The write-up's injector adds a `the_content` filter at priority 999 that appends a
+	 * zero-height, overflow-hidden `div` of casino anchors to every post, so the links are
+	 * invisible to readers and counted by crawlers. Found here as: a hook on content or
+	 * the footer, a hiding style, an anchor within a few hundred bytes of it, and gambling
+	 * spam wording (the same matcher the post scanner uses) in that stretch, or one of the
+	 * option names the write-up lists.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_hidden_link_filter(): array {
+		if ( ! class_exists( 'WPS_Spam_Signatures' ) ) {
+			return [];
+		}
+		$found    = [];
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		$names    = class_exists( 'WPS_Indicators' ) ? array_merge( WPS_Indicators::casino_spam_option_names(), [ '_gg_link_cache' ] ) : [];
+		foreach ( array_keys( self::kit_and_plugin_php_files( 1 ) ) as $path ) {
+			if ( self::out_of_time() ) {
+				break;
+			}
+			$size = @filesize( $path );
+			if ( false === $size || $size < 100 || $size > 600000 ) {
+				continue;
+			}
+			$real = realpath( $path ) ?: $path;
+			if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
+				continue;
+			}
+			$raw = @file_get_contents( $path );
+			if ( ! is_string( $raw ) || ! preg_match( '/add_(?:filter|action)\s*\(\s*[\'"](?:the_content|the_excerpt|widget_text|wp_footer)[\'"]/i', $raw ) || ! preg_match( '/<a\s/i', $raw ) ) {
+				continue;
+			}
+			if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+				continue;
+			}
+			$code = self::code_without_comments( $raw );
+			if ( ! preg_match_all( '/(?:height\s*:\s*0|font-size\s*:\s*0|left\s*:\s*-\d{3,}|display\s*:\s*none|visibility\s*:\s*hidden|text-indent\s*:\s*-\d{3,})/i', $code, $hm, PREG_OFFSET_CAPTURE ) ) {
+				continue;
+			}
+			$why = '';
+			foreach ( array_slice( $hm[0], 0, 20 ) as $h ) {
+				$win = substr( $code, max( 0, $h[1] - 400 ), 900 );
+				if ( ! preg_match( '/<a\s[^>]*href/i', $win ) ) {
+					continue;
+				}
+				$ev = WPS_Spam_Signatures::evaluate( $win );
+				if ( ! empty( $ev['spam'] ) && ! empty( $ev['signals'] ) && 'high' === $ev['confidence'] ) {
+					$why = $ev['reason'];
+					break;
+				}
+				foreach ( $names as $n ) {
+					if ( false !== strpos( $code, $n ) ) {
+						$why = 'hidden links beside the option ' . $n;
+						break 2;
+					}
+				}
+			}
+			if ( '' === $why ) {
+				continue;
+			}
+			$delete = self::is_dropped_file( $path, (int) $size );
+			$entry  = [
+				'severity' => 'critical',
+				'type'     => $delete ? 'Hidden gambling-link injector' : 'Hidden gambling-link injector (report only)',
+				'subject'  => self::display_path( $path ) . ' appends hidden links to content (' . $why . ')',
+				'path'     => $path,
+				'action'   => 'A filter on content or the footer adds links inside a hidden element, so readers do not see them and search engines count them. ' . ( $delete
+					? 'The file is removed. Check the theme and other plugins for the same filter, and any option it reads its links from.'
+					: 'It sits inside a plugin or theme file that holds other code, so nothing is removed automatically; cut the filter out by hand, or replace the file from a clean copy.' ),
+				'auto_delete' => $delete,
+			];
+			if ( $delete ) {
+				$entry['delete_path'] = $path;
+			}
+			$found[] = $entry;
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'hidden_link_filter_found', self::display_path( $path ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.147: rewrite rules that send URLs to a PHP script in uploads or cache.
+	 *
+	 * The write-up's doorway pages come from `.htaccess` rules that map `casino-bonus-*.html`
+	 * and `slot-review-*.html` to `wp-content/uploads/cache/render.php`. WordPress's own rules
+	 * send everything to index.php; nothing legitimate sends visitors to a script that lives
+	 * in a folder meant for media. Report only: the file is the site's access control, and
+	 * the right fix is to remove the rule, not the file.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_htaccess_php_doorway(): array {
+		$found   = [];
+		$targets = [];
+		if ( defined( 'ABSPATH' ) ) {
+			$targets[] = rtrim( ABSPATH, '/\\' ) . '/.htaccess';
+		}
+		if ( defined( 'WP_CONTENT_DIR' ) ) {
+			$targets[] = WP_CONTENT_DIR . '/.htaccess';
+			$targets[] = WP_CONTENT_DIR . '/uploads/.htaccess';
+		}
+		foreach ( array_unique( $targets ) as $file ) {
+			if ( ! is_file( $file ) || ! is_readable( $file ) || (int) @filesize( $file ) > 262144 ) {
+				continue;
+			}
+			if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $file ) ) {
+				continue;
+			}
+			$in_uploads = false !== strpos( str_replace( '\\', '/', $file ), '/uploads/.htaccess' );
+			foreach ( (array) preg_split( '/\r\n|\r|\n/', (string) @file_get_contents( $file ) ) as $line ) {
+				$line = trim( (string) $line );
+				if ( '' === $line || '#' === $line[0] || ! preg_match( '/^RewriteRule\s+(\S+)\s+(\S+)/i', $line, $m ) ) {
+					continue;
+				}
+				$sub = strtolower( preg_replace( '/\?.*$/', '', $m[2] ) );
+				if ( '.php' !== substr( $sub, -4 ) ) {
+					continue;
+				}
+				$in_bad_dir = (bool) preg_match( '#(?:^|/)(?:wp-content/)?(?:uploads|cache)/#', $sub );
+				if ( ! $in_bad_dir && ! $in_uploads ) {
+					continue;
+				}
+				$found[] = [
+					'severity' => 'critical',
+					'type'     => 'Rewrite rule that sends URLs to a PHP script in uploads or cache',
+					'subject'  => self::display_path( $file ) . ' sends ' . substr( $m[1], 0, 60 ) . ' to ' . substr( $m[2], 0, 80 ),
+					'path'     => $file,
+					'action'   => 'Visitors, or only search crawlers, are being sent to a PHP script kept in a media or cache folder. This is how doorway pages are served from a site that looks normal. Nothing is removed automatically, because this file controls access to the site: delete the rule (and the lines around it, usually marked with a comment) by hand, then remove the script it points to and look for what wrote the rule.',
+				];
+				if ( class_exists( 'WPS_Logger' ) ) {
+					WPS_Logger::log_event( 'htaccess_php_doorway_found', self::display_path( $file ) );
+				}
+				break; // one finding per file; the lines are in the subject
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.147: an encoded payload stored under a casino-spam kit's option name.
+	 *
+	 * The names come from one public write-up and are generic enough that another plugin
+	 * could use one, so a value is only reported when it is a long base64 blob, holds
+	 * eval, base64_decode, gzinflate or str_rot13, or is hidden gambling markup. Cleaned
+	 * (quarantined first) through the same Auto-delete setting as the other known-bad
+	 * options.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_casino_spam_options(): array {
+		if ( ! class_exists( 'WPS_Indicators' ) ) {
+			return [];
+		}
+		$found     = [];
+		$autoclean = self::auto_delete_enabled();
+		foreach ( WPS_Indicators::casino_spam_option_names() as $opt ) {
+			$val = get_option( $opt, null );
+			if ( null === $val || '' === $val ) {
+				continue;
+			}
+			$text = is_string( $val ) ? $val : (string) wp_json_encode( $val );
+			$why  = '';
+			if ( strlen( $text ) >= 200 && preg_match( '/^[A-Za-z0-9+\/=\s]{200,}$/', substr( $text, 0, 4000 ) ) ) {
+				$why = 'a long base64 blob';
+			} elseif ( preg_match( '/\beval\s*\(|base64_decode|gzinflate|str_rot13/i', $text ) ) {
+				$why = 'code that decodes or runs a payload';
+			} elseif ( class_exists( 'WPS_Spam_Signatures' ) && strlen( $text ) >= 120 && preg_match( '/<a\s[^>]*href/i', $text ) ) {
+				$ev = WPS_Spam_Signatures::evaluate( $text );
+				if ( ! empty( $ev['spam'] ) ) {
+					$why = 'gambling links';
+				}
+			}
+			if ( '' === $why ) {
+				continue;
+			}
+			$entry = [
+				'severity' => 'critical',
+				'type'     => 'Encoded payload stored under a casino-spam kit option name',
+				'subject'  => $opt . ' holds ' . $why . ' (' . strlen( $text ) . ' bytes)',
+				'path'     => '',
+				'preview'  => substr( $text, 0, 80 ),
+			];
+			if ( $autoclean ) {
+				if ( self::quarantine_enabled() && class_exists( 'WPS_Quarantine' ) ) {
+					WPS_Quarantine::quarantine_option( $opt, [ 'type' => 'db_option (casino-spam kit)', 'reason' => 'auto-clean of an encoded payload under a casino-spam option name' ] );
+				}
+				delete_option( $opt );
+				$entry['remediated'] = true;
+				$entry['action']     = 'Auto-deleted by WP Perf Shield (quarantined first while quarantine is on). Also check for an hourly cron event that downloads it again, and the file that reads this option.';
+				WPS_Logger::log_event( 'db_option_deleted', $opt . ' (auto, casino-spam kit)' );
+			} else {
+				$entry['action'] = 'Auto-clean is off. Delete this option by hand after reading it, and find the file that reads it.';
+			}
+			$found[] = $entry;
 		}
 		return $found;
 	}

@@ -72,6 +72,8 @@ class WPS_Indicators {
 			'wpconsole_key',
 			'wps_emergency_pass',
 			'malwary_pass',
+			// 1.4.147: casino-spam injector (guardiangaze.com write-up): the encoded page-generator payload, a name nothing else uses.
+			'_gg_link_cache',
 		];
 	}
 
@@ -126,7 +128,19 @@ class WPS_Indicators {
 			'wpconsole',
 			'malwary',
 			'wp_perf_ok',
+			'gg_casino', // 1.4.147: hourly re-download of the casino-spam payload (gg_casino_reinstall)
 		];
+	}
+
+	/**
+	 * Option names a casino-spam injector stores its payload under, taken from one public
+	 * write-up. The names are generic enough that another plugin could use one, so none is
+	 * removed on its name: the value must also be an encoded or executable payload.
+	 *
+	 * @return list<string>
+	 */
+	public static function casino_spam_option_names(): array {
+		return [ '_wp_seo_boost', '_cache_optimizer_v2', 'theme_perf_settings', 'wp_ad_render_cache' ];
 	}
 
 	//  .sbs cookie-exfil + persistent-admin toolkit (added 1.3.33)

@@ -40,6 +40,9 @@ final class WPS_Spam_Signatures {
 		'pragmatic play', 'sbobet', 'dominoqq', 'bandarq', 'pkv games',
 		'idn poker', 'mahjong ways', 'zeus slot', 'gates of olympus',
 		'link slot', 'akun pro', 'scatter hitam',
+		// 1.4.147: phrases from a casino-spam doorway write-up; they are SEO-spam phrasing, not prose.
+		'online casino no deposit bonus', 'free spins no deposit', 'slot review bonus',
+		'オンラインカジノ入金不要ボーナス',
 	];
 
 	/** Ordinary gambling words: counted only in bulk and only with a structural tell. */

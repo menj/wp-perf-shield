@@ -697,3 +697,6 @@ Banned on the soft tier by name boundary plus main-file header, like Code Snippe
 
 ### Signature engine (1.4.146)
 ClamAV formats, not ClamAV: hash signatures are exact and remove (when Auto-delete is on); body signatures report unless the operator opts in; PUA/Heuristics/Hunting never remove. Body signatures under eight fixed bytes are rejected (stricter than ClamAV, because this scans a live site). `*` and `{n-}` are matched as ordered parts, not as a backtracking `.*`.
+
+### Casino-spam checks (1.4.147)
+Behaviour checks, not name checks: the option names from the write-up are generic, so removal needs the value to be a payload too. Removal of a file is limited to dropped files; a spliced-in block is reported, because deleting the host file would delete the plugin or theme. `.htaccess` is never edited or deleted automatically.
