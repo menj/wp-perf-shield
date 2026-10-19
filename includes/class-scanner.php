@@ -7061,6 +7061,11 @@ class WPS_Scanner {
 					if ( $d->isDot() || ! $d->isDir() || in_array( $d->getFilename(), [ 'wp-admin', 'wp-includes', 'wp-content', 'cgi-bin' ], true ) ) {
 						continue;
 					}
+					// Another WordPress install (an add-on domain, a staging copy, a subdirectory
+					// install) has its own wp-content and is scanned by its own copy of this plugin.
+					if ( is_file( $d->getPathname() . '/wp-config.php' ) || is_dir( $d->getPathname() . '/wp-includes' ) ) {
+						continue;
+					}
 					$roots[] = $d->getPathname();
 				}
 			} catch ( \Throwable $t ) {} // phpcs:ignore
@@ -7085,6 +7090,7 @@ class WPS_Scanner {
 		$found    = [];
 		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
 		$examined = 0;
+		$exfil_dirs = [];
 		foreach ( self::kit_roots() as $root ) {
 			try {
 				$iter = new RecursiveIteratorIterator(
@@ -7093,11 +7099,14 @@ class WPS_Scanner {
 				);
 				$iter->setMaxDepth( 4 );
 				foreach ( $iter as $f ) {
-					if ( self::out_of_time() || ++$examined > 6000 ) {
+					if ( self::out_of_time() ) {
 						return $found;
 					}
 					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
 						continue;
+					}
+					if ( ++$examined > 6000 ) {
+						return $found;
 					}
 					$size = $f->getSize();
 					if ( false === $size || $size < 60 || $size > 200000 ) {
@@ -7123,9 +7132,15 @@ class WPS_Scanner {
 					if ( ! $exfil && ! $creds ) {
 						continue;
 					}
+					$dirkey = dirname( $real );
+					if ( $exfil ) {
+						$exfil_dirs[ $dirkey ] = true;
+					}
 					$found[] = [
 						'severity'    => 'critical',
 						'type'        => $exfil ? 'Phishing kit that sends card details to a Telegram bot' : 'Phishing kit credentials (Telegram bot token and chat id)',
+						'_dir'        => $dirkey,
+						'_creds'      => ! $exfil,
 						'subject'     => self::display_path( $path ) . ( $exfil ? ' collects card data and posts it to api.telegram.org' : ' holds the bot token the kit reports to' ),
 						'path'        => $path,
 						'action'      => 'This file belongs to a phishing kit hosted on your site: visitors are shown a fake brand page, and what they type (card number, expiry, CVV, address) is sent to the operator through a Telegram bot. The file is removed. Find the rest of the kit (HTML pages, a rewrite .htaccess) and how it was uploaded, and treat the site as compromised. Report the page to the impersonated brand and your host.',
@@ -7139,6 +7154,21 @@ class WPS_Scanner {
 			} catch ( \Throwable $t ) {
 				continue;
 			}
+		}
+		// A bot token and chat id alone also describe an honest notifier. The credentials
+		// file is removed only when the script that harvests card data sits beside it;
+		// then it carries the kit's (conclusive) type, otherwise it is reported only.
+		foreach ( $found as $k => $item ) {
+			if ( ! empty( $item['_creds'] ) ) {
+				if ( isset( $exfil_dirs[ $item['_dir'] ] ) ) {
+					$found[ $k ]['type'] = 'Phishing kit that sends card details to a Telegram bot (its credentials file)';
+				} else {
+					$found[ $k ]['auto_delete'] = false;
+					unset( $found[ $k ]['delete_path'] );
+					$found[ $k ]['action']      = 'A file that defines a Telegram bot token and chat id. Telegram notification plugins do this too, so nothing is removed automatically: check whether you or a plugin you use created it. If you did not, it is the credentials file of a card-harvesting kit.';
+				}
+			}
+			unset( $found[ $k ]['_dir'], $found[ $k ]['_creds'] );
 		}
 		return $found;
 	}
@@ -7171,7 +7201,7 @@ class WPS_Scanner {
 			);
 			$iter->setMaxDepth( 5 );
 			foreach ( $iter as $f ) {
-				if ( self::out_of_time() || ++$examined > 8000 ) {
+				if ( self::out_of_time() ) {
 					break;
 				}
 				if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
@@ -7180,6 +7210,9 @@ class WPS_Scanner {
 				$ext = strtolower( $f->getExtension() );
 				if ( ! in_array( $ext, [ 'php', 'phtml', 'html', 'htm' ], true ) ) {
 					continue;
+				}
+				if ( ++$examined > 8000 ) {
+					break;
 				}
 				$size = $f->getSize();
 				if ( false === $size || $size < 40 || $size > 2500 ) {
@@ -7263,6 +7296,8 @@ class WPS_Scanner {
 				$roots[] = rtrim( constant( $c ), '/\\' ) . '/*';
 			}
 		}
+		// Loose files in the web root and wp-content first: the likeliest place, and cheap.
+		usort( $roots, static fn( $a, $b ) => ( '/*' === substr( $b, -2 ) ) <=> ( '/*' === substr( $a, -2 ) ) );
 		$seen = [];
 		$n    = 0;
 		foreach ( array_unique( $roots ) as $root ) {
@@ -7277,13 +7312,13 @@ class WPS_Scanner {
 				);
 				$iter->setMaxDepth( $shallow ? 0 : 5 );
 				foreach ( $iter as $f ) {
-					if ( self::out_of_time() || ++$n > 20000 ) {
+					if ( self::out_of_time() ) {
 						return $found;
 					}
-					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || $f->getSize() > 200 ) {
+					if ( ! ( $f instanceof SplFileInfo ) || ! preg_match( '/^(deep_check|upload_test)_([0-9a-f]{32})\.txt$/i', $f->getFilename(), $m ) ) {
 						continue;
 					}
-					if ( ! preg_match( '/^(deep_check|upload_test)_([0-9a-f]{32})\.txt$/i', $f->getFilename(), $m ) ) {
+					if ( ++$n > 500 || ! $f->isFile() || $f->getSize() > 200 ) {
 						continue;
 					}
 					$real = realpath( $f->getPathname() ) ?: $f->getPathname();
@@ -7458,21 +7493,28 @@ class WPS_Scanner {
 			if ( ! is_string( $raw ) || ! preg_match( '/base64_decode\s*\(/i', $raw ) || ! preg_match( '/add_action\s*\(\s*[\'"](?:wp_head|wp_footer|login_head|login_footer|wp_body_open|wp_print_footer_scripts)[\'"]/i', $raw ) ) {
 				continue;
 			}
+			// Every long base64 block is tried, so a decoy blob placed first cannot hide the real one.
+			$blocks = [];
+			if ( preg_match_all( '/<<<[\'"]?(\w+)[\'"]?\r?\n([A-Za-z0-9+\/=\r\n]{4000,}?)\r?\n\s*\1\s*;/', $raw, $hm ) ) {
+				$blocks = array_merge( $blocks, $hm[2] );
+			}
+			if ( preg_match_all( '/[\'"]([A-Za-z0-9+\/=]{4000,})[\'"]/', $raw, $qm ) ) {
+				$blocks = array_merge( $blocks, $qm[1] );
+			}
 			$block = '';
-			if ( preg_match( '/<<<[\'"]?(\w+)[\'"]?\r?\n([A-Za-z0-9+\/=\r\n]{4000,}?)\r?\n\s*\1\s*;/', $raw, $m ) ) {
-				$block = $m[2];
-			} elseif ( preg_match( '/[\'"]([A-Za-z0-9+\/=]{4000,})[\'"]/', $raw, $m ) ) {
-				$block = $m[1];
+			foreach ( $blocks as $cand ) {
+				$dec = base64_decode( (string) preg_replace( '/\s+/', '', substr( $cand, 0, 4000 ) ), false );
+				if ( is_string( $dec ) && '' !== $dec && false === strpos( $dec, '<?php' )
+					&& preg_match( '/^\s*(?:\(\s*function|var\s|!function|function\s|\(\(\)\s*=>|"use strict")/', $dec ) ) {
+					$block = $cand;
+					break;
+				}
 			}
 			if ( '' === $block ) {
 				continue;
 			}
-			$dec = base64_decode( preg_replace( '/\s+/', '', substr( $block, 0, 4000 ) ), false );
-			if ( ! is_string( $dec ) || '' === $dec || false !== strpos( $dec, '<?php' ) ) {
-				continue;
-			}
-			// Looks like script, not binary data.
-			if ( ! preg_match( '/^\s*(?:\(\s*function|var\s|!function|function\s|\(\(\)\s*=>|"use strict")/', $dec ) ) {
+			// Shown to visitors but not to people who manage the site: the gate that makes it an injector.
+			if ( ! preg_match( '/current_user_can\s*\(|is_admin\s*\(|is_user_logged_in\s*\(/i', $raw ) ) {
 				continue;
 			}
 			// It is printed into pages: a script tag (possibly split) next to an echo.
@@ -7553,6 +7595,10 @@ class WPS_Scanner {
 					if ( ! $at_root && in_array( basename( $dir ), $skip, true ) && dirname( $dir ) === $abs ) {
 						continue;
 					}
+					// Another WordPress install below the web root is that install's own business.
+					if ( ! $at_root && dirname( $dir ) === $abs && ( is_file( $dir . '/wp-config.php' ) || is_dir( $dir . '/wp-includes' ) ) ) {
+						continue;
+					}
 					if ( preg_match( '/^google[0-9a-f]{16}\.html$/i', $name ) ) {
 						$body = trim( (string) @file_get_contents( $path, false, null, 0, 300 ) );
 						if ( 0 !== strcasecmp( $body, 'google-site-verification: ' . $name ) ) {
@@ -7562,13 +7608,15 @@ class WPS_Scanner {
 							continue;
 						}
 						$seen[ $real ] = true;
+						$up_base       = ( is_array( $up ) && ! empty( $up['basedir'] ) ) ? rtrim( (string) ( realpath( $up['basedir'] ) ?: $up['basedir'] ), '/\\' ) : '';
+						$in_uploads    = '' !== $up_base && 0 === strpos( $dir . '/', $up_base . '/' );
 						$found[]       = [
 							'severity'    => 'high',
 							'type'        => $at_root ? 'Search Console verification file on a Site Kit site' : 'Search Console verification file inside a subfolder',
 							'subject'     => self::display_path( $path ) . ( $at_root ? ' (you said Site Kit handles verification)' : ' (a genuine one lives at the web root)' ),
 							'path'        => $path,
-							'action'      => 'This file proves to Google that whoever placed it owns the domain, which lets them submit sitemaps and request indexing for pages they planted. ' . ( $at_root ? 'You have said this site verifies through Site Kit, so the file is not yours; it is moved to quarantine.' : 'It sits in a subfolder, where a real verification file never is; it is moved to quarantine.' ) . ' Then open Search Console, Settings, Users and permissions, and remove any owner you did not add, and delete sitemaps you did not submit.',
-							'auto_delete' => $at_root ? $site_kit : true,
+							'action'      => 'This file proves to Google that whoever placed it owns the domain, which lets them submit sitemaps and request indexing for pages they planted. ' . ( $at_root ? 'You have said this site verifies through Site Kit, so the file is not yours; it is moved to quarantine.' : ( $in_uploads ? 'Uploads never hold a genuine verification file; it is moved to quarantine.' : 'A genuine one can sit in a subfolder when that folder is its own Search Console property, so this is reported, not removed: check it is yours.' ) ) . ' Then open Search Console, Settings, Users and permissions, and remove any owner you did not add, and delete sitemaps you did not submit.',
+							'auto_delete' => $at_root ? $site_kit : $in_uploads,
 							'delete_path' => $path,
 						];
 					} elseif ( $site_kit && $at_root && 'sitemap.xml' === strtolower( $name ) ) {

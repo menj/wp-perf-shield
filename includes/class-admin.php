@@ -150,8 +150,16 @@ class WPS_Admin {
 				implode( "\n", array_map( 'sanitize_text_field', (array) wp_unslash( $_POST['xr_methods'] ?? [] ) ) ) . "\n" . (string) wp_unslash( $_POST['xr_methods_extra'] ?? '' )
 			),
 			'xr_slug'                   => WPS_Exposure_Guard::sanitize_slug( (string) wp_unslash( $_POST['xr_slug'] ?? '' ) ),
-			'xr_allow_ips'              => WPS_Exposure_Guard::sanitize_rules( (string) wp_unslash( $_POST['xr_allow_ips'] ?? '' ) ),
-			'xr_deny_ips'               => WPS_Exposure_Guard::sanitize_rules( (string) wp_unslash( $_POST['xr_deny_ips'] ?? '' ) ),
+			'xr_allow_ips'              => WPS_Exposure_Guard::keep_if_unparsable(
+				(string) wp_unslash( $_POST['xr_allow_ips'] ?? '' ),
+				WPS_Exposure_Guard::sanitize_rules( (string) wp_unslash( $_POST['xr_allow_ips'] ?? '' ) ),
+				(string) ( $existing['xr_allow_ips'] ?? '' )
+			),
+			'xr_deny_ips'               => WPS_Exposure_Guard::keep_if_unparsable(
+				(string) wp_unslash( $_POST['xr_deny_ips'] ?? '' ),
+				WPS_Exposure_Guard::sanitize_rules( (string) wp_unslash( $_POST['xr_deny_ips'] ?? '' ) ),
+				(string) ( $existing['xr_deny_ips'] ?? '' )
+			),
 			'xr_hide_version'           => isset( $_POST['xr_hide_version'] ) ? '1' : '0',
 			'xr_remove_discovery_links' => isset( $_POST['xr_remove_discovery_links'] ) ? '1' : '0',
 			'xr_disable_feeds'          => isset( $_POST['xr_disable_feeds'] ) ? '1' : '0',

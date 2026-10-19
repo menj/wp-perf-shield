@@ -59,8 +59,13 @@ $f = run();
 check( 'Site Kit off: a root stub is left alone', ! has( $f, $tmp . '/' . $stub ) );
 check( 'Site Kit off: a root sitemap.xml is left alone', ! has( $f, '/sitemap.xml' ) );
 $b = has( $f, '/blog/' );
-check( 'a stub in a web-root subfolder is reported and removable even with the setting off', $b && ! empty( $b['auto_delete'] ) );
-check( 'a stub inside uploads is reported', (bool) has( $f, '/uploads/x/' ) );
+check( 'a stub in a web-root subfolder is reported but not removed (it can be that folder\'s own property)', $b && empty( $b['auto_delete'] ) );
+$u = has( $f, '/uploads/x/' );
+check( 'a stub inside uploads is reported and removable', $u && ! empty( $u['auto_delete'] ) );
+put( $tmp . '/other-site/wp-config.php', '<?php' );
+put( $tmp . '/other-site/' . $stub, 'google-site-verification: ' . $stub );
+$f = run();
+check( 'a folder that is another WordPress install is not searched', ! has( $f, '/other-site/' ) );
 check( 'a google-named file whose content is not the stub text is ignored', ! has( $f, '/uploads/y/' ) );
 
 $GLOBALS['opts'] = [ 'site_kit_search_console' => '1' ];
