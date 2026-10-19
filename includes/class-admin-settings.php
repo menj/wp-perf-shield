@@ -484,7 +484,7 @@ class WPS_Admin_Settings {
 									<input type="checkbox" id="signature_auto_remove" name="signature_auto_remove" value="1" <?php checked( ( $settings['signature_auto_remove'] ?? '0' ) === '1' ); ?>>
 									<span>
 										<strong>Also remove files that match a body signature</strong><br>
-										<span class="description">A whole-file hash match is exact and the file is always removed. A body or logical match is only as reliable as its signature, so it is reported, and removed only if you turn this on. Names starting <code>PUA.</code>, <code>Heuristics.</code> or <code>Hunting.</code> are never removed. <strong>Off by default.</strong></span>
+										<span class="description">A whole-file hash match is exact and the file is removed (when Auto-delete is on). A body or logical match is only as reliable as its signature, so it is reported, and removed only if you turn this on. Names starting <code>PUA.</code>, <code>Heuristics.</code> or <code>Hunting.</code> are never removed. <strong>Off by default.</strong></span>
 									</span>
 								</label>
 								<span class="wps-field-status">

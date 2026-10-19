@@ -31,7 +31,7 @@ Anyone who can write to `wp-content/wps-signatures/` can make the scanner remove
 
 ## What happens on a match
 
-- **Whole-file hash match:** exact. The file is reported as critical and removed (quarantined first, so it can be restored from Diagnostics).
+- **Whole-file hash match:** exact. The file is reported as critical and, when Auto-delete is on in Settings (the default), removed. It is quarantined first while quarantine is on (the default), so it can be restored from Diagnostics; with quarantine off it is deleted outright.
 - **Body or logical match:** reported, not removed, because a match is only as reliable as its signature. Settings, Detection, "Also remove files that match a body signature" turns removal on for these.
 - **`PUA.`, `Heuristics.` and `Hunting.` names:** reported and never removed, whatever the setting.
 - **False positives:** add the signature name to an `.ign2` file, or the file's hash to a `.fp` file. A listed hash is never reported.
@@ -40,7 +40,7 @@ Files in this plugin, the quarantine, the signature folder and symlinks are neve
 
 ## Limits
 
-Up to 20,000 body signatures and 500,000 hash signatures are loaded; a file over 1 MB is checked by hash only; a database file over 32 MB is not read. Matching is bounded: each signature is anchored on its longest run of fixed bytes through a three-byte index before any pattern runs, `*` and `{n-}` split a signature into parts matched in order (never a backtracking `.*`), a pattern error counts as no match, and a file gets a three-second budget, after which the remaining signatures are not tried on it.
+Up to 20,000 body signatures and 200,000 hash signatures are loaded, and loading stops at 64 MB of memory; a file over 1 MB is checked by hash only, and a file over 64 MB is not hashed or scanned; a database file over 32 MB is not read. Matching is bounded: each signature is anchored on its longest run of fixed bytes through a three-byte index before any pattern runs, `*` and `{n-}` split a signature into parts matched in order (never a backtracking `.*`), a pattern error counts as no match, and a file gets a three-second budget, after which the remaining signatures are not tried on it.
 
 ## Where the idea comes from
 

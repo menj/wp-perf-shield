@@ -696,4 +696,4 @@ The real file carried a weak capability check (`read`) on an unrelated page, whi
 Banned on the soft tier by name boundary plus main-file header, like Code Snippets. Not hard-banned: the hard tier deletes with no quarantine copy and is kept for the two plugins with a CVE history of their own.
 
 ### Signature engine (1.4.146)
-ClamAV formats, not ClamAV: hash signatures are exact and remove; body signatures report unless the operator opts in; PUA/Heuristics/Hunting never remove. Body signatures under eight fixed bytes are rejected (stricter than ClamAV, because this scans a live site). `*` and `{n-}` are matched as ordered parts, not as a backtracking `.*`.
+ClamAV formats, not ClamAV: hash signatures are exact and remove (when Auto-delete is on); body signatures report unless the operator opts in; PUA/Heuristics/Hunting never remove. Body signatures under eight fixed bytes are rejected (stricter than ClamAV, because this scans a live site). `*` and `{n-}` are matched as ordered parts, not as a backtracking `.*`.

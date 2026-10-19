@@ -8096,7 +8096,8 @@ class WPS_Scanner {
 						'auto_delete' => $delete,
 					];
 					if ( $delete ) {
-						$found[ count( $found ) - 1 ]['delete_path'] = $path;
+						$found[ count( $found ) - 1 ]['delete_path']  = $path;
+						$found[ count( $found ) - 1 ]['expect_sha256'] = $hit['sha256'];
 					}
 					if ( class_exists( 'WPS_Logger' ) ) {
 						WPS_Logger::log_event( 'signature_database_match', self::display_path( $path ) . ' ' . $name );
@@ -16045,6 +16046,15 @@ class WPS_Scanner {
 					);
 					continue;
 				}
+			}
+
+			// 1.4.146: a finding that carries the SHA-256 of the bytes it matched is only removed if the
+			// file still holds those bytes, so a file swapped in after the scan is not removed for it.
+			if ( ! empty( $f['expect_sha256'] ) && is_file( (string) $target ) && ! hash_equals( (string) $f['expect_sha256'], (string) @hash_file( 'sha256', (string) $target ) ) ) {
+				$f['auto_delete_skipped'] = true;
+				$f['action']             .= ' Removal skipped: the file changed after it was scanned. It will be checked again on the next scan.';
+				WPS_Logger::log_event( 'auto_delete_skipped_changed', self::format_auto_delete_log_subject( $f, (string) $target, 'skipped_changed' ) );
+				continue;
 			}
 
 			if ( self::is_protected_auto_delete_path( (string) $target ) ) {

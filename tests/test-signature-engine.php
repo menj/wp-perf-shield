@@ -56,7 +56,7 @@ file_put_contents( $tmp . '/sample.php', $body );
 $d = db( [ 'a.hdb' => [ "$md5:$size:Php.Test.Md5", "# comment", "", "$md5:" . ( $size + 1 ) . ':Php.Test.WrongSize' ], 'b.hsb' => [ "$sha:$size:Php.Test.Sha256", "$sha1:*:Php.Test.Sha1Any" ] ] );
 $r = WPS_Signature_Engine::scan_file( $d, $tmp . '/sample.php' );
 check( 'an MD5 hash with the right size matches', $r && 'hash' === $r['kind'] );
-check( 'hash counts are right', 3 === $d['counts']['hash'] || 4 === $d['counts']['hash'], json_encode( $d['counts'] ) );
+check( 'hash counts are right', 4 === $d['counts']['hash'], json_encode( $d['counts'] ) );
 $d = db( [ 'a.hdb' => [ "$md5:" . ( $size + 1 ) . ':Php.Test.WrongSize' ] ] );
 check( 'a hash with the wrong size does not match', null === WPS_Signature_Engine::scan_file( $d, $tmp . '/sample.php' ) );
 $d = db( [ 'b.hsb' => [ "$sha:$size:Php.Test.Sha256" ] ] );
@@ -191,6 +191,24 @@ $d  = db( [ 'a.ndb' => $many ] );
 $t0 = microtime( true );
 $r  = WPS_Signature_Engine::scan_data( $d, $big, 0.5 );
 check( 'a time budget stops a file from being held by many slow signatures', null === $r && ( microtime( true ) - $t0 ) < 4.0, round( microtime( true ) - $t0, 2 ) . 's' );
+// ---- fixes from review (PR 23)
+$d = db( [ 'a.ndb' => [ 'Php.T.Retired:0:*:' . hx( 'long_enough_text' ) . ':51:100', 'Php.T.Current:0:*:' . hx( 'long_enough_text' ) . ':51:255', 'Php.T.Open:0:*:' . hx( 'long_enough_text' ) . ':51' ] ] );
+check( 'an NDB signature retired below this engine level (maxFL) is skipped, the others load', 2 === $d['counts']['ndb'] && 1 === $d['counts']['skipped'], json_encode( $d['counts'] ) );
+$d = db( [ 'a.ldb' => [ 'Php.L.Rev;Engine:51-255,Target:0,FileSize:40-30;0;' . $A ] ] );
+check( 'a reversed FileSize range is rejected, not loaded as never matching', 1 === $d['counts']['rejected'] && 0 === $d['counts']['ldb'], json_encode( $d['errors'] ) );
+$d = db( [ 'a.ndb' => [ 'Php.T.Big:0:*:' . hx( 'first_part' ) . '{5000}' . hx( 'second_part' ) ] ] );
+check( 'a fixed gap beyond the supported size is rejected, not clamped', 1 === $d['counts']['rejected'] && 0 === $d['counts']['ndb'], json_encode( $d['errors'] ) );
+$d = db( [ 'a.ldb' => [ 'Php.L.Wn;Engine:81-255,Target:0;0;' . hx( 'first' ) . '!(41|42)' . hx( 'second' ) . '::w' ] ] );
+$wide = static fn( string $s ) => implode( "\0", str_split( $s ) ) . "\0";
+check( 'a negated alternate in a wide signature consumes two bytes per character', 'Php.L.Wn' === hit( $d, $wide( 'first' ) . $wide( 'C' ) . $wide( 'second' ) ) && '' === hit( $d, $wide( 'first' ) . $wide( 'A' ) . $wide( 'second' ) ) );
+$many = [];
+for ( $i = 0; $i < 3; $i++ ) {
+	$many[] = md5( 'x' . $i ) . ':' . ( 10 + $i ) . ':Php.Test.H' . $i;
+}
+$d = db( [ 'a.hdb' => $many ] );
+check( 'a small database is not cut off by the memory budget', 3 === $d['counts']['hash'] && ! $d['full'] );
+check( 'the memory budget and the hash cap are set', WPS_Signature_Engine::MAX_DB_MEMORY <= 134217728 && WPS_Signature_Engine::MAX_HASH_SIGS <= 200000 );
+check( 'scan_file returns the SHA-256 of the bytes it scanned', hash( 'sha256', $body ) === ( WPS_Signature_Engine::scan_file( db( [ 'a.hdb' => [ "$md5:$size:Php.Test.Md5" ] ] ), $tmp . '/sample.php' )['sha256'] ?? '' ) );
 check( 'PUA, Heuristics and Hunting names are report-only', WPS_Signature_Engine::is_report_only( 'PUA.Php.Tool' ) && WPS_Signature_Engine::is_report_only( 'Heuristics.Php.X' ) && ! WPS_Signature_Engine::is_report_only( 'Php.Trojan.Agent-1-0' ) );
 $d = db( [ 'a.ndb' => [ 'Php.T.Ok:0:*:' . hx( 'long_enough_text' ) ] ] );
 $st = WPS_Signature_Engine::status( $tmp . '/db' . 'zzz' );
@@ -274,6 +292,19 @@ function subjects_of( array $f ): string {
 	return implode( ' | ', array_map( static fn( $x ) => $x['subject'] ?? '', $f ) );
 }
 $pol = static fn( array $x ) => WPS_Remediation_Policy::decide( $x );
+check( 'a removable finding carries the fingerprint of what matched', ! empty( $by['evil.php']['expect_sha256'] ) && hash( 'sha256', $evil ) === $by['evil.php']['expect_sha256'] );
+$ih = new ReflectionMethod( 'WPS_Remediation_Policy', 'is_heuristic' );
+$ih->setAccessible( true );
+check( 'a hash match has the standing of a confirmed match; a body match does not', ! $ih->invoke( null, 'Known malicious file (hash signature)' ) && $ih->invoke( null, 'Signature database match, removal enabled' ) );
+// A file that changed after the scan is not removed for the old match.
+$swap = $wp . '/plugins/p1/swapped.php';
+file_put_contents( $swap, $evil );
+$fd = [ [ 'type' => 'Known malicious file (hash signature)', 'severity' => 'critical', 'subject' => 'swapped.php', 'path' => $swap, 'auto_delete' => true, 'delete_path' => $swap, 'action' => 'x', 'expect_sha256' => hash( 'sha256', $evil ) ] ];
+file_put_contents( $swap, "<?php // replaced after the scan\n" );
+$ar = new ReflectionMethod( 'WPS_Scanner', 'auto_remediate' );
+$ar->setAccessible( true );
+$ar->invokeArgs( null, [ &$fd ] );
+check( 'a file changed after the scan is not removed for the earlier match', is_file( $swap ) && ! empty( $fd[0]['auto_delete_skipped'] ) && false !== strpos( $fd[0]['action'], 'changed after it was scanned' ), json_encode( $fd[0] ) );
 check( 'the removal policy allows the hash match to be deleted', $pol( $by['evil.php'] )['allowed'], json_encode( $pol( $by['evil.php'] ) ) );
 check( 'and denies the report-only ones', ! $pol( $by['body.php'] )['allowed'] && ! $pol( $by['pua.php'] )['allowed'] );
 $GLOBALS['opts'] = [ 'signature_auto_remove' => '1' ];

@@ -44,7 +44,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class WPS_Signature_Engine {
 
 	const MAX_BODY_SIGS  = 20000;
-	const MAX_HASH_SIGS  = 500000;
+	const MAX_HASH_SIGS  = 200000;
+	const MAX_DB_MEMORY  = 67108864;
 	const MAX_DB_BYTES   = 33554432;
 	const MAX_LINE       = 65536;
 	const MAX_ERRORS     = 25;
@@ -100,6 +101,8 @@ final class WPS_Signature_Engine {
 			'counts'    => [ 'hash' => 0, 'ndb' => 0, 'ldb' => 0, 'fp' => 0, 'ign' => 0, 'skipped' => 0, 'rejected' => 0, 'files' => 0 ],
 			'errors'    => [],
 			'skipped_files' => [],
+			'mem0'      => memory_get_usage(),
+			'full'      => false,
 		];
 		if ( '' === $dir || ! is_dir( $dir ) ) {
 			return self::$cache[ $dir ] = $db;
@@ -192,6 +195,16 @@ final class WPS_Signature_Engine {
 	}
 
 	private static function read_line( array &$db, string $ext, string $line, string $file, int $ln ): void {
+		// A database that would take more than 64 MB of memory is loaded no further: a settings page
+		// or a scan must not be able to run the site out of memory because of a file in this folder.
+		if ( $db['full'] ) {
+			return;
+		}
+		if ( memory_get_usage() - $db['mem0'] > self::MAX_DB_MEMORY ) {
+			$db['full'] = true;
+			self::error( $db, $file, $ln, 'memory budget of ' . ( self::MAX_DB_MEMORY / 1048576 ) . ' MB reached, the rest of the database is not loaded' );
+			return;
+		}
 		switch ( $ext ) {
 			case 'hdb':
 			case 'hsb':
@@ -277,7 +290,9 @@ final class WPS_Signature_Engine {
 			self::error( $db, $file, $ln, 'bad name or target type' );
 			return;
 		}
-		if ( isset( $f[4] ) && ctype_digit( $f[4] ) && (int) $f[4] > 255 ) {
+		// minFL above the level this engine claims (255), or maxFL below it (a signature the author
+		// retired for newer engines), means the signature is not meant for this reader.
+		if ( ( isset( $f[4] ) && ctype_digit( $f[4] ) && (int) $f[4] > 255 ) || ( isset( $f[5] ) && ctype_digit( $f[5] ) && (int) $f[5] < 255 ) ) {
 			++$db['counts']['skipped'];
 			return;
 		}
@@ -351,7 +366,7 @@ final class WPS_Signature_Engine {
 					$target = ctype_digit( $kv[1] ) ? (int) $kv[1] : -1;
 					break;
 				case 'FileSize':
-					if ( preg_match( '/^(\d+)-(\d+)$/', $kv[1], $m ) ) {
+					if ( preg_match( '/^(\d+)-(\d+)$/', $kv[1], $m ) && (int) $m[1] <= (int) $m[2] ) {
 						$size = [ (int) $m[1], (int) $m[2] ];
 					} else {
 						self::error( $db, $file, $ln, 'bad FileSize range' );
@@ -539,7 +554,11 @@ final class WPS_Signature_Engine {
 				$hi = (int) $m[3];
 				$flush();
 				if ( '' === $m[2] ) {
-					$re .= '.{' . min( $lo, self::MAX_GAP ) . '}';
+					if ( $lo > self::MAX_GAP ) {
+						$why = 'a fixed gap larger than ' . self::MAX_GAP . ' bytes is not supported';
+						return null;
+					}
+					$re .= '.{' . $lo . '}';
 				} elseif ( '' === $m[3] ) {
 					$parts[] = $re;
 					$gaps[]  = $lo; // at least $lo bytes
@@ -689,7 +708,7 @@ final class WPS_Signature_Engine {
 				return $neg ? '[^' . $set . ']' : '[' . $set . ']';
 			}
 			$g = '(?:' . implode( '|', $alts ) . ')';
-			return $neg ? '(?!' . $g . ').{' . $len . '}' : $g;
+			return $neg ? '(?!' . $g . ').{' . ( $wide ? 2 * $len : $len ) . '}' : $g;
 		}
 		// Generic alternate: members may hold ?? and nibble wildcards and small {n} gaps, not *.
 		$alts = [];
@@ -857,7 +876,7 @@ final class WPS_Signature_Engine {
 	 * Scan one file. Returns the first match, or null.
 	 *
 	 * @param array<string, mixed> $db Loaded with load().
-	 * @return array{name:string,kind:string}|null kind is hash, ndb or ldb
+	 * @return array{name:string,kind:string,sha256:string}|null kind is hash, ndb or ldb; sha256 is of the bytes scanned
 	 */
 	public static function scan_file( array $db, string $path ): ?array {
 		$size = @filesize( $path );
@@ -889,7 +908,7 @@ final class WPS_Signature_Engine {
 			if ( null !== $hit ) {
 				$name = $hit[ (string) $size ] ?? ( $hit['*'] ?? null );
 				if ( null !== $name ) {
-					return [ 'name' => $name, 'kind' => 'hash' ];
+					return [ 'name' => $name, 'kind' => 'hash', 'sha256' => $hashes['sha256'] ?? (string) @hash_file( 'sha256', $path ) ];
 				}
 			}
 		}
@@ -897,7 +916,11 @@ final class WPS_Signature_Engine {
 			return null;
 		}
 		$data = @file_get_contents( $path );
-		return is_string( $data ) ? self::scan_data( $db, $data ) : null;
+		$hit  = is_string( $data ) ? self::scan_data( $db, $data ) : null;
+		if ( null !== $hit ) {
+			$hit['sha256'] = hash( 'sha256', $data );
+		}
+		return $hit;
 	}
 
 	/**
