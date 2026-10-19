@@ -1,5 +1,28 @@
 # WP Perf Shield changelog
 
+## 1.4.139
+
+**Review of everything added since 1.4.131, by an independent reviewer who tried to break it.** Eight findings, each checked against the code before changing anything; all were real except one that could not be verified here (see the last item).
+
+### Most serious
+- **Auto-removal was refused by the removal policy for most of the new checks.** `WPS_Remediation_Policy` treats any finding type it has not been told about as a guess, and refuses to remove a guess outside uploads, cache and similar places, or an entire plugin folder. The new checks (embedded-PHP dropper, remote admin endpoint, embedded script injector, card kit, probe marker, Site Kit stub, and the gambling doorway merged in 1.4.134) set `auto_delete` and their text said "removed", but the policy denied the removal and appended "REMOVAL DENIED BY POLICY". The easypost endpoint folder would have been reported and left in place. Each of these detectors establishes its own conjunction (decoded PHP plus a file write; an administrator-creating endpoint with a signed-request gate; and so on), so all are now listed as conclusive. Two stay deliberately non-conclusive: a bare bot-credentials file and a Search Console stub inside a subfolder.
+- **The `xmlrpc.php` 404 could be bypassed when a custom endpoint was set.** Only the exact path `xmlrpc.php` was refused, so `/xmlrpc.php/x` (Apache PATH_INFO), `//xmlrpc.php`, `/xmlrpc%2ephp` and `/xmlrpc.php;x` still ran it. The path is now decoded, doubled slashes are collapsed, and PATH_INFO and path parameters match. A nested `/shop/xmlrpc.php` is still left alone.
+- **IPv4-mapped IPv6 addresses evaded IPv4 deny rules.** A dual-stack server reports an IPv4 client as `::ffff:a.b.c.d`, which never matched a rule such as `203.0.113.0/24`; an IPv4 allow entry would also have locked that client out. Mapped addresses are now compared as IPv4. A test that asserted the old behaviour was corrected.
+
+### Also fixed
+- **Scan budgets were spent on non-candidates.** The probe, card-kit and doorway checks counted every file, including images, before filtering, and the probe check searched the web root last. Only candidate files count now and the web root is searched first.
+- **Another WordPress install below the web root was scanned as part of this site.** A genuine Search Console file in an add-on domain or staging folder was reported on every scan. A folder holding `wp-config.php` or `wp-includes` is skipped.
+- **A Search Console stub inside a subfolder is no longer removed.** A subfolder can be its own Search Console property, so a stub there is legitimate; it is reported, and removed automatically only inside uploads. The text no longer claims a real one never sits in a subfolder.
+- **A credentials-only Telegram file was removable on its own.** An honest notifier plugin has the same two variables. It is now removed only when the script that harvests card data sits beside it.
+- **The script-injector check could be hidden by a decoy.** Only the first long base64 string was tried; every one is now tried, and the page must also be gated on who is viewing (a capability or admin test), which separates an injector from a plugin that embeds an honest snippet.
+- **A typo in an IP list silently became an empty list.** An allow list with every entry mistyped parsed to nothing, which means "allow everyone". The previous saved value is kept instead.
+- **A PHP warning** on `?rest_route[]=x` with the REST gate on, and a **constant-redefinition warning** from defining `XMLRPC_REQUEST` before including core's `xmlrpc.php`, which defines it itself. Both removed.
+
+### Not changed
+- IP rules read the connecting address (`REMOTE_ADDR`), so behind Cloudflare or another proxy an allow list locks everyone out and a deny list never matches. This was already documented; it stays a stated limit.
+
+Tests: `test-plugin-malware-detection.php` 72 cases, `test-exposure-guard.php` 66, `test-search-console-stub.php` 8. Registered checks unchanged at 103.
+
 ## 1.4.138
 
 **Two findings from CodeAnt AI's review of PR 12 (the XML-RPC and exposure guard), checked against the code and both real.** They were posted before PR 12 merged and I had not read them. Both concern options that are off by default, so no site was exposed unless it had switched them on.

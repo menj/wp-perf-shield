@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.139
+
+**Automatic removal now actually happens for the checks added since 1.4.131.** Before, the removal policy denied it for most of them and the finding stayed in place; check Findings for items marked "REMOVAL DENIED BY POLICY" from the last few releases and rescan. Also fixed: the XML-RPC 404 could be bypassed with `/xmlrpc.php/x` and similar paths; IPv4 deny rules now match IPv4-mapped IPv6 clients; a Search Console file inside a subfolder is reported rather than removed (outside uploads); a mistyped IP list no longer wipes the saved one. Nothing to configure.
+
 ## 1.4.138
 
 **Two fixes to the optional XML-RPC and exposure controls.** If you use a custom XML-RPC endpoint, only that exact path serves it now, not any path ending in the slug. If you use "REST API for signed-in users only" with exempt namespaces, an exemption such as `my-app/v1` no longer also covers `my-app/v10`; list each namespace you want exempt. Nothing changes if these options are off.

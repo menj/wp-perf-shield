@@ -125,6 +125,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 
 == Changelog ==
 
+= 1.4.139 =
+Independent review of the 1.4.131 to 1.4.138 additions. Automatic removal now works for the new checks (the removal policy denied it before), the XML-RPC 404 can no longer be bypassed, IPv4-mapped IPv6 clients match IPv4 deny rules, and several scan-scope and false-positive fixes.
+
 = 1.4.138 =
 Fixes two matching bugs in the optional XML-RPC endpoint and REST exemptions (nested paths and longer namespaces were matched too broadly).
 
@@ -650,6 +653,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.139 =
+Important: the new detections added since 1.4.131 now remove what they find (the policy denied it before), and the XML-RPC endpoint rename can no longer be bypassed.
 
 = 1.4.138 =
 Tightens matching of the custom XML-RPC endpoint and REST namespace exemptions. Only matters if you enabled them.

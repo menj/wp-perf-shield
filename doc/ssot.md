@@ -672,3 +672,6 @@ Decision: a subfolder stub is never legitimate, so it is always acted on; a root
 
 ### Review findings on the exposure guard (1.4.138)
 Both CodeAnt findings on PR 12 were valid and fixed: the endpoint is the whole path, not its last segment, and a REST exemption matches whole namespace segments. Lesson: read the bot review before merging, not after. Digest 1.4.138: `endpoint_of`, `rest_gate`.
+
+### Independent review of 1.4.131 to 1.4.138 (1.4.139)
+A subagent was asked to break the new code, read-only, and every finding was verified before a change. The serious one was structural: `WPS_Remediation_Policy` is the real gate for every auto-delete, a finding type it does not list is treated as a guess, and a new check that sets `auto_delete` without the type being listed reports removal that the policy then denies. Rule going forward: a new auto-removing check is not done until its type is in `CONCLUSIVE_TYPES` (when it rests on a conjunction) or its text says it is report-only, and a test asserts it through `is_conclusive`. Digest 1.4.139: `CONCLUSIVE_TYPES`, `endpoint_of`, `route_endpoint`, `ip_matches`, `keep_if_unparsable`, `kit_roots`.
