@@ -610,6 +610,7 @@ class WPS_Scanner {
 			'check_gambling_doorway_page' => [ __CLASS__, 'check_gambling_doorway_page' ], // 1.4.134: static slot/togel landing page planted in uploads, wp-content or the web root
 			'check_embedded_js_injector' => [ __CLASS__, 'check_embedded_js_injector' ], // 1.4.135: plugin that keeps a large encoded script and prints it to visitors on every page
 			'check_medusa_fm_kit' => [ __CLASS__, 'check_medusa_fm_kit' ], // 1.4.140: Medusa FM kit files (encrypted loader, index/.htaccess self-heal, early crawler router) by their own markers
+			'check_mass_post_sitemap' => [ __CLASS__, 'check_mass_post_sitemap' ], // 1.4.140: static sitemap listing hundreds of consecutive ?p=<id> URLs from one day (a spam kit's post flood)
 			'check_search_console_stub' => [ __CLASS__, 'check_search_console_stub' ], // 1.4.137: Search Console ownership stubs planted by doorway kits (and, on Site Kit sites, any at the root)
 			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
 			'check_mu_plugin_dropper' => [ __CLASS__, 'check_mu_plugin_dropper' ], // 1.4.120: plugin that copies bundled folders into mu-plugins and writes require loaders for them
@@ -7733,6 +7734,100 @@ class WPS_Scanner {
 			];
 			if ( class_exists( 'WPS_Logger' ) ) {
 				WPS_Logger::log_event( 'medusa_fm_kit_found', self::display_path( $path ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.140: a static sitemap that lists a flood of consecutive post IDs.
+	 *
+	 * Recovered shape (`sitemap643.xml`, 176 KB): 2,000 `<loc>` entries of the form
+	 * `https://site/?p=10670` to `?p=12669`, every one with the same `lastmod` day. A
+	 * spam kit that has just created thousands of posts writes numbered sitemaps so
+	 * the search engine finds them. A real sitemap lists permalinks, not bare ids,
+	 * and not two thousand of them created on one day. The file is inert (XML), so
+	 * it is removed; the posts it points at are in the database and are reported
+	 * with their id range so they can be reviewed and deleted.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_mass_post_sitemap(): array {
+		$found = [];
+		$roots = [];
+		if ( defined( 'ABSPATH' ) && is_dir( ABSPATH ) ) {
+			$roots[] = rtrim( ABSPATH, '/\\' ) . '/*';
+		}
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
+			$roots[] = rtrim( WP_CONTENT_DIR, '/\\' ) . '/*';
+		}
+		$roots = array_merge( $roots, self::kit_roots() );
+		$up    = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
+		if ( is_array( $up ) && empty( $up['error'] ) && ! empty( $up['basedir'] ) && is_dir( $up['basedir'] ) ) {
+			$roots[] = rtrim( $up['basedir'], '/\\' );
+		}
+		$seen = [];
+		$n    = 0;
+		foreach ( array_unique( $roots ) as $root ) {
+			try {
+				$shallow = '/*' === substr( $root, -2 );
+				if ( $shallow ) {
+					$root = substr( $root, 0, -2 );
+				}
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( $shallow ? 0 : 5 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						return $found;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! preg_match( '/^sitemap[\w.-]*\.xml$/i', $f->getFilename() ) ) {
+						continue;
+					}
+					if ( ++$n > 400 || ! $f->isFile() || $f->getSize() < 4000 || $f->getSize() > 8000000 ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) || ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) ) {
+						continue;
+					}
+					$raw = (string) @file_get_contents( $path, false, null, 0, 400000 );
+					if ( ! preg_match_all( '#<loc>[^<]*?[?&]p=(\d+)</loc>(?:\s*<lastmod>([^<]*)</lastmod>)?#', $raw, $m ) ) {
+						continue;
+					}
+					$ids   = array_map( 'intval', $m[1] );
+					$total = substr_count( $raw, '<loc>' );
+					if ( $total < 100 || count( $ids ) < 0.9 * $total ) {
+						continue;
+					}
+					$min   = min( $ids );
+					$max   = max( $ids );
+					$dense = count( array_unique( $ids ) ) >= 0.8 * ( $max - $min + 1 );
+					$days  = array_count_values( array_map( static fn( $d ) => substr( (string) $d, 0, 10 ), $m[2] ) );
+					arsort( $days );
+					$top = $days ? (int) reset( $days ) : 0;
+					if ( ! $dense || $top < 0.8 * count( $ids ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					$found[]       = [
+						'severity'    => 'critical',
+						'type'        => 'Sitemap listing a flood of injected posts',
+						'subject'     => self::display_path( $path ) . ' lists ' . count( $ids ) . ' consecutive post ids (' . $min . ' to ' . $max . '), ' . $top . ' of them dated ' . array_key_first( $days ),
+						'path'        => $path,
+						'action'      => 'A static sitemap whose entries are bare post ids created on one day is how a spam kit gets thousands of injected posts indexed. The sitemap is removed. The posts are in the database: review post ids ' . $min . ' to ' . $max . ' (Posts, sorted by date) and delete the spam, then check for administrator users you did not create and for the plugin or login that let the kit in. Remove the URLs in Search Console (Removals) and the sitemap if it was submitted.',
+						'auto_delete' => true,
+						'delete_path' => $path,
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'mass_post_sitemap_found', self::display_path( $path ) . ' ids ' . $min . '-' . $max );
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
 			}
 		}
 		return $found;

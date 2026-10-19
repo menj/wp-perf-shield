@@ -190,6 +190,8 @@ final class WPS_Remediation_Policy {
 		'Gambling spam doorway page',
 		// 1.4.140: the kit's own function and constant names, two at once, or its remote content host.
 		'Medusa FM kit file',
+		// 1.4.140: a static sitemap of 100+ consecutive ?p=<id> entries, nearly all dated one day.
+		'Sitemap listing a flood of injected posts',
 	];
 
 	/*
