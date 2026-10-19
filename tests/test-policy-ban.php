@@ -136,6 +136,8 @@ $removed = WPS_Blocker::enforce_policy_ban();
 check( 'Code Snippets is removed under its own name and as the pro variant', in_array( 'code-snippets', $removed, true ) && in_array( 'code-snippets-pro', $removed, true ), json_encode( $removed ) );
 check( 'Code Snippets under an unlisted folder name is removed by its main file', in_array( 'qq-renamed-31', $removed, true ), json_encode( $removed ) );
 check( 'an unrelated plugin is left alone', is_dir( $P . '/some-other-plugin' ) );
+check( 'a longer plugin name that merely contains code-snippets is not banned (shortcode-snippets, wpcode-snippets, barcode-snippets)', ! WPS_Blocker::is_policy_banned( 'shortcode-snippets/shortcode-snippets.php' ) && ! WPS_Blocker::is_policy_banned( 'wpcode-snippets/x.php' ) && ! WPS_Blocker::is_policy_banned( 'barcode-snippets.zip' ) );
+check( 'code-snippets-pro, a prefixed folder and the main file path are still banned', WPS_Blocker::is_policy_banned( 'code-snippets-pro/code-snippets.php' ) && WPS_Blocker::is_policy_banned( 'my-code-snippets/x.php' ) && WPS_Blocker::is_policy_banned( 'code-snippets/code-snippets.php' ) );
 check( 'the activation guard refuses code-snippets under any folder', WPS_Blocker::is_policy_banned( 'code-snippets/code-snippets.php' ) && WPS_Blocker::is_policy_banned( 'whatever/code-snippets.php' ) );
 
 // A tombstone written for a folder banned by its main file (an arbitrary name) must SURVIVE the

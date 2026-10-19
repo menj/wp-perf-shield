@@ -7060,7 +7060,7 @@ class WPS_Scanner {
 		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
 			try {
 				foreach ( new DirectoryIterator( WP_CONTENT_DIR ) as $d ) {
-					if ( ! $d->isDot() && $d->isDir() && ! in_array( $d->getFilename(), [ 'plugins', 'themes', 'mu-plugins', 'languages', 'upgrade', 'upgrade-temp-backup' ], true ) ) {
+					if ( ! $d->isDot() && $d->isDir() && ! $d->isLink() && ! in_array( $d->getFilename(), [ 'plugins', 'themes', 'mu-plugins', 'languages', 'upgrade', 'upgrade-temp-backup' ], true ) ) {
 						$roots[] = $d->getPathname();
 					}
 				}
@@ -7069,7 +7069,7 @@ class WPS_Scanner {
 		if ( defined( 'ABSPATH' ) && is_dir( ABSPATH ) ) {
 			try {
 				foreach ( new DirectoryIterator( ABSPATH ) as $d ) {
-					if ( $d->isDot() || ! $d->isDir() || in_array( $d->getFilename(), [ 'wp-admin', 'wp-includes', 'wp-content', 'cgi-bin' ], true ) ) {
+					if ( $d->isDot() || ! $d->isDir() || $d->isLink() || in_array( $d->getFilename(), [ 'wp-admin', 'wp-includes', 'wp-content', 'cgi-bin' ], true ) ) {
 						continue;
 					}
 					// Another WordPress install (an add-on domain, a staging copy, a subdirectory
@@ -7725,14 +7725,21 @@ class WPS_Scanner {
 					++$hit;
 				}
 			}
-			$host = false !== stripos( $raw, 'istanbulescortladys.com' );
-			if ( $hit < 2 && ! $host ) {
+			// At least one marker must be code, not text: a function definition with one of the kit's
+			// names, the kit's loader constant being defined, or the gate's source variable set to its
+			// host. A file that only lists the strings (a security plugin's indicator list, including
+			// this plugin's own copy under another folder name) is not the kit. The comment text is
+			// excluded because the kit's own comments carry the strings too.
+			$code    = self::code_without_comments( $raw );
+			$shaped  = (bool) preg_match( '/\bfunction\s+(?:fm_early_router_source|fm_index_gate_source|fm_mu_heal_source|fm_install_mu_heal|ms_gate_heal_restore)\s*\(|\bdefine\s*\(\s*[\'"]FM_ENC_LOADER[\'"]/', $code );
+			$host    = (bool) preg_match( '/\$vitrin_source\s*=\s*[\'"]https?:\/\/istanbulescortladys\.com/i', $code );
+			if ( ! $host && ( ! $shaped || $hit < 2 ) ) {
 				continue;
 			}
 			$found[] = [
 				'severity'    => 'critical',
 				'type'        => 'Medusa FM kit file (cloaking gate, self-healing index or crawler router)',
-				'subject'     => self::display_path( $path ) . ' carries the Medusa FM kit\'s own function names' . ( $host ? ' and its remote content host' : '' ),
+				'subject'     => self::display_path( $path ) . ' carries the Medusa FM kit\'s own function names' . ( $host ? ' and sets its remote content host as the gate source' : '' ),
 				'path'        => $path,
 				'action'      => 'This file belongs to a kit that replaces the site\'s index.php and .htaccess with a gate that shows search crawlers spam fetched from a remote server, locks both files read-only (0444), and installs a mu-plugin (ms-index-heal.php) that restores them if you delete them. The file is removed. Then check, in this order: wp-content/mu-plugins for ms-index-heal.php, wp-content/advanced-cache.php and wp-config.php for a WP_CACHE line you did not add, a license.html in the web root, and index.php and .htaccess (compare index.php with a fresh copy for your WordPress version). Remove the mu-plugin first, or it puts the gate back.',
 				'auto_delete' => true,
@@ -7812,10 +7819,13 @@ class WPS_Scanner {
 					$min   = min( $ids );
 					$max   = max( $ids );
 					$dense = count( array_unique( $ids ) ) >= 0.8 * ( $max - $min + 1 );
-					$days  = array_count_values( array_map( static fn( $d ) => substr( (string) $d, 0, 10 ), $m[2] ) );
+					// Entries with no <lastmod> are not "dated one day": count only real dates, and
+					// require most entries to carry one.
+					$dates = array_filter( array_map( static fn( $d ) => substr( trim( (string) $d ), 0, 10 ), $m[2] ), static fn( $d ) => (bool) preg_match( '/^\d{4}-\d{2}-\d{2}$/', $d ) );
+					$days  = array_count_values( $dates );
 					arsort( $days );
 					$top = $days ? (int) reset( $days ) : 0;
-					if ( ! $dense || $top < 0.8 * count( $ids ) ) {
+					if ( ! $dense || count( $dates ) < 0.8 * count( $ids ) || $top < 0.8 * count( $ids ) ) {
 						continue;
 					}
 					$seen[ $real ] = true;
@@ -7928,6 +7938,24 @@ class WPS_Scanner {
 	}
 
 	/**
+	 * How many times a string switches between upper-case, lower-case and digit runs. A random
+	 * token such as `z3woRLP0` switches at least four times; a capitalised word or a camel-case
+	 * name (`HTMLHead`, `TinyMCE5`, `BodyHTML`, `MainMenu`) switches three times or fewer.
+	 */
+	private static function class_changes( string $token ): int {
+		$prev    = '';
+		$changes = 0;
+		foreach ( str_split( $token ) as $c ) {
+			$cls = ctype_upper( $c ) ? 'U' : ( ctype_lower( $c ) ? 'L' : 'D' );
+			if ( '' !== $prev && $cls !== $prev ) {
+				++$changes;
+			}
+			$prev = $cls;
+		}
+		return $changes;
+	}
+
+	/**
 	 * 1.4.141: a PHP file that opens with an HTML comment holding a random token.
 	 *
 	 * Recovered shape: `styIe.php` (16 bytes, only `<!--z3woRLP0-->`) and the Tiny
@@ -7948,7 +7976,7 @@ class WPS_Scanner {
 				continue;
 			}
 			$head = (string) @file_get_contents( $path, false, null, 0, 120 );
-			if ( ! preg_match( '/^\s*<!--([A-Za-z0-9]{8})-->/', $head, $m ) || ! preg_match( '/[a-z]/', $m[1] ) || ( ( $caps = preg_match_all( '/[A-Z]/', $m[1] ) ) < 3 && ( $caps < 2 || ! preg_match( '/\d/', $m[1] ) ) && preg_match_all( '/\d/', $m[1] ) < 3 ) ) {
+			if ( ! preg_match( '/^\s*<!--([A-Za-z0-9]{8})-->/', $head, $m ) || ! preg_match( '/[a-z]/', $m[1] ) || ! preg_match( '/[A-Z]/', $m[1] ) || self::class_changes( $m[1] ) < 4 ) {
 				continue;
 			}
 			if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
@@ -8054,6 +8082,11 @@ class WPS_Scanner {
 					if ( $d->isDot() || ! $d->isDir() ) {
 						continue;
 					}
+					// A symlink is never followed: quarantine resolves the real path, so removing the link
+					// would move whatever folder it points at (uploads, for instance).
+					if ( $d->isLink() ) {
+						continue;
+					}
 					$name = $d->getFilename();
 					$dir  = $d->getPathname();
 					// The kit's hidden staging folder: `.sc_` and eight hex characters, in any of these places.
@@ -8068,15 +8101,37 @@ class WPS_Scanner {
 					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $dir ) ) {
 						continue;
 					}
+					// The staging folder is removed only when it holds nothing but what the recovered one held:
+					// nothing, or a tiny index.php and a .htaccess. A folder with a user's data in it (the name
+					// is eight hex characters after a dot, which a backup tool or a person could also choose)
+					// is reported and left alone.
+					$removable = true;
+					if ( $staging ) {
+						foreach ( (array) @scandir( $dir ) as $entry ) {
+							if ( '.' === $entry || '..' === $entry ) {
+								continue;
+							}
+							$ep = $dir . '/' . $entry;
+							if ( is_link( $ep ) || ! is_file( $ep ) || ! in_array( strtolower( $entry ), [ 'index.php', '.htaccess' ], true ) || (int) @filesize( $ep ) > 600 ) {
+								$removable = false;
+								break;
+							}
+						}
+					}
 					$found[] = [
 						'severity'    => 'critical',
 						'type'        => 'Folder tagged by a plugin-folder kit',
 						'subject'     => self::display_path( $dir ) . ( $staging ? ' is the kit\'s hidden staging folder (.sc_ and eight hex characters)' : ' holds both .bt_' . $name . ' and .swm_' . $name ),
 						'path'        => $dir,
 						'action'      => 'A folder that holds two dot-files named after itself (.bt_<folder> and .swm_<folder>) is a folder the kit created, often with everything inside emptied but these tags left. The folder is removed. Check the same site for other folders with a similar look and for the loader that creates them.',
-						'auto_delete' => true,
-						'delete_path' => $dir,
+						'auto_delete' => $removable,
+						'delete_path' => $removable ? $dir : '',
 					];
+					if ( ! $removable ) {
+						$last = count( $found ) - 1;
+						unset( $found[ $last ]['delete_path'] );
+						$found[ $last ]['action'] = 'A hidden folder named like the kit\'s staging folder, but it holds files the kit\'s did not, so nothing is removed automatically. Look at what is inside; if you did not put it there, delete it by hand.';
+					}
 					if ( class_exists( 'WPS_Logger' ) ) {
 						WPS_Logger::log_event( 'kit_folder_tags_found', self::display_path( $dir ) );
 					}
@@ -8107,6 +8162,9 @@ class WPS_Scanner {
 		$found    = [];
 		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
 		foreach ( array_keys( self::kit_and_plugin_php_files() ) as $path ) {
+			if ( self::out_of_time() ) {
+				break;
+			}
 			$size = @filesize( $path );
 			if ( false === $size || $size < 8000 || $size > 3000000 ) {
 				continue;
@@ -8119,19 +8177,22 @@ class WPS_Scanner {
 				continue;
 			}
 			$raw = @file_get_contents( $path );
-			if ( ! is_string( $raw ) || false === stripos( $raw, 'eval' ) ) {
+			if ( ! is_string( $raw ) || ! preg_match( '/\beval\s*\(/i', $raw ) ) {
 				continue;
 			}
 			// A flat character class, not a repeated group: the group form exhausts the regex
 			// engine's stack on a 300 KB literal and the match silently fails. The numbers are
 			// checked in PHP. The variable that holds the list must be used inside an eval
 			// statement, so an unrelated eval beside a numeric table does not qualify.
-			$code = self::code_without_comments( $raw );
+			$code = null; // comment-stripped source, built only when a candidate list exists
 			$list = '';
 			if ( preg_match_all( '/(\$\w+)\s*=\s*[\'"]([0-9,]{6000,})[\'"]/', $raw, $lm, PREG_SET_ORDER ) ) {
 				foreach ( $lm as $cand ) {
 					if ( ! preg_match( '/^\d{2,5},\d/', $cand[2] ) || substr_count( $cand[2], ',' ) < 1500 || preg_match( '/,,|,$/', $cand[2] ) ) {
 						continue;
+					}
+					if ( null === $code ) {
+						$code = self::code_without_comments( $raw );
 					}
 					if ( preg_match( '/\beval\s*\([^;]*' . preg_quote( $cand[1], '/' ) . '\b/i', $code ) ) {
 						$list = $cand[2];
@@ -8251,21 +8312,38 @@ class WPS_Scanner {
 	 * @param string[] $names Names of the functions that hold the command call or the gate.
 	 */
 	private static function guards_command_route( string $code, string $exec_re, array $names, string $gate_re = '', bool $is_body = true ): bool {
-		$cap  = '(?:manage_options|install_plugins|edit_plugins|activate_plugins|update_core|edit_users|delete_users|manage_network|unfiltered_upload)';
-		$test = 'current_user_can\s*\(\s*[\'"]' . $cap . '[\'"]\s*\)|wp_verify_nonce\s*\(';
+		$cap  = '(?:manage_options|install_plugins|edit_plugins|activate_plugins|update_core|edit_users|delete_users|manage_network|manage_network_options|manage_sites|unfiltered_upload|administrator)';
+		$test = 'current_user_can\s*\(\s*[\'"]' . $cap . '[\'"]\s*\)|is_super_admin\s*\(|wp_verify_nonce\s*\(';
 		$stop = '(?:return|exit|die|wp_die|wp_send_json_error)\b';
-		$call = '\b' . $exec_re . '\s*\(';
+		$call = $exec_re;
 		foreach ( $names as $n ) {
 			$call .= '|\b' . preg_quote( $n, '/' ) . '\s*\(';
 		}
+		$call .= '';
+		// Any regex error (a very long condition can exhaust the engine's stack) counts as guarded:
+		// this check deletes files, so an error must never end in a deletion.
+		$all = static function ( string $re ) use ( $code ) {
+			$r = @preg_match_all( $re, $code, $m, PREG_OFFSET_CAPTURE );
+			return false === $r ? null : $m[0];
+		};
 		// The first place the route can run: the command call, a call to a function that holds it,
 		// or the key compare. A guard has to come before it.
 		$first = PHP_INT_MAX;
-		if ( preg_match( '/' . $call . '/i', $code, $fm, PREG_OFFSET_CAPTURE ) ) {
-			$first = $fm[0][1];
+		$hits  = $all( '/' . $call . '/i' );
+		if ( null === $hits ) {
+			return true;
 		}
-		if ( '' !== $gate_re && preg_match( $gate_re, $code, $gm, PREG_OFFSET_CAPTURE ) ) {
-			$first = min( $first, $gm[0][1] );
+		if ( $hits ) {
+			$first = $hits[0][1];
+		}
+		if ( '' !== $gate_re ) {
+			$gh = $all( $gate_re );
+			if ( null === $gh ) {
+				return true;
+			}
+			if ( $gh ) {
+				$first = min( $first, $gh[0][1] );
+			}
 		}
 		// Unconditional means at the top level of the function (depth 1 inside its braces), or of
 		// the file when there is no function to scope to (depth 0): a check inside an `if` that is
@@ -8274,36 +8352,50 @@ class WPS_Scanner {
 		$ok  = static function ( int $pos ) use ( $code, $first, $top ): bool {
 			return $pos < $first && self::brace_depth_at( $code, $pos ) === $top;
 		};
-		if ( preg_match_all( '/!\s*(?:' . $test . ')[^;{}]{0,200}[;{}]?[^;]{0,200}?' . $stop . '/is', $code, $m, PREG_OFFSET_CAPTURE ) ) {
-			foreach ( $m[0] as $hit ) {
-				if ( $ok( $hit[1] ) ) {
-					return true;
-				}
+		// A negated check whose very next statement leaves: `if ( ! current_user_can( ... ) ) { return; }`
+		// (also `wp_die`, `die`, `exit`, `wp_send_json_error`). An empty block, a later return and a condition
+		// joined with `&&` (so it can be false) do not enforce anything.
+		$neg = $all( '/!\s*(?:' . $test . ')(?:(?!&&)[^{};])*?\)\s*\{?\s*' . $stop . '/is' );
+		if ( null === $neg ) {
+			return true;
+		}
+		foreach ( $neg as $hit ) {
+			if ( $ok( $hit[1] ) ) {
+				return true;
 			}
 		}
-		if ( preg_match_all( '/check_(?:admin|ajax)_referer\s*\((?![^;]*,\s*false\s*\))/i', $code, $m, PREG_OFFSET_CAPTURE ) ) {
-			foreach ( $m[0] as $hit ) {
-				if ( $ok( $hit[1] ) ) {
-					return true;
-				}
+		$ref = $all( '/check_(?:admin|ajax)_referer\s*\((?![^;]*,\s*false\s*\))/i' );
+		if ( null === $ref ) {
+			return true;
+		}
+		foreach ( $ref as $hit ) {
+			if ( $ok( $hit[1] ) ) {
+				return true;
 			}
 		}
 		// A positive check wrapping the call.
-		if ( preg_match_all( '/\bif\s*\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*?(?:' . $test . ')(?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)\s*\{/is', $code, $m, PREG_OFFSET_CAPTURE ) ) {
-			foreach ( $m[0] as $hit ) {
-				$open  = $hit[1] + strlen( $hit[0] ) - 1;
-				$depth = 0;
-				$len   = strlen( $code );
-				for ( $k = $open; $k < $len; $k++ ) {
-					if ( '{' === $code[ $k ] ) {
-						++$depth;
-					} elseif ( '}' === $code[ $k ] && 0 === --$depth ) {
-						break;
-					}
+		$pos_re = '/\bif\s*\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*?(?:' . $test . ')(?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)\s*\{/is';
+		$r      = @preg_match_all( $pos_re, $code, $m, PREG_OFFSET_CAPTURE );
+		if ( false === $r ) {
+			return true;
+		}
+		foreach ( $m[0] as $hit ) {
+			$open  = $hit[1] + strlen( $hit[0] ) - 1;
+			$depth = 0;
+			$len   = strlen( $code );
+			for ( $k = $open; $k < $len; $k++ ) {
+				if ( '{' === $code[ $k ] ) {
+					++$depth;
+				} elseif ( '}' === $code[ $k ] && 0 === --$depth ) {
+					break;
 				}
-				if ( preg_match( '/' . $call . '/i', substr( $code, $open, $k - $open + 1 ) ) ) {
-					return true;
-				}
+			}
+			$inner = @preg_match( '/' . $call . '/i', substr( $code, $open, $k - $open + 1 ) );
+			if ( false === $inner ) {
+				return true;
+			}
+			if ( $inner ) {
+				return true;
 			}
 		}
 		return false;
@@ -8354,14 +8446,14 @@ class WPS_Scanner {
 				continue;
 			}
 			$raw = @file_get_contents( $path );
-			if ( ! is_string( $raw ) || ! preg_match( '/\b(?:shell_exec|system|exec|passthru|popen|proc_open)\s*\(/i', $raw ) ) {
+			if ( ! is_string( $raw ) || ! preg_match( '/(?<!->)(?<!::)(?<![\w$])(?:shell_exec|system|exec|passthru|popen|proc_open)\s*\(/i', $raw ) ) {
 				continue;
 			}
 			$code = self::code_without_comments( $raw );
 			// A request value reaches an execution function, directly or through one variable.
 			$req     = '\$_(?:REQUEST|POST|GET|COOKIE)';
-			$exec_re = '(?:shell_exec|system|exec|passthru|popen|proc_open)';
-			$direct  = preg_match( '/\b' . $exec_re . '\s*\(\s*' . $req . '\s*\[/i', $code );
+			$exec_re = '(?<!->)(?<!::)(?<![\w$])(?:shell_exec|system|exec|passthru|popen|proc_open)';
+			$direct  = preg_match( '/' . $exec_re . '\s*\(\s*(?:(?:trim|stripslashes|urldecode|rawurldecode|base64_decode|escapeshellcmd)\s*\(\s*)?' . $req . '\s*\[/i', $code );
 			$through = false;
 			if ( preg_match_all( '/\b' . $exec_re . '\s*\(\s*(\$\w+)/i', $code, $vm ) ) {
 				foreach ( array_unique( $vm[1] ) as $var ) {
@@ -8374,24 +8466,51 @@ class WPS_Scanner {
 			if ( ! $direct && ! $through ) {
 				continue;
 			}
-			// The gate: request input compared with a secret-looking value, that is a constant defined as
-			// a literal, or a field named like a key, password or token. An ordinary option comparison
-			// (`$_POST['action'] === 'run'`) is not a gate.
-			$keyish = '[\'"][^\'"]*(?:key|pass|pwd|token|auth|secret|sig)[^\'"]*[\'"]|[\'"]k[\'"]';
-			$const  = '[A-Z][A-Z0-9_]{2,}';
-			$gate_re = '/' . $req . '\s*\[\s*(?:' . $keyish . ')\s*\]\s*===?\s*[\'"][^\'"]{1,64}[\'"]'
-				. '|' . $req . '\s*\[[^\]]+\]\s*===?\s*(' . $const . ')'
-				. '|md5\s*\(\s*' . $req . '\s*\[[^\]]+\]\s*\)\s*===?\s*md5\s*\(\s*(' . $const . ')\s*\)/';
+			// The gate: request input compared with a secret that is written into this file. Either a
+			// field named like a key, password or token (exact names, so `author` and `design` do not
+			// count) compared with a literal or a constant; or any field compared with a constant that
+			// is defined as a literal and is itself named like a key. An ordinary option comparison
+			// (`$_POST['action'] === 'run'`, `$_POST['op'] === ACTION_RUN`) is not a gate. hash_equals(),
+			// an md5() of the request against md5() of a constant, and a request value first copied into
+			// a variable are the same gate in other clothes.
+			$kname   = '[\'"](?:k|key|pw|pass|pwd|password|passwd|token|secret|auth|sig|signature|apikey|api_key|[a-z0-9_]+_(?:key|pass|pwd|password|token|secret|sig))[\'"]';
+			$const   = '[A-Z][A-Z0-9_]{2,}';
+			$lit     = '[\'"][^\'"]{1,64}[\'"]';
+			$gate_re = '/' . $req . '\s*\[\s*' . $kname . '\s*\]\s*[!=]==?\s*(?:' . $lit . '|' . $const . ')'
+				. '|' . $req . '\s*\[[^\]]+\]\s*===?\s*' . $const
+				. '|hash_equals\s*\(\s*(?:' . $lit . '|' . $const . ')\s*,\s*' . $req . '\s*\['
+				. '|hash_equals\s*\(\s*' . $req . '\s*\[[^\]]+\]\s*,\s*(?:' . $lit . '|' . $const . ')'
+				. '|md5\s*\(\s*' . $req . '\s*\[[^\]]+\]\s*\)\s*===?\s*(?:md5\s*\(\s*' . $const . '\s*\)|[\'"][0-9a-f]{32}[\'"])/i';
 			$gate = false;
-			if ( preg_match_all( $gate_re, $code, $gm ) ) {
-				foreach ( array_merge( array_filter( $gm[1] ), array_filter( $gm[2] ) ) as $cname ) {
-					if ( preg_match( '/define\s*\(\s*[\'"]' . preg_quote( $cname, '/' ) . '[\'"]\s*,\s*[\'"][^\'"]+[\'"]/', $code ) ) {
-						$gate = true; // compared with a constant that is a literal in this file
+			if ( preg_match_all( '/' . $req . '\s*\[\s*' . $kname . '\s*\]\s*[!=]==?\s*(?:' . $lit . ')/i', $code ) ) {
+				$gate = true; // a key-named field compared with a literal
+			}
+			if ( ! $gate && preg_match_all( '/(?:' . $req . '\s*\[[^\]]+\]|md5\s*\(\s*' . $req . '\s*\[[^\]]+\]\s*\))\s*===?\s*(?:md5\s*\(\s*)?(' . $const . ')\b|hash_equals\s*\(\s*(' . $const . ')\s*,\s*' . $req . '|hash_equals\s*\(\s*' . $req . '\s*\[[^\]]+\]\s*,\s*(' . $const . ')\b/i', $code, $gm ) ) {
+				foreach ( array_merge( $gm[1], $gm[2], $gm[3] ) as $cname ) {
+					if ( '' === $cname ) {
+						continue;
+					}
+					// A constant defined as a literal in this file, named like a secret, or compared
+					// with a key-named field.
+					$defined = preg_match( '/define\s*\(\s*[\'"]' . preg_quote( $cname, '/' ) . '[\'"]\s*,\s*[\'"][^\'"]+[\'"]/', $code );
+					$named   = preg_match( '/KEY|PASS|PWD|TOKEN|AUTH|SECRET|SIG/', $cname );
+					$keyfld  = preg_match( '/' . $req . '\s*\[\s*' . $kname . '\s*\]\s*===?\s*' . preg_quote( $cname, '/' ) . '\b/i', $code );
+					if ( $defined && ( $named || $keyfld ) ) {
+						$gate = true;
 						break;
 					}
 				}
-				if ( ! $gate && preg_match( '/' . $req . '\s*\[\s*(?:' . $keyish . ')\s*\]\s*===?\s*[\'"][^\'"]{1,64}[\'"]/', $code ) ) {
-					$gate = true; // a key-named field compared with a literal
+			}
+			// hash_equals() is for comparing a secret: request input against a literal in this file.
+			if ( ! $gate && preg_match( '/hash_equals\s*\(\s*' . $lit . '\s*,\s*' . $req . '\s*\[|hash_equals\s*\(\s*' . $req . '\s*\[[^\]]+\]\s*,\s*' . $lit . '/i', $code ) ) {
+				$gate = true;
+			}
+			if ( ! $gate && preg_match_all( '/(\$\w+)\s*=\s*' . $req . '\s*\[\s*' . $kname . '\s*\]\s*;/i', $code, $am ) ) {
+				foreach ( array_unique( $am[1] ) as $alias ) {
+					if ( preg_match( '/' . preg_quote( $alias, '/' ) . '\s*===?\s*(?:' . $lit . ')/', $code ) ) {
+						$gate = true; // a key-named request value copied into a variable and compared with a literal
+						break;
+					}
 				}
 			}
 			if ( ! $gate ) {
@@ -8413,7 +8532,7 @@ class WPS_Scanner {
 					$gate_names[] = $name;
 				}
 			}
-			if ( $bodies && ( $exec_names || $gate_names ) ) {
+			if ( $bodies && $exec_names && $gate_names ) {
 				$connected = (bool) array_intersect( $exec_names, $gate_names );
 				if ( ! $connected ) {
 					foreach ( $bodies as $key => $body ) {

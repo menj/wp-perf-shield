@@ -69,7 +69,7 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 ## 1.4.142
 
-**Code Snippets is now on the banned-plugin list.** It cannot be installed or activated, and a copy on disk is removed on the next admin request (within about a minute on the front end). Its snippets stay in the database table `wp_snippets` and stop running; read them before you drop the table. Any plugin whose slug contains `code-snippets` is refused too. To allow it again, remove it under Settings, Banned plugins, or switch the policy off there.
+**Code Snippets is now on the banned-plugin list.** It cannot be installed or activated, and a copy on disk is removed on the next admin request (within about a minute on the front end). Its snippets stay in the database table `wp_snippets` and stop running; read them before you drop the table. A name with `code-snippets` as a whole word is refused too (`code-snippets-pro`); longer words such as `shortcode-snippets` are not. To allow it again, remove it under Settings, Banned plugins, or switch the policy off there.
 
 ## 1.4.141
 

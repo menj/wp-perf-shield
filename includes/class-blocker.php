@@ -556,13 +556,33 @@ class WPS_Blocker {
         }
     }
 
+    /**
+     * Slugs matched on a name boundary instead of as a bare substring. `code-snippets` is here
+     * because a substring would also ban `shortcode-snippets`, `wpcode-snippets` and
+     * `barcode-snippets`, which are different plugins. A boundary is a character that is not a
+     * letter or digit, or the start or end of the name, so `code-snippets-pro` and
+     * `code-snippets/code-snippets.php` still match.
+     */
+    private const BOUNDARY_SLUGS = [ 'code-snippets' ];
+
+    /** Does the lower-case name contain the banned slug, under the matching rule that slug uses? */
+    public static function slug_in( string $lower, string $slug ): bool {
+        if ( '' === $slug ) {
+            return false;
+        }
+        if ( in_array( $slug, self::BOUNDARY_SLUGS, true ) ) {
+            return (bool) preg_match( '/(?<![a-z0-9])' . preg_quote( $slug, '/' ) . '(?![a-z0-9])/', $lower );
+        }
+        return false !== strpos( $lower, $slug );
+    }
+
     public static function is_policy_banned( string $plugin_file ): bool {
         if ( ! self::policy_ban_enabled() ) {
             return false;
         }
         $lower = strtolower( $plugin_file );
         foreach ( self::get_policy_banned_slugs() as $slug ) {
-            if ( $slug !== '' && strpos( $lower, $slug ) !== false ) {
+            if ( self::slug_in( $lower, $slug ) ) {
                 return true;
             }
         }
@@ -582,7 +602,7 @@ class WPS_Blocker {
         $name  = strtolower( $filename );
 
         foreach ( $slugs as $slug ) {
-            if ( $slug !== '' && strpos( $name, $slug ) !== false ) {
+            if ( self::slug_in( $name, $slug ) ) {
                 return 'file=' . self::short_log_value( $filename );
             }
         }
