@@ -21,7 +21,7 @@ The gambling doorway kit (`blog/`, `rebuttals/`) was re-tested through the whole
 - **`sitemap643.xml` (176 KB): 2,000 consecutive `?p=10670` to `?p=12669` URLs, nearly all dated 2026-10-18.** That is the footprint of a spam kit that creates thousands of posts in one run and writes numbered sitemaps so they get indexed. Nothing looked at it. New `check_mass_post_sitemap` reads a `sitemap*.xml` in the web root, wp-content, uploads or a kit folder and reports one with 100 or more entries that are at least 90 percent bare `?p=<id>` URLs, dense in id (80 percent of the range used) and with 80 percent of the `lastmod` dates on one day. The file is inert and is removed; the finding states the id range so the posts in the database can be reviewed and deleted (Posts sorted by date). A sitemap of ordinary permalinks, or of scattered ids over many dates, is not reported (tested).
 - **`bukyhum/`: Protect Uploads on its own** under another random folder name, with the host plugin's files identical to the ones inside the Medusa kit folder and none of the kit's files. The scanner correctly reports nothing, since it is not malware; the on-disk ban removes it, because its main file `protect-uploads.php` carries the plugin header whatever the folder is called. The host plugin arriving first is how the kit's files are added later, so the ban is the defence.
 
-Tests: `test-plugin-malware-detection.php` 82 cases. Registered checks: NC (was 103).
+Tests: `test-plugin-malware-detection.php` 90 cases, `test-search-console-stub.php` 9. Registered checks: 105 (was 103).
 
 ## 1.4.139
 
