@@ -609,6 +609,12 @@ class WPS_Scanner {
 			'check_probe_marker_files' => [ __CLASS__, 'check_probe_marker_files' ], // 1.4.133: deep_check_<hex>.txt / upload_test_<hex>.txt write-access probes
 			'check_gambling_doorway_page' => [ __CLASS__, 'check_gambling_doorway_page' ], // 1.4.134: static slot/togel landing page planted in uploads, wp-content or the web root
 			'check_embedded_js_injector' => [ __CLASS__, 'check_embedded_js_injector' ], // 1.4.135: plugin that keeps a large encoded script and prints it to visitors on every page
+			'check_medusa_fm_kit' => [ __CLASS__, 'check_medusa_fm_kit' ], // 1.4.140: Medusa FM kit files (encrypted loader, index/.htaccess self-heal, early crawler router) by their own markers
+			'check_mass_post_sitemap' => [ __CLASS__, 'check_mass_post_sitemap' ], // 1.4.140: static sitemap listing hundreds of consecutive ?p=<id> URLs from one day (a spam kit's post flood)
+			'check_tiny_file_manager_shell' => [ __CLASS__, 'check_tiny_file_manager_shell' ], // 1.4.141: the stand-alone Tiny File Manager script placed inside wp-content (a web shell by location)
+			'check_marker_comment_php' => [ __CLASS__, 'check_marker_comment_php' ], // 1.4.141: PHP file that opens with a random-token HTML comment, the tag a shell kit stamps on its files
+			'check_kit_folder_tags' => [ __CLASS__, 'check_kit_folder_tags' ], // 1.4.142: a plugin folder holding both .bt_<folder> and .swm_<folder> tag files, even when everything else has been emptied
+			'check_shell_use_evidence' => [ __CLASS__, 'check_shell_use_evidence' ], // 1.4.141: error_log lines showing a shell was fed commands that wrote payload files to /tmp/.<name> (report only)
 			'check_search_console_stub' => [ __CLASS__, 'check_search_console_stub' ], // 1.4.137: Search Console ownership stubs planted by doorway kits (and, on Site Kit sites, any at the root)
 			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
 			'check_mu_plugin_dropper' => [ __CLASS__, 'check_mu_plugin_dropper' ], // 1.4.120: plugin that copies bundled folders into mu-plugins and writes require loaders for them
@@ -6423,7 +6429,7 @@ class WPS_Scanner {
 	 *
 	 * @return \Generator<int, array{0:string,1:string,2:bool}> path, root, is-mu
 	 */
-	private static function plugin_php_files( bool $with_mu = true ): \Generator {
+	private static function plugin_php_files( bool $with_mu = true, int $min_size = 80 ): \Generator {
 		$roots = [];
 		if ( defined( 'WP_PLUGIN_DIR' ) && is_dir( WP_PLUGIN_DIR ) ) {
 			$roots[] = [ rtrim( WP_PLUGIN_DIR, '/\\' ), false ];
@@ -6448,7 +6454,7 @@ class WPS_Scanner {
 						continue;
 					}
 					$size = $f->getSize();
-					if ( false === $size || $size < 80 || $size > 400000 ) {
+					if ( false === $size || $size < $min_size || $size > 400000 ) {
 						continue;
 					}
 					$path = $f->getPathname();
@@ -7008,11 +7014,14 @@ class WPS_Scanner {
 						continue;
 					}
 					$code   = self::code_without_comments( $raw );
-					$marker = false !== strpos( $raw, 'EASYPOST_ENDPOINT_CONFIG' );
+					// The marker must be defined in code, not mentioned in a comment or listed as a
+					// string in a signature list, and the file must also create administrators or
+					// application passwords: this type is removed automatically.
+					$marker = (bool) preg_match( '/\bdefine\s*\(\s*[\'"]EASYPOST_ENDPOINT_CONFIG[\'"]\s*,/', $code );
 					$admin  = preg_match( '/wp_create_user\s*\(/i', $code ) && preg_match( '/set_role\s*\(\s*[\'"]administrator[\'"]/i', $code );
 					$gate   = preg_match( '/openssl_verify\s*\(|hash_hmac\s*\(|hash_equals\s*\(/i', $code ) && preg_match( '/wp-load\.php|wp_load/i', $code );
 					$appw   = preg_match( '/WP_Application_Passwords|application_password/i', $code );
-					if ( ! $marker && ! ( $admin && $gate && $appw ) ) {
+					if ( ! ( $marker && ( $admin || $appw ) ) && ! ( $admin && $gate && $appw ) ) {
 						continue;
 					}
 					$found[] = [
@@ -7043,13 +7052,27 @@ class WPS_Scanner {
 	 */
 	private static function kit_roots(): array {
 		$roots = [];
+		// Each folder directly under wp-content except the trees other checks own.
+		// Walking plugins/ and themes/ here would spend the file budget before the
+		// scan reached uploads/ or an odd folder on a site with tens of thousands of files.
 		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
-			$roots[] = rtrim( WP_CONTENT_DIR, '/\\' );
+			try {
+				foreach ( new DirectoryIterator( WP_CONTENT_DIR ) as $d ) {
+					if ( ! $d->isDot() && $d->isDir() && ! in_array( $d->getFilename(), [ 'plugins', 'themes', 'mu-plugins', 'languages', 'upgrade', 'upgrade-temp-backup' ], true ) ) {
+						$roots[] = $d->getPathname();
+					}
+				}
+			} catch ( \Throwable $t ) {} // phpcs:ignore
 		}
 		if ( defined( 'ABSPATH' ) && is_dir( ABSPATH ) ) {
 			try {
 				foreach ( new DirectoryIterator( ABSPATH ) as $d ) {
 					if ( $d->isDot() || ! $d->isDir() || in_array( $d->getFilename(), [ 'wp-admin', 'wp-includes', 'wp-content', 'cgi-bin' ], true ) ) {
+						continue;
+					}
+					// Another WordPress install (an add-on domain, a staging copy, a subdirectory
+					// install) has its own wp-content and is scanned by its own copy of this plugin.
+					if ( is_file( $d->getPathname() . '/wp-config.php' ) || is_dir( $d->getPathname() . '/wp-includes' ) ) {
 						continue;
 					}
 					$roots[] = $d->getPathname();
@@ -7076,6 +7099,7 @@ class WPS_Scanner {
 		$found    = [];
 		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
 		$examined = 0;
+		$exfil_dirs = [];
 		foreach ( self::kit_roots() as $root ) {
 			try {
 				$iter = new RecursiveIteratorIterator(
@@ -7084,11 +7108,14 @@ class WPS_Scanner {
 				);
 				$iter->setMaxDepth( 4 );
 				foreach ( $iter as $f ) {
-					if ( self::out_of_time() || ++$examined > 6000 ) {
+					if ( self::out_of_time() ) {
 						return $found;
 					}
 					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || ! self::is_php_executable( $f ) ) {
 						continue;
+					}
+					if ( ++$examined > 6000 ) {
+						return $found;
 					}
 					$size = $f->getSize();
 					if ( false === $size || $size < 60 || $size > 200000 ) {
@@ -7114,9 +7141,15 @@ class WPS_Scanner {
 					if ( ! $exfil && ! $creds ) {
 						continue;
 					}
+					$dirkey = dirname( $real );
+					if ( $exfil ) {
+						$exfil_dirs[ $dirkey ] = true;
+					}
 					$found[] = [
 						'severity'    => 'critical',
 						'type'        => $exfil ? 'Phishing kit that sends card details to a Telegram bot' : 'Phishing kit credentials (Telegram bot token and chat id)',
+						'_dir'        => $dirkey,
+						'_creds'      => ! $exfil,
 						'subject'     => self::display_path( $path ) . ( $exfil ? ' collects card data and posts it to api.telegram.org' : ' holds the bot token the kit reports to' ),
 						'path'        => $path,
 						'action'      => 'This file belongs to a phishing kit hosted on your site: visitors are shown a fake brand page, and what they type (card number, expiry, CVV, address) is sent to the operator through a Telegram bot. The file is removed. Find the rest of the kit (HTML pages, a rewrite .htaccess) and how it was uploaded, and treat the site as compromised. Report the page to the impersonated brand and your host.',
@@ -7130,6 +7163,21 @@ class WPS_Scanner {
 			} catch ( \Throwable $t ) {
 				continue;
 			}
+		}
+		// A bot token and chat id alone also describe an honest notifier. The credentials
+		// file is removed only when the script that harvests card data sits beside it;
+		// then it carries the kit's (conclusive) type, otherwise it is reported only.
+		foreach ( $found as $k => $item ) {
+			if ( ! empty( $item['_creds'] ) ) {
+				if ( isset( $exfil_dirs[ $item['_dir'] ] ) ) {
+					$found[ $k ]['type'] = 'Phishing kit that sends card details to a Telegram bot (its credentials file)';
+				} else {
+					$found[ $k ]['auto_delete'] = false;
+					unset( $found[ $k ]['delete_path'] );
+					$found[ $k ]['action']      = 'A file that defines a Telegram bot token and chat id. Telegram notification plugins do this too, so nothing is removed automatically: check whether you or a plugin you use created it. If you did not, it is the credentials file of a card-harvesting kit.';
+				}
+			}
+			unset( $found[ $k ]['_dir'], $found[ $k ]['_creds'] );
 		}
 		return $found;
 	}
@@ -7162,7 +7210,7 @@ class WPS_Scanner {
 			);
 			$iter->setMaxDepth( 5 );
 			foreach ( $iter as $f ) {
-				if ( self::out_of_time() || ++$examined > 8000 ) {
+				if ( self::out_of_time() ) {
 					break;
 				}
 				if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
@@ -7171,6 +7219,9 @@ class WPS_Scanner {
 				$ext = strtolower( $f->getExtension() );
 				if ( ! in_array( $ext, [ 'php', 'phtml', 'html', 'htm' ], true ) ) {
 					continue;
+				}
+				if ( ++$examined > 8000 ) {
+					break;
 				}
 				$size = $f->getSize();
 				if ( false === $size || $size < 40 || $size > 2500 ) {
@@ -7235,28 +7286,53 @@ class WPS_Scanner {
 		$roots = self::kit_roots();
 		$up    = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
 		if ( is_array( $up ) && empty( $up['error'] ) && ! empty( $up['basedir'] ) && is_dir( $up['basedir'] ) ) {
-			$roots[] = $up['basedir'];
+			// A custom uploads location; the default one is already below wp-content.
+			$base   = rtrim( (string) $up['basedir'], '/\\' );
+			$nested = false;
+			foreach ( $roots as $r ) {
+				if ( $base === $r || 0 === strpos( $base . '/', rtrim( $r, '/\\' ) . '/' ) ) {
+					$nested = true;
+					break;
+				}
+			}
+			if ( ! $nested ) {
+				$roots[] = $base;
+			}
 		}
-		if ( defined( 'ABSPATH' ) && is_dir( ABSPATH ) ) {
-			$roots[] = rtrim( ABSPATH, '/\\' );
+		// The web root and wp-content are searched for loose files only, not recursed.
+		foreach ( [ 'ABSPATH', 'WP_CONTENT_DIR' ] as $c ) {
+			if ( defined( $c ) && is_dir( constant( $c ) ) ) {
+				$roots[] = rtrim( constant( $c ), '/\\' ) . '/*';
+			}
 		}
+		// Loose files in the web root and wp-content first: the likeliest place, and cheap.
+		usort( $roots, static fn( $a, $b ) => ( '/*' === substr( $b, -2 ) ) <=> ( '/*' === substr( $a, -2 ) ) );
 		$seen = [];
 		$n    = 0;
 		foreach ( array_unique( $roots ) as $root ) {
 			try {
+				$shallow = '/*' === substr( $root, -2 );
+				if ( $shallow ) {
+					$root = substr( $root, 0, -2 );
+				}
 				$iter = new RecursiveIteratorIterator(
 					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
 					RecursiveIteratorIterator::LEAVES_ONLY
 				);
-				$iter->setMaxDepth( 5 );
+				$iter->setMaxDepth( $shallow ? 0 : 5 );
 				foreach ( $iter as $f ) {
-					if ( self::out_of_time() || ++$n > 20000 ) {
+					if ( self::out_of_time() ) {
 						return $found;
 					}
-					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() || $f->getSize() > 200 ) {
+					if ( ! ( $f instanceof SplFileInfo ) ) {
 						continue;
 					}
-					if ( ! preg_match( '/^(deep_check|upload_test)_([0-9a-f]{32})\.txt$/i', $f->getFilename(), $m ) ) {
+					// `.vc_marker`: eight hex characters and nothing else, the same kind of write test.
+					$vc = '.vc_marker' === strtolower( $f->getFilename() );
+					if ( ! $vc && ! preg_match( '/^(deep_check|upload_test)_([0-9a-f]{32})\.txt$/i', $f->getFilename(), $m ) ) {
+						continue;
+					}
+					if ( ++$n > 500 || ! $f->isFile() || $f->getSize() > 200 ) {
 						continue;
 					}
 					$real = realpath( $f->getPathname() ) ?: $f->getPathname();
@@ -7264,7 +7340,7 @@ class WPS_Scanner {
 						continue;
 					}
 					$body = trim( (string) @file_get_contents( $f->getPathname() ) );
-					if ( 0 !== strcasecmp( $body, strtoupper( $m[1] ) . '_OK_' . $m[2] ) ) {
+					if ( $vc ? ! preg_match( '/^[0-9a-f]{8}$/i', $body ) : 0 !== strcasecmp( $body, strtoupper( $m[1] ) . '_OK_' . $m[2] ) ) {
 						continue;
 					}
 					$seen[ $real ] = true;
@@ -7334,6 +7410,14 @@ class WPS_Scanner {
 				}
 			} catch ( \Throwable $t ) {} // phpcs:ignore
 		}
+		// Folders that hold other things and are never removed whole: the uploads root, wp-content
+		// and the web root. A kit folder directly under wp-content or the web root is its own unit
+		// (it is also a scan root here), so it can go with its stub and sitemap.
+		$containers = array_filter( [
+			'' !== $base ? realpath( $base ) : false,
+			defined( 'WP_CONTENT_DIR' ) ? realpath( WP_CONTENT_DIR ) : false,
+			defined( 'ABSPATH' ) ? realpath( ABSPATH ) : false,
+		] );
 		$seen = [];
 		$n    = 0;
 		foreach ( array_unique( $roots ) as $root ) {
@@ -7393,7 +7477,7 @@ class WPS_Scanner {
 						'path'        => $path,
 						'action'      => 'This page ranks your domain for gambling searches and sends visitors to the operator. It was planted, not written by you. The page (and its folder when it holds nothing else) is removed. Treat the site as compromised: find how the file was written, remove unknown administrators, reset passwords and salts, then ask Google Search Console to recrawl and remove the URL.',
 						'auto_delete' => true,
-						'delete_path' => 0 === $count && realpath( $dir ) !== realpath( $root ) && realpath( $dir ) !== realpath( ABSPATH ) ? $dir : $path,
+						'delete_path' => 0 === $count && ! in_array( realpath( $dir ), $containers, true ) ? $dir : $path,
 					];
 					if ( class_exists( 'WPS_Logger' ) ) {
 						WPS_Logger::log_event( 'gambling_doorway_found', self::display_path( $path ) );
@@ -7431,21 +7515,28 @@ class WPS_Scanner {
 			if ( ! is_string( $raw ) || ! preg_match( '/base64_decode\s*\(/i', $raw ) || ! preg_match( '/add_action\s*\(\s*[\'"](?:wp_head|wp_footer|login_head|login_footer|wp_body_open|wp_print_footer_scripts)[\'"]/i', $raw ) ) {
 				continue;
 			}
+			// Every long base64 block is tried, so a decoy blob placed first cannot hide the real one.
+			$blocks = [];
+			if ( preg_match_all( '/<<<[\'"]?(\w+)[\'"]?\r?\n([A-Za-z0-9+\/=\r\n]{4000,}?)\r?\n\s*\1\s*;/', $raw, $hm ) ) {
+				$blocks = array_merge( $blocks, $hm[2] );
+			}
+			if ( preg_match_all( '/[\'"]([A-Za-z0-9+\/=]{4000,})[\'"]/', $raw, $qm ) ) {
+				$blocks = array_merge( $blocks, $qm[1] );
+			}
 			$block = '';
-			if ( preg_match( '/<<<[\'"]?(\w+)[\'"]?\r?\n([A-Za-z0-9+\/=\r\n]{4000,}?)\r?\n\s*\1\s*;/', $raw, $m ) ) {
-				$block = $m[2];
-			} elseif ( preg_match( '/[\'"]([A-Za-z0-9+\/=]{4000,})[\'"]/', $raw, $m ) ) {
-				$block = $m[1];
+			foreach ( $blocks as $cand ) {
+				$dec = base64_decode( (string) preg_replace( '/\s+/', '', substr( $cand, 0, 4000 ) ), false );
+				if ( is_string( $dec ) && '' !== $dec && false === strpos( $dec, '<?php' )
+					&& preg_match( '/^\s*(?:\(\s*function|var\s|!function|function\s|\(\(\)\s*=>|"use strict")/', $dec ) ) {
+					$block = $cand;
+					break;
+				}
 			}
 			if ( '' === $block ) {
 				continue;
 			}
-			$dec = base64_decode( preg_replace( '/\s+/', '', substr( $block, 0, 4000 ) ), false );
-			if ( ! is_string( $dec ) || '' === $dec || false !== strpos( $dec, '<?php' ) ) {
-				continue;
-			}
-			// Looks like script, not binary data.
-			if ( ! preg_match( '/^\s*(?:\(\s*function|var\s|!function|function\s|\(\(\)\s*=>|"use strict")/', $dec ) ) {
+			// Shown to visitors but not to people who manage the site: the gate that makes it an injector.
+			if ( ! preg_match( '/current_user_can\s*\(|is_admin\s*\(|is_user_logged_in\s*\(/i', $raw ) ) {
 				continue;
 			}
 			// It is printed into pages: a script tag (possibly split) next to an echo.
@@ -7492,14 +7583,10 @@ class WPS_Scanner {
 		$opts     = function_exists( 'get_option' ) ? get_option( WPS_OPTION, [] ) : [];
 		$site_kit = is_array( $opts ) && ( $opts['site_kit_search_console'] ?? '0' ) === '1';
 		$abs      = rtrim( (string) ( realpath( ABSPATH ) ?: ABSPATH ), '/\\' );
-		$roots    = [ $abs ];
-		$skip     = [ 'wp-admin', 'wp-includes', 'cgi-bin', 'plugins', 'themes', 'mu-plugins' ];
-		foreach ( [ 'WP_CONTENT_DIR' ] as $c ) {
-			if ( defined( $c ) && is_dir( constant( $c ) ) ) {
-				$roots[] = rtrim( constant( $c ), '/\\' );
-			}
-		}
-		$up = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
+		// The web root one level deep, then the folders other checks do not own.
+		$roots = array_merge( [ $abs ], self::kit_roots() );
+		$skip  = [ 'wp-admin', 'wp-includes', 'cgi-bin', 'plugins', 'themes', 'mu-plugins' ];
+		$up    = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
 		if ( is_array( $up ) && empty( $up['error'] ) && ! empty( $up['basedir'] ) && is_dir( $up['basedir'] ) ) {
 			$roots[] = rtrim( $up['basedir'], '/\\' );
 		}
@@ -7530,6 +7617,10 @@ class WPS_Scanner {
 					if ( ! $at_root && in_array( basename( $dir ), $skip, true ) && dirname( $dir ) === $abs ) {
 						continue;
 					}
+					// Another WordPress install below the web root is that install's own business.
+					if ( ! $at_root && dirname( $dir ) === $abs && ( is_file( $dir . '/wp-config.php' ) || is_dir( $dir . '/wp-includes' ) ) ) {
+						continue;
+					}
 					if ( preg_match( '/^google[0-9a-f]{16}\.html$/i', $name ) ) {
 						$body = trim( (string) @file_get_contents( $path, false, null, 0, 300 ) );
 						if ( 0 !== strcasecmp( $body, 'google-site-verification: ' . $name ) ) {
@@ -7539,13 +7630,15 @@ class WPS_Scanner {
 							continue;
 						}
 						$seen[ $real ] = true;
+						$up_base       = ( is_array( $up ) && ! empty( $up['basedir'] ) ) ? rtrim( (string) ( realpath( $up['basedir'] ) ?: $up['basedir'] ), '/\\' ) : '';
+						$in_uploads    = '' !== $up_base && 0 === strpos( $dir . '/', $up_base . '/' );
 						$found[]       = [
 							'severity'    => 'high',
-							'type'        => $at_root ? 'Search Console verification file on a Site Kit site' : 'Search Console verification file inside a subfolder',
+							'type'        => ( $at_root || $site_kit ) ? 'Search Console verification file on a Site Kit site' : 'Search Console verification file inside a subfolder',
 							'subject'     => self::display_path( $path ) . ( $at_root ? ' (you said Site Kit handles verification)' : ' (a genuine one lives at the web root)' ),
 							'path'        => $path,
-							'action'      => 'This file proves to Google that whoever placed it owns the domain, which lets them submit sitemaps and request indexing for pages they planted. ' . ( $at_root ? 'You have said this site verifies through Site Kit, so the file is not yours; it is moved to quarantine.' : 'It sits in a subfolder, where a real verification file never is; it is moved to quarantine.' ) . ' Then open Search Console, Settings, Users and permissions, and remove any owner you did not add, and delete sitemaps you did not submit.',
-							'auto_delete' => $at_root ? $site_kit : true,
+							'action'      => 'This file proves to Google that whoever placed it owns the domain, which lets them submit sitemaps and request indexing for pages they planted. ' . ( ( $at_root || $site_kit ) ? 'You have said this site verifies through Site Kit, so the file is not yours; it is moved to quarantine.' : ( $in_uploads ? 'Uploads never hold a genuine verification file; it is moved to quarantine.' : 'A genuine one can sit in a subfolder when that folder is its own Search Console property, so this is reported, not removed: check it is yours.' ) ) . ' Then open Search Console, Settings, Users and permissions, and remove any owner you did not add, and delete sitemaps you did not submit.',
+							'auto_delete' => $site_kit || $in_uploads,
 							'delete_path' => $path,
 						];
 					} elseif ( $site_kit && $at_root && 'sitemap.xml' === strtolower( $name ) ) {
@@ -7557,6 +7650,433 @@ class WPS_Scanner {
 							'path'        => $path,
 							'action'      => 'A static sitemap.xml at the web root can list pages you did not create. Open it and check every URL; delete it if you do not use it. Nothing is removed automatically.',
 						];
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.140: the Medusa FM kit, found by its own markers in any PHP file.
+	 *
+	 * Recovered shape (a trojanised copy of Protect Uploads, folder `mcurcff`):
+	 * `medusa.php` (an encrypted loader), `fm_index_heal.php` (replaces the site's
+	 * index.php and .htaccess with a gate that shows crawlers a page fetched from a
+	 * remote server, locks both read-only, and installs a mu-plugin that puts them
+	 * back if you delete them) and `fm_early_router.php` (hooks advanced-cache.php so
+	 * crawlers are answered before WordPress loads). The files carry the kit's
+	 * function and constant names, which the authors did not hide. Two distinct
+	 * markers are required in one file, or its remote content host.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_medusa_fm_kit(): array {
+		$found   = [];
+		$markers = [ 'fm_early_router_source', 'fm_index_gate_source', 'fm_mu_heal_source', 'fm_install_mu_heal', 'ms_gate_heal_restore', 'FM_ENC_LOADER', 'MSENC-V2', 'Medusa FM', 'Medusa Early Router', 'index_vitrin_gate', '.ms_index.bak.php' ];
+		$files   = [];
+		foreach ( self::plugin_php_files() as [ $path ] ) {
+			$files[ $path ] = true;
+		}
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		foreach ( self::kit_roots() as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 4 );
+				$n = 0;
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						break 2;
+					}
+					if ( $f instanceof SplFileInfo && $f->isFile() && self::is_php_executable( $f ) && ++$n <= 4000 ) {
+						$files[ $f->getPathname() ] = true;
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		foreach ( array_keys( $files ) as $path ) {
+			$size = @filesize( $path );
+			if ( false === $size || $size < 200 || $size > 400000 ) {
+				continue;
+			}
+			$real = realpath( $path ) ?: $path;
+			if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
+				continue;
+			}
+			if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+				continue;
+			}
+			$raw = @file_get_contents( $path );
+			if ( ! is_string( $raw ) ) {
+				continue;
+			}
+			$hit = 0;
+			foreach ( $markers as $m ) {
+				if ( false !== strpos( $raw, $m ) ) {
+					++$hit;
+				}
+			}
+			$host = false !== stripos( $raw, 'istanbulescortladys.com' );
+			if ( $hit < 2 && ! $host ) {
+				continue;
+			}
+			$found[] = [
+				'severity'    => 'critical',
+				'type'        => 'Medusa FM kit file (cloaking gate, self-healing index or crawler router)',
+				'subject'     => self::display_path( $path ) . ' carries the Medusa FM kit\'s own function names' . ( $host ? ' and its remote content host' : '' ),
+				'path'        => $path,
+				'action'      => 'This file belongs to a kit that replaces the site\'s index.php and .htaccess with a gate that shows search crawlers spam fetched from a remote server, locks both files read-only (0444), and installs a mu-plugin (ms-index-heal.php) that restores them if you delete them. The file is removed. Then check, in this order: wp-content/mu-plugins for ms-index-heal.php, wp-content/advanced-cache.php and wp-config.php for a WP_CACHE line you did not add, a license.html in the web root, and index.php and .htaccess (compare index.php with a fresh copy for your WordPress version). Remove the mu-plugin first, or it puts the gate back.',
+				'auto_delete' => true,
+				'delete_path' => $path,
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'medusa_fm_kit_found', self::display_path( $path ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.140: a static sitemap that lists a flood of consecutive post IDs.
+	 *
+	 * Recovered shape (`sitemap643.xml`, 176 KB): 2,000 `<loc>` entries of the form
+	 * `https://site/?p=10670` to `?p=12669`, every one with the same `lastmod` day. A
+	 * spam kit that has just created thousands of posts writes numbered sitemaps so
+	 * the search engine finds them. A real sitemap lists permalinks, not bare ids,
+	 * and not two thousand of them created on one day. The file is inert (XML), so
+	 * it is removed; the posts it points at are in the database and are reported
+	 * with their id range so they can be reviewed and deleted.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_mass_post_sitemap(): array {
+		$found = [];
+		$roots = [];
+		if ( defined( 'ABSPATH' ) && is_dir( ABSPATH ) ) {
+			$roots[] = rtrim( ABSPATH, '/\\' ) . '/*';
+		}
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR ) ) {
+			$roots[] = rtrim( WP_CONTENT_DIR, '/\\' ) . '/*';
+		}
+		$roots = array_merge( $roots, self::kit_roots() );
+		$up    = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
+		if ( is_array( $up ) && empty( $up['error'] ) && ! empty( $up['basedir'] ) && is_dir( $up['basedir'] ) ) {
+			$roots[] = rtrim( $up['basedir'], '/\\' );
+		}
+		$seen = [];
+		$n    = 0;
+		foreach ( array_unique( $roots ) as $root ) {
+			try {
+				$shallow = '/*' === substr( $root, -2 );
+				if ( $shallow ) {
+					$root = substr( $root, 0, -2 );
+				}
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( $shallow ? 0 : 5 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						return $found;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! preg_match( '/^sitemap[\w.-]*\.xml$/i', $f->getFilename() ) ) {
+						continue;
+					}
+					if ( ++$n > 400 || ! $f->isFile() || $f->getSize() < 4000 || $f->getSize() > 8000000 ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( isset( $seen[ $real ] ) || ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) ) {
+						continue;
+					}
+					$raw = (string) @file_get_contents( $path, false, null, 0, 400000 );
+					if ( ! preg_match_all( '#<loc>[^<]*?[?&]p=(\d+)</loc>(?:\s*<lastmod>([^<]*)</lastmod>)?#', $raw, $m ) ) {
+						continue;
+					}
+					$ids   = array_map( 'intval', $m[1] );
+					$total = substr_count( $raw, '<loc>' );
+					if ( $total < 100 || count( $ids ) < 0.9 * $total ) {
+						continue;
+					}
+					$min   = min( $ids );
+					$max   = max( $ids );
+					$dense = count( array_unique( $ids ) ) >= 0.8 * ( $max - $min + 1 );
+					$days  = array_count_values( array_map( static fn( $d ) => substr( (string) $d, 0, 10 ), $m[2] ) );
+					arsort( $days );
+					$top = $days ? (int) reset( $days ) : 0;
+					if ( ! $dense || $top < 0.8 * count( $ids ) ) {
+						continue;
+					}
+					$seen[ $real ] = true;
+					$found[]       = [
+						'severity'    => 'critical',
+						'type'        => 'Sitemap listing a flood of injected posts',
+						'subject'     => self::display_path( $path ) . ' lists ' . count( $ids ) . ' consecutive post ids (' . $min . ' to ' . $max . '), ' . $top . ' of them dated ' . array_key_first( $days ),
+						'path'        => $path,
+						'action'      => 'A static sitemap whose entries are bare post ids created on one day is how a spam kit gets thousands of injected posts indexed. The sitemap is removed. The posts are in the database: review post ids ' . $min . ' to ' . $max . ' (Posts, sorted by date) and delete the spam, then check for administrator users you did not create and for the plugin or login that let the kit in. Remove the URLs in Search Console (Removals) and the sitemap if it was submitted.',
+						'auto_delete' => true,
+						'delete_path' => $path,
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'mass_post_sitemap_found', self::display_path( $path ) . ' ids ' . $min . '-' . $max );
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * Every PHP file the plugin-shaped checks look at, plus the odd folders under
+	 * wp-content and the web root (the same set the kit checks use).
+	 *
+	 * @return array<string, true> absolute path => true
+	 */
+	private static function kit_and_plugin_php_files( int $min_size = 80 ): array {
+		$files = [];
+		foreach ( self::plugin_php_files( true, $min_size ) as [ $path ] ) {
+			$files[ $path ] = true;
+		}
+		foreach ( self::kit_roots() as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 4 );
+				$n = 0;
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						break 2;
+					}
+					if ( $f instanceof SplFileInfo && $f->isFile() && self::is_php_executable( $f ) && ++$n <= 4000 ) {
+						$files[ $f->getPathname() ] = true;
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		return $files;
+	}
+
+	/**
+	 * 1.4.141: the stand-alone Tiny File Manager script found inside wp-content.
+	 *
+	 * Recovered shape (`sldebar.php` and `abilities/custom.file.3.<timestamp>.php`
+	 * inside a copy of Akismet, 231 KB each): the whole open-source Tiny File Manager
+	 * program under a misspelt theme-file name or a timestamped name. It is a
+	 * program a person runs on its own, never as part of a WordPress plugin, and
+	 * its built-in sign-in ships with well-known default passwords, so a copy
+	 * inside wp-content is a web shell with a front door that anyone can open.
+	 * The program's own banner and constants must be present, and so must its
+	 * file-writing functions.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_tiny_file_manager_shell(): array {
+		$found    = [];
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		foreach ( array_keys( self::kit_and_plugin_php_files() ) as $path ) {
+			$size = @filesize( $path );
+			if ( false === $size || $size < 60000 || $size > 600000 ) {
+				continue;
+			}
+			$real = realpath( $path ) ?: $path;
+			if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
+				continue;
+			}
+			if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+				continue;
+			}
+			$raw = @file_get_contents( $path );
+			if ( ! is_string( $raw ) || false === strpos( $raw, 'Tiny File Manager' ) ) {
+				continue;
+			}
+			$code = self::code_without_comments( $raw );
+			if ( ! preg_match( '/define\s*\(\s*[\'"]APP_TITLE[\'"]\s*,\s*[\'"]Tiny File Manager[\'"]/', $code )
+				|| ! preg_match( '/move_uploaded_file\s*\(/', $code ) || ! preg_match( '/\bunlink\s*\(/', $code ) || ! preg_match( '/\brmdir\s*\(/', $code ) ) {
+				continue;
+			}
+			$found[] = [
+				'severity'    => 'critical',
+				'type'        => 'Tiny File Manager web shell',
+				'subject'     => self::display_path( $path ) . ' is the stand-alone Tiny File Manager program placed inside wp-content',
+				'path'        => $path,
+				'action'      => 'This is the open-source Tiny File Manager program, which lets whoever signs in browse, upload, edit and delete every file on the site. It ships with default passwords, and it has no place inside a WordPress plugin. It is removed. Treat the site as compromised: find how it was written, check administrator users and application passwords, and reset passwords and salts.',
+				'auto_delete' => true,
+				'delete_path' => $path,
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'tiny_file_manager_found', self::display_path( $path ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.141: a PHP file that opens with an HTML comment holding a random token.
+	 *
+	 * Recovered shape: `styIe.php` (16 bytes, only `<!--z3woRLP0-->`) and the Tiny
+	 * File Manager files, which open with `<!--j3btCRiG-->`. The token is how the
+	 * kit finds and counts its own files; a lookalike name (`styIe.php` with a
+	 * capital I, `sldebar.php`) is the cover. A comment made of letters and
+	 * digits with at least one digit and one capital, as the first thing in a
+	 * PHP file, is not something a template or plugin does.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_marker_comment_php(): array {
+		$found    = [];
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		foreach ( array_keys( self::kit_and_plugin_php_files( 1 ) ) as $path ) {
+			$real = realpath( $path ) ?: $path;
+			if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
+				continue;
+			}
+			$head = (string) @file_get_contents( $path, false, null, 0, 120 );
+			if ( ! preg_match( '/^\s*<!--([A-Za-z0-9]{8})-->/', $head, $m ) || ( $caps = preg_match_all( '/[A-Z]/', $m[1] ) ) < 2 || ! preg_match( '/[a-z]/', $m[1] ) || ( $caps < 3 && ! preg_match( '/\d/', $m[1] ) ) ) {
+				continue;
+			}
+			if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+				continue;
+			}
+			$size    = (int) @filesize( $path );
+			$stub    = $size <= 80;
+			$found[] = [
+				'severity'    => 'critical',
+				'type'        => 'PHP file stamped with a shell kit\'s random marker',
+				'subject'     => self::display_path( $path ) . ( $stub ? ' is only the marker <!--' . $m[1] . '-->' : ' opens with the marker <!--' . $m[1] . '-->' ),
+				'path'        => $path,
+				'action'      => 'A PHP file whose first line is an HTML comment holding a random token is how a shell kit tags the files it plants, often under a lookalike name. ' . ( $stub ? 'This one holds nothing else, a placeholder waiting for a payload or what is left of one. ' : '' ) . 'The file is removed. Look in the same folder for other planted files, and find how it was written.',
+				'auto_delete' => true,
+				'delete_path' => $path,
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'marker_comment_php_found', self::display_path( $path ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.141: an `error_log` that shows a web shell was used, not just planted.
+	 *
+	 * Recovered shape (the `bd-*` shell folders' own `error_log`): lines such as
+	 * `PHP Parse error: Unclosed '{' in /tmp/.partition on line 1`. The operator fed
+	 * the shell commands that wrote payload fragments to hidden files in /tmp and
+	 * tried to run them as PHP; the half-written ones fail to parse. The names
+	 * (`.partition`, `.system`, `.class`, `.db2_convert`) are the file names the kit
+	 * later drops into the site (`partition.php`, `uconvert.php`, `backend.php`).
+	 * Report only: the log is evidence worth keeping, and it is not the threat.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_shell_use_evidence(): array {
+		$found = [];
+		$n     = 0;
+		$done  = [];
+		foreach ( array_keys( self::kit_and_plugin_php_files( 1 ) ) as $php ) {
+			// Look beside each PHP file, once per folder.
+			$dir = dirname( $php );
+			if ( isset( $done[ $dir ] ) || ++$n > 3000 ) {
+				continue;
+			}
+			$done[ $dir ] = true;
+			$log = $dir . '/error_log';
+			if ( ! is_file( $log ) || ( @filesize( $log ) ?: 0 ) > 5000000 ) {
+				continue;
+			}
+			$tail = (string) @file_get_contents( $log, false, null, max( 0, ( (int) @filesize( $log ) ) - 300000 ) );
+			if ( ! preg_match_all( "#Parse error:\\s+(?:syntax error, )?[^\\r\\n]*? in /tmp/\\.([A-Za-z0-9_]{2,24}) on line \\d+#", $tail, $m ) ) {
+				continue;
+			}
+			$names   = array_values( array_unique( $m[1] ) );
+			$found[] = [
+				'severity' => 'high',
+				'type'     => 'Error log showing a web shell was run',
+				'subject'  => self::display_path( $log ) . ' records ' . count( $m[0] ) . ' failed runs of hidden files in /tmp (' . implode( ', ', array_map( static fn( $x ) => '.' . $x, array_slice( $names, 0, 8 ) ) ) . ')',
+				'path'     => $log,
+				'action'   => 'A shell on this site was used, not only planted: someone sent it commands that wrote hidden files to /tmp and tried to run them. Keep this log as evidence. Treat the site as compromised: look for planted files named after those entries (' . implode( '.php, ', array_slice( $names, 0, 8 ) ) . '.php) in the web root, uploads and plugin folders, check administrator users and application passwords, reset passwords and salts, and ask your host to clear /tmp. Nothing is removed automatically.',
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'shell_use_evidence_found', self::display_path( $log ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.142: a folder tagged by the kit with two dot-files named after itself.
+	 *
+	 * Recovered shape (`aero-manager-bit/`): four entries, all zero bytes, the main
+	 * `aero-manager-bit.php` plus `.bt_aero-manager-bit` and `.swm_aero-manager-bit`.
+	 * Everything that did anything has been emptied, but the kit's two tag files
+	 * remain, each named after the folder it sits in. A folder that holds both is
+	 * the kit's, whatever else is left in it. Looks only at the folders directly
+	 * under plugins, mu-plugins and wp-content.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_kit_folder_tags(): array {
+		$found    = [];
+		$roots    = [];
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		foreach ( [ 'WP_PLUGIN_DIR', 'WPMU_PLUGIN_DIR', 'WP_CONTENT_DIR', 'ABSPATH' ] as $c ) {
+			if ( defined( $c ) && is_dir( constant( $c ) ) ) {
+				$roots[] = rtrim( constant( $c ), '/\\' );
+			}
+		}
+		$up = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
+		if ( is_array( $up ) && empty( $up['error'] ) && ! empty( $up['basedir'] ) && is_dir( $up['basedir'] ) ) {
+			$roots[] = rtrim( $up['basedir'], '/\\' );
+		}
+		$n = 0;
+		foreach ( array_unique( $roots ) as $root ) {
+			try {
+				foreach ( new DirectoryIterator( $root ) as $d ) {
+					if ( self::out_of_time() || ++$n > 3000 ) {
+						return $found;
+					}
+					if ( $d->isDot() || ! $d->isDir() ) {
+						continue;
+					}
+					$name = $d->getFilename();
+					$dir  = $d->getPathname();
+					// The kit's hidden staging folder: `.sc_` and eight hex characters, in any of these places.
+					$staging = (bool) preg_match( '/^\.sc_[0-9a-f]{8}$/', $name );
+					if ( ! $staging && ( ! is_file( $dir . '/.bt_' . $name ) || ! is_file( $dir . '/.swm_' . $name ) ) ) {
+						continue;
+					}
+					$real = realpath( $dir ) ?: $dir;
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
+						continue;
+					}
+					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $dir ) ) {
+						continue;
+					}
+					$found[] = [
+						'severity'    => 'critical',
+						'type'        => 'Folder tagged by a plugin-folder kit',
+						'subject'     => self::display_path( $dir ) . ( $staging ? ' is the kit\'s hidden staging folder (.sc_ and eight hex characters)' : ' holds both .bt_' . $name . ' and .swm_' . $name ),
+						'path'        => $dir,
+						'action'      => 'A folder that holds two dot-files named after itself (.bt_<folder> and .swm_<folder>) is a folder the kit created, often with everything inside emptied but these tags left. The folder is removed. Check the same site for other folders with a similar look and for the loader that creates them.',
+						'auto_delete' => true,
+						'delete_path' => $dir,
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'kit_folder_tags_found', self::display_path( $dir ) );
 					}
 				}
 			} catch ( \Throwable $t ) {

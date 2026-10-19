@@ -672,3 +672,15 @@ Decision: a subfolder stub is never legitimate, so it is always acted on; a root
 
 ### Review findings on the exposure guard (1.4.138)
 Both CodeAnt findings on PR 12 were valid and fixed: the endpoint is the whole path, not its last segment, and a REST exemption matches whole namespace segments. Lesson: read the bot review before merging, not after. Digest 1.4.138: `endpoint_of`, `rest_gate`.
+
+### Independent review of 1.4.131 to 1.4.138 (1.4.139)
+A subagent was asked to break the new code, read-only, and every finding was verified before a change. The serious one was structural: `WPS_Remediation_Policy` is the real gate for every auto-delete, a finding type it does not list is treated as a guess, and a new check that sets `auto_delete` without the type being listed reports removal that the policy then denies. Rule going forward: a new auto-removing check is not done until its type is in `CONCLUSIVE_TYPES` (when it rests on a conjunction) or its text says it is report-only, and a test asserts it through `is_conclusive`. Digest 1.4.139: `CONCLUSIVE_TYPES`, `endpoint_of`, `route_endpoint`, `ip_matches`, `keep_if_unparsable`, `kit_roots`.
+
+### Medusa FM kit (1.4.140)
+Decision: the kit is matched by its own names (two markers in one file, or its content host), and removal is file-level so a trojanised legitimate plugin keeps its code. `clr.php` (a plain cache purger) is deliberately not flagged. Digest 1.4.140: `check_medusa_fm_kit`, `cookie_exfil_c2_domains`, `secondary_backdoor_filenames`, `INDICATOR_VERSION` 1.4.140-1, `CONCLUSIVE_TYPES`.
+
+### Tiny File Manager and marker-stamped files (1.4.141)
+The three existing file-manager checks report and set no removal target by design, because a file manager can be a legitimate plugin. The stand-alone Tiny File Manager program is different: its banner, constants and write calls together, in wp-content, are a shell by location. Detection that never removes is not done: this release was found by running a sample through the removal policy, not only the scan. Digest 1.4.141: `check_tiny_file_manager_shell`, `check_marker_comment_php`, `plugin_php_files` min-size parameter, `CONCLUSIVE_TYPES`.
+
+### Code Snippets ban (1.4.142)
+Operator decision, not a malware finding: the genuine plugin (3.10.2, all 518 files matching wordpress.org) is banned because it executes database-stored PHP, which a file scanner cannot see and which survives replacing every file. Same substring rule as Protect Uploads, quarantine tier. Its snippets stay in the database. Digest 1.4.142: `get_policy_banned_slugs`, the Banned plugins settings text, `test-policy-ban.php`.

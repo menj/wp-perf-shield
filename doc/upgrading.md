@@ -59,6 +59,22 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.142
+
+**Code Snippets is now on the banned-plugin list.** It cannot be installed or activated, and a copy on disk is removed on the next admin request (within about a minute on the front end). Its snippets stay in the database table `wp_snippets` and stop running; read them before you drop the table. Any plugin whose slug contains `code-snippets` is refused too. To allow it again, remove it under Settings, Banned plugins, or switch the policy off there.
+
+## 1.4.141
+
+**New detections: the Tiny File Manager shell and kit-stamped PHP files.** A copy of the stand-alone Tiny File Manager program inside wp-content, and a PHP file that opens with a random-token comment such as `<!--z3woRLP0-->`, are removed automatically. If the scan reports one, the plugin folder it was in (often a copy of a real plugin under a random name) was a carrier: check the genuine plugin files against wordpress.org's checksums, then delete the carrier folder. Nothing to configure.
+
+## 1.4.140
+
+**New detection: the Medusa FM kit** (a cloaking gate that replaces index.php and .htaccess and heals itself through a mu-plugin). Its files are removed automatically. If the scan reports one, remove `wp-content/mu-plugins/ms-index-heal.php` first, then restore `index.php` and `.htaccess` (they are locked read-only), and check `advanced-cache.php`, the `WP_CACHE` line in `wp-config.php` and a stray `license.html` in the web root. Nothing to configure.
+
+## 1.4.139
+
+**Automatic removal now actually happens for the checks added since 1.4.131.** Before, the removal policy denied it for most of them and the finding stayed in place; check Findings for items marked "REMOVAL DENIED BY POLICY" from the last few releases and rescan. Also fixed: the XML-RPC 404 could be bypassed with `/xmlrpc.php/x` and similar paths; IPv4 deny rules now match IPv4-mapped IPv6 clients; a Search Console file inside a subfolder is reported rather than removed (outside uploads); a mistyped IP list no longer wipes the saved one. Nothing to configure.
+
 ## 1.4.138
 
 **Two fixes to the optional XML-RPC and exposure controls.** If you use a custom XML-RPC endpoint, only that exact path serves it now, not any path ending in the slug. If you use "REST API for signed-in users only" with exempt namespaces, an exemption such as `my-app/v1` no longer also covers `my-app/v10`; list each namespace you want exempt. Nothing changes if these options are off.

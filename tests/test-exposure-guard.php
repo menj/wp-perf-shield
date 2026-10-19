@@ -97,7 +97,16 @@ check( 'valid addresses and ranges are kept, junk and bad prefixes dropped', [ '
 check( 'EVERY entry applies, not only the first (the source plugin applied one)', WPS_Exposure_Guard::ip_matches( '203.0.113.7', $rules ) && WPS_Exposure_Guard::ip_matches( '198.51.100.200', $rules ) && WPS_Exposure_Guard::ip_matches( '2001:db8:1::5', $rules ) );
 check( 'addresses outside every range do not match', ! WPS_Exposure_Guard::ip_matches( '203.0.113.8', $rules ) && ! WPS_Exposure_Guard::ip_matches( '198.51.101.1', $rules ) && ! WPS_Exposure_Guard::ip_matches( '2001:db9::1', $rules ) );
 check( 'a /20 range with a partial byte is exact', WPS_Exposure_Guard::ip_matches( '192.0.95.255', [ '192.0.80.0/20' ] ) && ! WPS_Exposure_Guard::ip_matches( '192.0.96.0', [ '192.0.80.0/20' ] ) );
-check( 'an IPv4 range never matches an IPv6 address', ! WPS_Exposure_Guard::ip_matches( '::ffff:203.0.113.7', [ '203.0.113.0/24' ] ) );
+check( 'a genuine IPv6 address never matches an IPv4 range', ! WPS_Exposure_Guard::ip_matches( '2001:db8::7', [ '203.0.113.0/24' ] ) );
+check( 'an IPv4-mapped IPv6 client matches an IPv4 range and an IPv4 address', WPS_Exposure_Guard::ip_matches( '::ffff:203.0.113.7', [ '203.0.113.0/24' ] ) && WPS_Exposure_Guard::ip_matches( '::ffff:203.0.113.7', [ '203.0.113.7' ] ) );
+check( 'a mapped CIDR rule keeps its meaning: ::ffff:203.0.113.0/120 covers the whole /24, not only its network address', WPS_Exposure_Guard::ip_matches( '203.0.113.77', [ '::ffff:203.0.113.0/120' ] ) && WPS_Exposure_Guard::ip_matches( '::ffff:203.0.113.200', [ '::ffff:203.0.113.0/120' ] ) && ! WPS_Exposure_Guard::ip_matches( '203.0.114.1', [ '::ffff:203.0.113.0/120' ] ) );
+check( 'a mapped rule shorter than /96 is not treated as an IPv4 rule, and impossible prefixes are ignored', ! WPS_Exposure_Guard::ip_matches( '203.0.113.7', [ '::ffff:203.0.113.0/64' ] ) && ! WPS_Exposure_Guard::ip_matches( '203.0.113.7', [ '203.0.113.0/40' ] ) );
+check( 'an IPv4 client matches an IPv4-mapped rule', WPS_Exposure_Guard::ip_matches( '203.0.113.7', [ '::ffff:203.0.113.7' ] ) );
+check( 'a mapped client outside the range does not match', ! WPS_Exposure_Guard::ip_matches( '::ffff:198.51.100.7', [ '203.0.113.0/24' ] ) );
+check( 'endpoint_of sees xmlrpc.php behind a doubled slash and a percent-encoded dot', 'xmlrpc.php' === WPS_Exposure_Guard::endpoint_of( '//xmlrpc.php' ) && 'xmlrpc.php' === WPS_Exposure_Guard::endpoint_of( '/xmlrpc%2ephp' ) );
+check( 'endpoint_of keeps PATH_INFO and path parameters so the 404 rule can match them', 'xmlrpc.php/x' === WPS_Exposure_Guard::endpoint_of( '/xmlrpc.php/x' ) && 'xmlrpc.php;x' === WPS_Exposure_Guard::endpoint_of( '/xmlrpc.php;x' ) );
+check( 'rules_rejected is true only when something was typed and none of it was valid', WPS_Exposure_Guard::rules_rejected( 'oops, not an ip' ) && ! WPS_Exposure_Guard::rules_rejected( '' ) && ! WPS_Exposure_Guard::rules_rejected( "   \n " ) && ! WPS_Exposure_Guard::rules_rejected( "203.0.113.7\nnonsense" ) );
+check( 'a list that parsed to nothing keeps the previous value; a valid or empty one is used as given', '10.0.0.1' === WPS_Exposure_Guard::keep_if_unparsable( 'oops, not an ip', '', '10.0.0.1' ) && '' === WPS_Exposure_Guard::keep_if_unparsable( '', '', '10.0.0.1' ) && '1.2.3.4' === WPS_Exposure_Guard::keep_if_unparsable( '1.2.3.4', '1.2.3.4', '10.0.0.1' ) );
 check( 'empty lists allow everyone', WPS_Exposure_Guard::ip_allowed( '1.2.3.4', [], [] ) );
 check( 'a non-empty allow list admits only its members', WPS_Exposure_Guard::ip_allowed( '203.0.113.7', $rules, [] ) && ! WPS_Exposure_Guard::ip_allowed( '9.9.9.9', $rules, [] ) );
 check( 'the deny list always wins over the allow list', ! WPS_Exposure_Guard::ip_allowed( '203.0.113.7', $rules, [ '203.0.113.0/24' ] ) );
@@ -125,6 +134,8 @@ check( 'the exempted namespace root itself passes', null === WPS_Exposure_Guard:
 unset( $_SERVER['REQUEST_URI'] );
 $_GET['rest_route'] = '/wp/v2/users';
 check( 'plain-permalink rest_route is read too', WPS_Exposure_Guard::rest_gate( null ) instanceof WP_Error );
+$_GET['rest_route'] = [ 'x' ];
+check( 'an array-valued rest_route is refused without a warning', WPS_Exposure_Guard::rest_gate( null ) instanceof WP_Error );
 unset( $_GET['rest_route'] );
 check( 'an earlier error is passed through unchanged', 'earlier' === WPS_Exposure_Guard::rest_gate( 'earlier' ) );
 check( 'namespace prefixes are validated', "contact-form-7/\nmy-app/v1" === WPS_Exposure_Guard::sanitize_namespaces( "Contact-Form-7/\nmy-app/v1\n../etc\n<x>" ), WPS_Exposure_Guard::sanitize_namespaces( "Contact-Form-7/\nmy-app/v1\n../etc\n<x>" ) );
@@ -180,6 +191,14 @@ check( 'with no rules set nothing is refused', false !== strpos( $o, '[continued
 $opts = json_encode( [ 'xr_slug' => 'wp-rpc-1a2b' ] );
 $o = run_sub( $opts, 'route', '/xmlrpc.php' );
 check( 'with an endpoint name set, xmlrpc.php answers 404 and stops', false !== strpos( $o, '[status:404]' ) && false === strpos( $o, 'XMLRPC-SERVED' ) && false === strpos( $o, '[continued]' ), $o );
+foreach ( [ '/xmlrpc.php/x', '//xmlrpc.php', '/xmlrpc%2ephp', '/xmlrpc.php;x' ] as $bypass ) {
+	$o = run_sub( $opts, 'route', $bypass );
+	check( 'xmlrpc.php still answers 404 for ' . $bypass, false !== strpos( $o, '[status:404]' ) && false === strpos( $o, 'XMLRPC-SERVED' ), $o );
+}
+$o = run_sub( $opts, 'route', '/shop/xmlrpc.php' );
+check( 'a nested /shop/xmlrpc.php is not the XML-RPC file and is left alone', false !== strpos( $o, '[continued]' ) && false === strpos( $o, '404' ), $o );
+$o = run_sub( $opts, 'route', '/anything/wp-rpc-1a2b' );
+check( 'the endpoint name nested under another path does not serve XML-RPC', false === strpos( $o, 'XMLRPC-SERVED' ), $o );
 $o = run_sub( $opts, 'route', '/wp-rpc-1a2b' );
 check( 'the endpoint name serves XML-RPC', false !== strpos( $o, 'XMLRPC-SERVED' ), $o );
 $o = run_sub( $opts, 'route', '/some-other-page/' );

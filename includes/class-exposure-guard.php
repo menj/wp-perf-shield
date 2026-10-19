@@ -195,8 +195,11 @@ class WPS_Exposure_Guard {
 	 * "/blog/wp-rpc-1a2b/?x=1" with home path "/blog/" is "wp-rpc-1a2b".
 	 */
 	public static function endpoint_of( string $request_uri, string $home_path = '/' ): string {
-		$path = (string) parse_url( $request_uri, PHP_URL_PATH );
-		$home = '/' . trim( $home_path, '/' );
+		// '//xmlrpc.php' would otherwise parse as a host, and '%2e' hides a dot.
+		$request_uri = (string) preg_replace( '#^/{2,}#', '/', $request_uri );
+		$path        = rawurldecode( (string) parse_url( $request_uri, PHP_URL_PATH ) );
+		$path        = (string) preg_replace( '#/{2,}#', '/', $path );
+		$home        = '/' . trim( $home_path, '/' );
 		if ( '/' !== $home && 0 === strpos( $path, $home . '/' ) ) {
 			$path = substr( $path, strlen( $home ) );
 		}
@@ -217,7 +220,9 @@ class WPS_Exposure_Guard {
 		$home = (string) parse_url( (string) get_option( 'home' ), PHP_URL_PATH );
 		$page = self::endpoint_of( (string) ( $_SERVER['REQUEST_URI'] ?? '' ), '' === $home ? '/' : $home );
 
-		if ( 'xmlrpc.php' === $page ) {
+		// xmlrpc.php anywhere in the path: Apache also runs it for /xmlrpc.php/x (PATH_INFO)
+		// and for /xmlrpc.php;x, so an exact match would leave those open.
+		if ( preg_match( '#^xmlrpc\.php(?:[/;]|$)#i', $page ) ) {
 			if ( function_exists( 'status_header' ) ) {
 				status_header( 404 );
 			}
@@ -230,9 +235,7 @@ class WPS_Exposure_Guard {
 			return;
 		}
 		self::enforce_ip_policy();
-		if ( ! defined( 'XMLRPC_REQUEST' ) ) {
-			define( 'XMLRPC_REQUEST', true );
-		}
+		// xmlrpc.php defines XMLRPC_REQUEST itself; defining it first prints a redefinition warning.
 		include ABSPATH . 'xmlrpc.php';
 		exit;
 	}
@@ -279,25 +282,46 @@ class WPS_Exposure_Guard {
 	}
 
 	/** Does $ip fall inside any single address or CIDR range in $rules? */
+	/** An IPv4-mapped IPv6 address (::ffff:a.b.c.d) as its four IPv4 bytes; anything else unchanged. */
+	private static function native_bytes( string $bin ): string {
+		return 16 === strlen( $bin ) && "\0\0\0\0\0\0\0\0\0\0\xff\xff" === substr( $bin, 0, 12 ) ? substr( $bin, 12 ) : $bin;
+	}
+
 	public static function ip_matches( string $ip, array $rules ): bool {
 		$bin = @inet_pton( $ip );
 		if ( false === $bin ) {
 			return false;
 		}
+		// A dual-stack server reports an IPv4 client as ::ffff:a.b.c.d; compare it as IPv4.
+		$bin = self::native_bytes( $bin );
 		foreach ( $rules as $rule ) {
 			$rule = (string) $rule;
 			if ( false === strpos( $rule, '/' ) ) {
-				if ( @inet_pton( $rule ) === $bin ) {
+				$rb = @inet_pton( $rule );
+				if ( false !== $rb && self::native_bytes( $rb ) === $bin ) {
 					return true;
 				}
 				continue;
 			}
 			[ $addr, $bits ] = explode( '/', $rule, 2 );
-			$net = @inet_pton( $addr );
+			$net  = @inet_pton( $addr );
+			$bits = (int) $bits;
+			if ( false !== $net && 16 === strlen( $net ) && self::native_bytes( $net ) !== $net ) {
+				// A mapped range: the prefix counts from the start of the 128-bit form, so
+				// the part that falls inside the four IPv4 bytes is bits - 96. A prefix
+				// shorter than 96 covers more than the mapped space and is not an IPv4 rule.
+				if ( $bits < 96 ) {
+					continue;
+				}
+				$bits -= 96;
+			}
+			$net = false === $net ? false : self::native_bytes( $net );
 			if ( false === $net || strlen( $net ) !== strlen( $bin ) ) {
 				continue; // an IPv4 range never matches an IPv6 address
 			}
-			$bits  = (int) $bits;
+			if ( $bits < 0 || $bits > 8 * strlen( $bin ) ) {
+				continue; // not a valid prefix length for this address family
+			}
 			$bytes = intdiv( $bits, 8 );
 			if ( $bytes > 0 && substr( $bin, 0, $bytes ) !== substr( $net, 0, $bytes ) ) {
 				continue;
@@ -327,6 +351,20 @@ class WPS_Exposure_Guard {
 			return true;
 		}
 		return '' !== $ip && self::ip_matches( $ip, $allow );
+	}
+
+	/**
+	 * A list the operator typed but that parsed to nothing (every entry mistyped)
+	 * must not silently become an empty list, which for an allow list means
+	 * "allow everyone". The previous saved value is kept instead.
+	 */
+	public static function keep_if_unparsable( string $raw, string $clean, string $previous ): string {
+		return ( '' === $clean && '' !== trim( $raw ) ) ? $previous : $clean;
+	}
+
+	/** True when something was typed but not one entry was a valid address or range. */
+	public static function rules_rejected( string $raw ): bool {
+		return '' !== trim( $raw ) && '' === self::sanitize_rules( $raw );
 	}
 
 	public static function maybe_enforce_ip_policy(): void {
@@ -434,7 +472,7 @@ class WPS_Exposure_Guard {
 
 	public static function rest_route_of_request(): string {
 		if ( isset( $_GET['rest_route'] ) ) {
-			return (string) $_GET['rest_route'];
+			return is_string( $_GET['rest_route'] ) ? $_GET['rest_route'] : '';
 		}
 		$path   = (string) parse_url( (string) ( $_SERVER['REQUEST_URI'] ?? '' ), PHP_URL_PATH );
 		$prefix = function_exists( 'rest_get_url_prefix' ) ? rest_get_url_prefix() : 'wp-json';

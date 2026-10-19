@@ -126,6 +126,18 @@ check( 'the same plugin under an unlisted folder name is removed by its main fil
 check( 'tombstones sit where all three were', is_file( $P . '/rcromlb' ) && is_file( $P . '/hvmosjt' ) && is_file( $P . '/zzqq-random-77' ) );
 check( 'the activation guard refuses its main file under any folder', WPS_Blocker::is_policy_banned( 'rcromlb/protect-uploads.php' ) && WPS_Blocker::is_policy_banned( 'anything-at-all/protect-uploads.php' ) );
 
+// Code Snippets (operator ban, 1.4.142): under its own name, as the pro variant, and under a folder name nobody listed.
+$cs = "<?php\n/**\n * Plugin Name:  Code Snippets\n * Version:      3.10.2\n */\n";
+put( $P . '/code-snippets/code-snippets.php', $cs );
+put( $P . '/code-snippets-pro/x.php', "<?php\n" );
+put( $P . '/qq-renamed-31/code-snippets.php', $cs );
+put( $P . '/some-other-plugin/some-other-plugin.php', "<?php\n/**\n * Plugin Name:  Some Other Plugin\n */\n" );
+$removed = WPS_Blocker::enforce_policy_ban();
+check( 'Code Snippets is removed under its own name and as the pro variant', in_array( 'code-snippets', $removed, true ) && in_array( 'code-snippets-pro', $removed, true ), json_encode( $removed ) );
+check( 'Code Snippets under an unlisted folder name is removed by its main file', in_array( 'qq-renamed-31', $removed, true ), json_encode( $removed ) );
+check( 'an unrelated plugin is left alone', is_dir( $P . '/some-other-plugin' ) );
+check( 'the activation guard refuses code-snippets under any folder', WPS_Blocker::is_policy_banned( 'code-snippets/code-snippets.php' ) && WPS_Blocker::is_policy_banned( 'whatever/code-snippets.php' ) );
+
 // A tombstone written for a folder banned by its main file (an arbitrary name) must SURVIVE the
 // next sweep; it used to be deleted because that folder name is not itself banned.
 WPS_Blocker::enforce_policy_ban();

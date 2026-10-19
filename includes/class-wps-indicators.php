@@ -36,7 +36,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class WPS_Indicators {
 
-	const INDICATOR_VERSION = '1.4.96-1';
+	const INDICATOR_VERSION = '1.4.140-1';
 
 	/**
 	 * All confirmed malware-set option keys across the wp-perf-analytics /
@@ -150,6 +150,7 @@ class WPS_Indicators {
 	public static function cookie_exfil_c2_domains(): array {
 		return [
 			'webanalytics-cdn.sbs',
+			'istanbulescortladys.com', // Medusa FM kit: the gate fetches its page content from /ist.txt here  added 1.4.140
 		];
 	}
 
@@ -186,6 +187,11 @@ class WPS_Indicators {
 			'wp-helper.php',         // wp-worker XMRig cryptominer loader (isXmrigRunning/startXmrig)  added 1.4.96
 			'sso-loader.php',        // standalone file copy of the SSO login-bypass loader  added 1.4.96
 			'wp-loader.php',         // Basic-Auth "WordPress Test Shell" file manager / web shell  added 1.4.96
+			'fm_index_heal.php',     // Medusa FM kit: restores a cloaking index.php/.htaccess and locks them 0444  added 1.4.140
+			'fm_early_router.php',   // Medusa FM kit: pre-WordPress crawler router written into advanced-cache.php  added 1.4.140
+			'ms-index-heal.php',     // Medusa FM kit: the mu-plugin that re-creates the gate index.php after you delete it  added 1.4.140
+			'.ms_index.bak.php',     // Medusa FM kit: backup the heal mu-plugin restores index.php from  added 1.4.140
+			'.ms_htaccess.bak',      // Medusa FM kit: backup the heal mu-plugin restores .htaccess from  added 1.4.140
 		];
 	}
 

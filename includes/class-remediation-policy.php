@@ -172,6 +172,32 @@ final class WPS_Remediation_Policy {
 		// signed worm operation before reporting - several malicious
 		// behaviours at once, never one incidental match.
 		'Self-propagating link-injection worm',
+		// 1.4.139: each of these establishes its own conjunction before reporting
+		// (decoded PHP plus a file write; an administrator-creating endpoint with a
+		// signed-request gate; encoded script plus page hook plus admin-hiding; card
+		// fields plus the Telegram bot API plus request input; a random 32-hex name
+		// whose content repeats the same hex; the operator's own statement that the
+		// site verifies through Site Kit; high-confidence gambling markers plus a
+		// funnel or cloaking). Without this they were classed as guesses and the
+		// policy refused to remove them outside uploads, so the finding said
+		// "removed" while the removal was denied.
+		'Plugin that carries a hidden PHP file and writes it to disk',
+		'Remote-controlled endpoint that creates administrators',
+		'Plugin that prints a hidden encoded script into visitors',
+		'Phishing kit that sends card details to a Telegram bot',
+		'Write-access probe file left by an intruder',
+		'Search Console verification file on a Site Kit site',
+		'Gambling spam doorway page',
+		// 1.4.140: the kit's own function and constant names, two at once, or its remote content host.
+		'Medusa FM kit file',
+		// 1.4.140: a static sitemap of 100+ consecutive ?p=<id> entries, nearly all dated one day.
+		'Sitemap listing a flood of injected posts',
+		// 1.4.141: the stand-alone Tiny File Manager program (banner, constants and file-writing
+		// functions together) inside wp-content; a PHP file opening with a random-token comment.
+		'Tiny File Manager web shell',
+		'PHP file stamped with a shell kit',
+		// 1.4.142: two dot-files named after their own folder, .bt_<folder> and .swm_<folder>.
+		'Folder tagged by a plugin-folder kit',
 	];
 
 	/*

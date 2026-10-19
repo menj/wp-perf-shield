@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.138
+Stable tag: 1.4.142
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,18 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.142 =
+Code Snippets is now banned: refused at install and activation and removed from disk, with its database snippets left in place. Add or remove entries under Settings, Banned plugins.
+
+= 1.4.141 =
+Detects and removes the Tiny File Manager program placed inside wp-content, and PHP files stamped with a shell kit's random marker (including look-alike names), found in trojanised copies of Akismet.
+
+= 1.4.140 =
+New detection and removal of the Medusa FM kit (crawler-cloaking gate that rewrites index.php and .htaccess and heals itself through a mu-plugin), including its remote content host and file names.
+
+= 1.4.139 =
+Independent review of the 1.4.131 to 1.4.138 additions. Automatic removal now works for the new checks (the removal policy denied it before), the XML-RPC 404 can no longer be bypassed, IPv4-mapped IPv6 clients match IPv4 deny rules, and several scan-scope and false-positive fixes.
 
 = 1.4.138 =
 Fixes two matching bugs in the optional XML-RPC endpoint and REST exemptions (nested paths and longer namespaces were matched too broadly).
@@ -650,6 +662,18 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.142 =
+Code Snippets is now on the banned-plugin list and will be removed if present. Read its snippets in the database before dropping the table.
+
+= 1.4.141 =
+Adds removal of file-manager web shells and marker-stamped placeholder files hidden in copies of real plugins.
+
+= 1.4.140 =
+Adds detection of the Medusa FM crawler-cloaking kit hidden inside a trojanised Protect Uploads.
+
+= 1.4.139 =
+Important: the new detections added since 1.4.131 now remove what they find (the policy denied it before), and the XML-RPC endpoint rename can no longer be bypassed.
 
 = 1.4.138 =
 Tightens matching of the custom XML-RPC endpoint and REST namespace exemptions. Only matters if you enabled them.

@@ -228,7 +228,7 @@ Safe target ever reaches the destructive gate.
 
 ## Banned plugins
 
-WP Perf Shield keeps a policy list of plugins this site has chosen not to run. It is separate from the malware blocklist: removal under it is a policy decision and is never described as malware. `wp-file-manager`, `fileorganizer`, `filebird` and `protect-uploads` are on it by default, along with the folder names `rcromlb` and `hvmosjt` that Protect Uploads has been found under; add more under **Settings, Banned plugins**. The whole policy can be switched off there, which also removes any placeholder files.
+WP Perf Shield keeps a policy list of plugins this site has chosen not to run. It is separate from the malware blocklist: removal under it is a policy decision and is never described as malware. `wp-file-manager`, `fileorganizer`, `filebird`, `code-snippets` and `protect-uploads` are on it by default, along with the folder names `rcromlb` and `hvmosjt` that Protect Uploads has been found under; add more under **Settings, Banned plugins**. The whole policy can be switched off there, which also removes any placeholder files.
 
 A banned plugin is refused when installed, uploaded or activated, and since 1.4.125 it is also removed from the plugins folder on the next admin request (within about a minute on the front end), whoever put it there. The removal is quarantined first, so it can be restored from Diagnostics, unless you have switched quarantine off in Settings, in which case it is deleted outright. A banned plugin that is already active still runs on the one request that removes it, because the sweep runs after plugins have loaded. A small placeholder file with the folder's name is left behind; a zip extraction cannot create a folder over a file. After three returns the folder is deleted instead of quarantined. `wp-file-manager` and `fileorganizer` are on a hard tier: deleted permanently the first time they are found, with no quarantine copy, and you are emailed at once. WP File Manager is also found by its main file, `file_folder_manager.php`, under any folder name, and the download of a banned plugin's zip is refused for anything that goes through the WordPress HTTP API, including WP-CLI, update routines and other plugins. A direct `curl` or stream download is not seen.
 
@@ -256,7 +256,7 @@ Each exits non-zero on failure. They do not replace running the plugin on a stag
 
 ## Version
 
-Current plugin version: `1.4.138`
+Current plugin version: `1.4.142`
 
 Author: [MENJ](https://github.com/menj)
 
