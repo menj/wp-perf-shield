@@ -10,7 +10,13 @@
 - **New `check_marker_comment_php`.** A PHP file whose first line is an HTML comment holding a random token of letters and digits with at least one digit, one capital and one lower-case letter (`<!--z3woRLP0-->`, `<!--j3btCRiG-->`). The kit stamps its files with it; the tiny stub and the shells both carry one. Ordinary template comments are not reported (tested). Critical, removed. The plugin file walker's 80-byte minimum had to become a parameter to see the 16-byte stub.
 - Both types are in `CO107LUSIVE_TYPES`; an end-to-end run through the removal policy reports all four extra files allowed.
 
-Tests: `test-plugin-malware-detection.php` 97 cases. Registered checks: NC (was 105).
+### Six more `bd-*` shells, and what their error logs show
+- **`bd-75fd60180eba` and five siblings** are the command-execution shell family from 1.4.126 again (a request field, a one-byte XOR, a chain of execution functions chosen with `function_exists`), under new folder names. All six were already caught, and an end-to-end run through the removal policy reports each whole folder allowed, so the `error_log` beside each shell goes with it.
+- **The `error_log` files are evidence.** They record `PHP Parse error: Unclosed '{' in /tmp/.partition on line 1` and the same for `.reset`, `.include`, `.system`, `.class`, `.db2_convert`, `.oauthexceptions` and `.mb_convert`: someone fed the shells commands that wrote payload fragments to hidden files in /tmp and tried to run them. These names match the blanked `partition.php`, `uconvert.php`, `backend.php` and `search.php` uploaded earlier, so those four were very probably written by shells of this family.
+- **New `check_shell_use_evidence` (report only).** An `error_log` beside a PHP file with failed runs of `/tmp/.<name>` files is reported at high with the names listed, so the owner knows the shell was used and what file names to look for. Nothing is removed, because the log is evidence and not the threat. An ordinary error log is not reported (tested).
+- A file named `wp-file-manager` that was also uploaded is this plugin's own ban tombstone, the marker it leaves where it deleted the banned plugin folder; it confirms the ban worked on that site.
+
+Tests: `test-plugin-malware-detection.php` 99 cases. Registered checks: 108 (was 105).
 
 ## 1.4.140
 

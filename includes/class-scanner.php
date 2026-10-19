@@ -613,6 +613,7 @@ class WPS_Scanner {
 			'check_mass_post_sitemap' => [ __CLASS__, 'check_mass_post_sitemap' ], // 1.4.140: static sitemap listing hundreds of consecutive ?p=<id> URLs from one day (a spam kit's post flood)
 			'check_tiny_file_manager_shell' => [ __CLASS__, 'check_tiny_file_manager_shell' ], // 1.4.141: the stand-alone Tiny File Manager script placed inside wp-content (a web shell by location)
 			'check_marker_comment_php' => [ __CLASS__, 'check_marker_comment_php' ], // 1.4.141: PHP file that opens with a random-token HTML comment, the tag a shell kit stamps on its files
+			'check_shell_use_evidence' => [ __CLASS__, 'check_shell_use_evidence' ], // 1.4.141: error_log lines showing a shell was fed commands that wrote payload files to /tmp/.<name> (report only)
 			'check_search_console_stub' => [ __CLASS__, 'check_search_console_stub' ], // 1.4.137: Search Console ownership stubs planted by doorway kits (and, on Site Kit sites, any at the root)
 			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
 			'check_mu_plugin_dropper' => [ __CLASS__, 'check_mu_plugin_dropper' ], // 1.4.120: plugin that copies bundled folders into mu-plugins and writes require loaders for them
@@ -7963,6 +7964,53 @@ class WPS_Scanner {
 			];
 			if ( class_exists( 'WPS_Logger' ) ) {
 				WPS_Logger::log_event( 'marker_comment_php_found', self::display_path( $path ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.141: an `error_log` that shows a web shell was used, not just planted.
+	 *
+	 * Recovered shape (the `bd-*` shell folders' own `error_log`): lines such as
+	 * `PHP Parse error: Unclosed '{' in /tmp/.partition on line 1`. The operator fed
+	 * the shell commands that wrote payload fragments to hidden files in /tmp and
+	 * tried to run them as PHP; the half-written ones fail to parse. The names
+	 * (`.partition`, `.system`, `.class`, `.db2_convert`) are the file names the kit
+	 * later drops into the site (`partition.php`, `uconvert.php`, `backend.php`).
+	 * Report only: the log is evidence worth keeping, and it is not the threat.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_shell_use_evidence(): array {
+		$found = [];
+		$n     = 0;
+		$done  = [];
+		foreach ( array_keys( self::kit_and_plugin_php_files( 1 ) ) as $php ) {
+			// Look beside each PHP file, once per folder.
+			$dir = dirname( $php );
+			if ( isset( $done[ $dir ] ) || ++$n > 3000 ) {
+				continue;
+			}
+			$done[ $dir ] = true;
+			$log = $dir . '/error_log';
+			if ( ! is_file( $log ) || ( @filesize( $log ) ?: 0 ) > 5000000 ) {
+				continue;
+			}
+			$tail = (string) @file_get_contents( $log, false, null, max( 0, ( (int) @filesize( $log ) ) - 300000 ) );
+			if ( ! preg_match_all( "#Parse error:\\s+(?:syntax error, )?[^\\r\\n]*? in /tmp/\\.([A-Za-z0-9_]{2,24}) on line \\d+#", $tail, $m ) ) {
+				continue;
+			}
+			$names   = array_values( array_unique( $m[1] ) );
+			$found[] = [
+				'severity' => 'high',
+				'type'     => 'Error log showing a web shell was run',
+				'subject'  => self::display_path( $log ) . ' records ' . count( $m[0] ) . ' failed runs of hidden files in /tmp (' . implode( ', ', array_map( static fn( $x ) => '.' . $x, array_slice( $names, 0, 8 ) ) ) . ')',
+				'path'     => $log,
+				'action'   => 'A shell on this site was used, not only planted: someone sent it commands that wrote hidden files to /tmp and tried to run them. Keep this log as evidence. Treat the site as compromised: look for planted files named after those entries (' . implode( '.php, ', array_slice( $names, 0, 8 ) ) . '.php) in the web root, uploads and plugin folders, check administrator users and application passwords, reset passwords and salts, and ask your host to clear /tmp. Nothing is removed automatically.',
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'shell_use_evidence_found', self::display_path( $log ) );
 			}
 		}
 		return $found;
