@@ -615,6 +615,7 @@ class WPS_Scanner {
 			'check_marker_comment_php' => [ __CLASS__, 'check_marker_comment_php' ], // 1.4.141: PHP file that opens with a random-token HTML comment, the tag a shell kit stamps on its files
 			'check_kit_folder_tags' => [ __CLASS__, 'check_kit_folder_tags' ], // 1.4.142: a plugin folder holding both .bt_<folder> and .swm_<folder> tag files, even when everything else has been emptied
 			'check_charcode_eval_payload' => [ __CLASS__, 'check_charcode_eval_payload' ], // 1.4.143: PHP stored as a long list of decimal character codes and run through eval
+			'check_keyed_command_backdoor' => [ __CLASS__, 'check_keyed_command_backdoor' ], // 1.4.144: plugin that runs a request-supplied command, gated only by a hard-coded key
 			'check_shell_use_evidence' => [ __CLASS__, 'check_shell_use_evidence' ], // 1.4.141: error_log lines showing a shell was fed commands that wrote payload files to /tmp/.<name> (report only)
 			'check_search_console_stub' => [ __CLASS__, 'check_search_console_stub' ], // 1.4.137: Search Console ownership stubs planted by doorway kits (and, on Site Kit sites, any at the root)
 			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
@@ -7947,7 +7948,7 @@ class WPS_Scanner {
 				continue;
 			}
 			$head = (string) @file_get_contents( $path, false, null, 0, 120 );
-			if ( ! preg_match( '/^\s*<!--([A-Za-z0-9]{8})-->/', $head, $m ) || ( $caps = preg_match_all( '/[A-Z]/', $m[1] ) ) < 2 || ! preg_match( '/[a-z]/', $m[1] ) || ( $caps < 3 && ! preg_match( '/\d/', $m[1] ) ) ) {
+			if ( ! preg_match( '/^\s*<!--([A-Za-z0-9]{8})-->/', $head, $m ) || ! preg_match( '/[a-z]/', $m[1] ) || ( ( $caps = preg_match_all( '/[A-Z]/', $m[1] ) ) < 3 && ( $caps < 2 || ! preg_match( '/\d/', $m[1] ) ) && preg_match_all( '/\d/', $m[1] ) < 3 ) ) {
 				continue;
 			}
 			if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
@@ -8168,6 +8169,84 @@ class WPS_Scanner {
 			];
 			if ( class_exists( 'WPS_Logger' ) ) {
 				WPS_Logger::log_event( 'charcode_eval_payload_found', self::display_path( $path ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.144: a command-execution backdoor gated only by a hard-coded key.
+	 *
+	 * Recovered shape (`wp-shell.php`, header "WP Site Maintenance"): on `init`, if
+	 * a request field equals a constant defined as a short literal (`'2026'`), an
+	 * action switch offers `info` (host, database name and user), `cmd` (shell_exec
+	 * of a request value), `files` (a directory listing) and more. Nothing asks who
+	 * the caller is. The existing command-shell check wants three execution
+	 * functions; this uses one. Three facts must hold in one file, judged on the code
+	 * with comments removed: a process-execution call whose argument comes from
+	 * request input, a comparison of request input with a hard-coded value, and no
+	 * capability, nonce or login check anywhere in the file.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_keyed_command_backdoor(): array {
+		$found    = [];
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		foreach ( array_keys( self::kit_and_plugin_php_files() ) as $path ) {
+			$size = @filesize( $path );
+			if ( false === $size || $size < 300 || $size > 400000 ) {
+				continue;
+			}
+			$real = realpath( $path ) ?: $path;
+			if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
+				continue;
+			}
+			if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+				continue;
+			}
+			$raw = @file_get_contents( $path );
+			if ( ! is_string( $raw ) || ! preg_match( '/\b(?:shell_exec|system|exec|passthru|popen|proc_open)\s*\(/i', $raw ) ) {
+				continue;
+			}
+			$code = self::code_without_comments( $raw );
+			// Only checks that actually protect count: an administrator-level capability or a nonce.
+			// `current_user_can( 'read' )` and is_user_logged_in() pass for any subscriber, and a
+			// backdoor can carry one on a page that does not guard the command route.
+			if ( preg_match( '/current_user_can\s*\(\s*[\'"](?:manage_options|install_plugins|edit_plugins|activate_plugins|update_core|edit_users|delete_users|manage_network|unfiltered_upload)[\'"]|wp_verify_nonce\s*\(|check_ajax_referer\s*\(|check_admin_referer\s*\(/i', $code ) ) {
+				continue;
+			}
+			// A request value reaches an execution function, directly or through one variable.
+			$req     = '\$_(?:REQUEST|POST|GET|COOKIE)';
+			$direct  = preg_match( '/\b(?:shell_exec|system|exec|passthru|popen|proc_open)\s*\(\s*' . $req . '\s*\[/i', $code );
+			$through = false;
+			if ( preg_match_all( '/\b(?:shell_exec|system|exec|passthru|popen|proc_open)\s*\(\s*(\$\w+)/i', $code, $vm ) ) {
+				foreach ( array_unique( $vm[1] ) as $var ) {
+					if ( preg_match( '/' . preg_quote( $var, '/' ) . '\s*=\s*(?:isset\s*\([^;]*?\)\s*\?\s*)?' . $req . '\s*\[/', $code ) ) {
+						$through = true;
+						break;
+					}
+				}
+			}
+			if ( ! $direct && ! $through ) {
+				continue;
+			}
+			// The only gate: request input compared with a constant or a short literal.
+			$gate = preg_match( '/' . $req . '\s*\[[^\]]+\]\s*===?\s*(?:[A-Z][A-Z0-9_]{2,}|[\'"][^\'"]{1,64}[\'"])/', $code )
+				|| preg_match( '/md5\s*\(\s*' . $req . '\s*\[[^\]]+\]\s*\)\s*===?\s*md5\s*\(\s*[A-Z][A-Z0-9_]{2,}\s*\)/', $code );
+			if ( ! $gate ) {
+				continue;
+			}
+			$found[] = [
+				'severity'    => 'critical',
+				'type'        => 'Command-execution backdoor gated by a hard-coded key',
+				'subject'     => self::display_path( $path ) . ' runs a command taken from the request, with only a fixed key as the gate',
+				'path'        => $path,
+				'action'      => 'This file runs a command supplied in the request through a process-execution function, and the only check is that the request carries a fixed value written into the file. There is no capability, nonce or sign-in check, so anyone who knows or guesses the key controls the server. The file is removed. Treat the site as compromised: check the folder for companion files, administrator users and application passwords, and reset passwords and salts.',
+				'auto_delete' => true,
+				'delete_path' => $path,
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'keyed_command_backdoor_found', self::display_path( $path ) );
 			}
 		}
 		return $found;

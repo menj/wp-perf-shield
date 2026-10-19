@@ -200,6 +200,8 @@ final class WPS_Remediation_Policy {
 		'Folder tagged by a plugin-folder kit',
 		// 1.4.143: a list of 1,500+ decimal character codes whose start decodes to PHP, in a file that calls eval.
 		'Character-code encoded PHP payload',
+		// 1.4.144: a request value reaching an execution function, a hard-coded-value gate, and no auth check, together.
+		'Command-execution backdoor gated by a hard-coded key',
 	];
 
 	/*

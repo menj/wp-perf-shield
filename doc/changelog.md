@@ -1,5 +1,16 @@
 # WP Perf Shield changelog
 
+## 1.4.144
+
+Eight uploads triaged statically (nothing executed). One new detection, one widened rule, and the rest already caught.
+
+- **`social-1792001794` and `social-1792001916` (identical apart from the folder and one file name): a plugin that is a backdoor.** The main file `wp-shell.php` ("WP Site Maintenance", 8 KB) is not flagged by any check. On `init`, if a request field equals the constant `WPMS_KEY` (`'2026'`), an action switch offers `info` (host, uname, database name and user, site URL), `cmd` (`shell_exec` of a request value), `files` (a directory listing) and more; a separate web page is unlocked by a cookie set from the same key. The only capability check in the file is `current_user_can('read')`, on an admin-menu page, which every subscriber passes and which does not guard the command route. The comments are in Russian. Two more files sit beside it: `styIe.php` and a timestamped twin (`error_404_1792001795.php`, `top.1792001918.php`), 4.8 KB uploaders that open with `<!--yf8zEMj9-->`; the marker check already removes those.
+- **New `check_keyed_command_backdoor`.** In one file, judged on code with comments removed: a request value reaches a process-execution function (directly or through one variable), request input is compared with a constant or a short literal, and there is no administrator-level capability (`manage_options`, `install_plugins`, ...) and no nonce check. The weak `read` capability and `is_user_logged_in()` do not count as protection, because a backdoor can carry one on a page that does not guard the command route. The existing command-shell check wants three execution functions; this uses one. Critical, conclusive, file-level removal, and allowed by the removal policy end to end. The same code behind `manage_options`, a fixed command behind a key, and a key compare with no execution are not reported (tested).
+- **The marker rule is widened once more.** The Akismet copy `seo_1792360606` (genuine except for two 231 KB Tiny File Manager files, `paqe.php` and `_inc/img/custom-file-5-1792360607.php`) is stamped `<!--125bVl80-->`: one capital, four digits. The rule is now a lower-case letter plus any of: three capitals; two capitals and a digit; three digits. `<!--Header12-->` (one capital, two digits) and `<!--TopMenus-->` are still not reported (tested). Tiny File Manager removes both files in any case.
+- **Already caught, no change:** `solid-payload-custodian-4063`, `smart-health-engine-0188` and `smart-seo-analytics-f08f` (payload-only folders with the loader missing); `wp-regex-patterns-fonts` (the encoded script injector again, under a new folder and a new file name, `wordpress-core.php`); and `auto-sizes` again (the genuine WordPress Performance Team plugin, identical to the copy verified earlier).
+
+Tests: `test-plugin-malware-detection.php` 119 cases. Registered checks: 111 (was 110).
+
 ## 1.4.143
 
 **A web shell stored as a list of character codes, inside a trojanised Protect Uploads.** `mtgamhd/` is the real Protect Uploads (banned here, removed by the on-disk ban under any folder name) plus one 300 KB file, `feedsback.php`, and the scanner reported nothing on it.
