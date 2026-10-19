@@ -613,6 +613,7 @@ class WPS_Scanner {
 			'check_mass_post_sitemap' => [ __CLASS__, 'check_mass_post_sitemap' ], // 1.4.140: static sitemap listing hundreds of consecutive ?p=<id> URLs from one day (a spam kit's post flood)
 			'check_tiny_file_manager_shell' => [ __CLASS__, 'check_tiny_file_manager_shell' ], // 1.4.141: the stand-alone Tiny File Manager script placed inside wp-content (a web shell by location)
 			'check_marker_comment_php' => [ __CLASS__, 'check_marker_comment_php' ], // 1.4.141: PHP file that opens with a random-token HTML comment, the tag a shell kit stamps on its files
+			'check_kit_folder_tags' => [ __CLASS__, 'check_kit_folder_tags' ], // 1.4.142: a plugin folder holding both .bt_<folder> and .swm_<folder> tag files, even when everything else has been emptied
 			'check_shell_use_evidence' => [ __CLASS__, 'check_shell_use_evidence' ], // 1.4.141: error_log lines showing a shell was fed commands that wrote payload files to /tmp/.<name> (report only)
 			'check_search_console_stub' => [ __CLASS__, 'check_search_console_stub' ], // 1.4.137: Search Console ownership stubs planted by doorway kits (and, on Site Kit sites, any at the root)
 			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
@@ -8011,6 +8012,69 @@ class WPS_Scanner {
 			];
 			if ( class_exists( 'WPS_Logger' ) ) {
 				WPS_Logger::log_event( 'shell_use_evidence_found', self::display_path( $log ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.142: a folder tagged by the kit with two dot-files named after itself.
+	 *
+	 * Recovered shape (`aero-manager-bit/`): four entries, all zero bytes, the main
+	 * `aero-manager-bit.php` plus `.bt_aero-manager-bit` and `.swm_aero-manager-bit`.
+	 * Everything that did anything has been emptied, but the kit's two tag files
+	 * remain, each named after the folder it sits in. A folder that holds both is
+	 * the kit's, whatever else is left in it. Looks only at the folders directly
+	 * under plugins, mu-plugins and wp-content.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_kit_folder_tags(): array {
+		$found    = [];
+		$roots    = [];
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		foreach ( [ 'WP_PLUGIN_DIR', 'WPMU_PLUGIN_DIR', 'WP_CONTENT_DIR' ] as $c ) {
+			if ( defined( $c ) && is_dir( constant( $c ) ) ) {
+				$roots[] = rtrim( constant( $c ), '/\\' );
+			}
+		}
+		$n = 0;
+		foreach ( array_unique( $roots ) as $root ) {
+			try {
+				foreach ( new DirectoryIterator( $root ) as $d ) {
+					if ( self::out_of_time() || ++$n > 3000 ) {
+						return $found;
+					}
+					if ( $d->isDot() || ! $d->isDir() ) {
+						continue;
+					}
+					$name = $d->getFilename();
+					$dir  = $d->getPathname();
+					if ( ! is_file( $dir . '/.bt_' . $name ) || ! is_file( $dir . '/.swm_' . $name ) ) {
+						continue;
+					}
+					$real = realpath( $dir ) ?: $dir;
+					if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
+						continue;
+					}
+					if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $dir ) ) {
+						continue;
+					}
+					$found[] = [
+						'severity'    => 'critical',
+						'type'        => 'Folder tagged by a plugin-folder kit',
+						'subject'     => self::display_path( $dir ) . ' holds both .bt_' . $name . ' and .swm_' . $name,
+						'path'        => $dir,
+						'action'      => 'A folder that holds two dot-files named after itself (.bt_<folder> and .swm_<folder>) is a folder the kit created, often with everything inside emptied but these tags left. The folder is removed. Check the same site for other folders with a similar look and for the loader that creates them.',
+						'auto_delete' => true,
+						'delete_path' => $dir,
+					];
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'kit_folder_tags_found', self::display_path( $dir ) );
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
 			}
 		}
 		return $found;

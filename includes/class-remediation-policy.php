@@ -196,6 +196,8 @@ final class WPS_Remediation_Policy {
 		// functions together) inside wp-content; a PHP file opening with a random-token comment.
 		'Tiny File Manager web shell',
 		'PHP file stamped with a shell kit',
+		// 1.4.142: two dot-files named after their own folder, .bt_<folder> and .swm_<folder>.
+		'Folder tagged by a plugin-folder kit',
 	];
 
 	/*
