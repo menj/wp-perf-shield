@@ -8315,11 +8315,10 @@ class WPS_Scanner {
 		$cap  = '(?:manage_options|install_plugins|edit_plugins|activate_plugins|update_core|edit_users|delete_users|manage_network|manage_network_options|manage_sites|unfiltered_upload|administrator)';
 		$test = 'current_user_can\s*\(\s*[\'"]' . $cap . '[\'"]\s*\)|is_super_admin\s*\(|wp_verify_nonce\s*\(';
 		$stop = '(?:return|exit|die|wp_die|wp_send_json_error)\b';
-		$call = $exec_re;
+		$call = $exec_re . '\s*\(';
 		foreach ( $names as $n ) {
 			$call .= '|\b' . preg_quote( $n, '/' ) . '\s*\(';
 		}
-		$call .= '';
 		// Any regex error (a very long condition can exhaust the engine's stack) counts as guarded:
 		// this check deletes files, so an error must never end in a deletion.
 		$all = static function ( string $re ) use ( $code ) {
@@ -8476,13 +8475,13 @@ class WPS_Scanner {
 			$kname   = '[\'"](?:k|key|pw|pass|pwd|password|passwd|token|secret|auth|sig|signature|apikey|api_key|[a-z0-9_]+_(?:key|pass|pwd|password|token|secret|sig))[\'"]';
 			$const   = '[A-Z][A-Z0-9_]{2,}';
 			$lit     = '[\'"][^\'"]{1,64}[\'"]';
-			$gate_re = '/' . $req . '\s*\[\s*' . $kname . '\s*\]\s*[!=]==?\s*(?:' . $lit . '|' . $const . ')'
+			$gate_re = '/' . $req . '\s*\[\s*' . $kname . '\s*\]\s*(?:[!=]==?|!=)\s*(?:' . $lit . '|' . $const . ')'
 				. '|' . $req . '\s*\[[^\]]+\]\s*===?\s*' . $const
 				. '|hash_equals\s*\(\s*(?:' . $lit . '|' . $const . ')\s*,\s*' . $req . '\s*\['
 				. '|hash_equals\s*\(\s*' . $req . '\s*\[[^\]]+\]\s*,\s*(?:' . $lit . '|' . $const . ')'
 				. '|md5\s*\(\s*' . $req . '\s*\[[^\]]+\]\s*\)\s*===?\s*(?:md5\s*\(\s*' . $const . '\s*\)|[\'"][0-9a-f]{32}[\'"])/i';
 			$gate = false;
-			if ( preg_match_all( '/' . $req . '\s*\[\s*' . $kname . '\s*\]\s*[!=]==?\s*(?:' . $lit . ')/i', $code ) ) {
+			if ( preg_match_all( '/' . $req . '\s*\[\s*' . $kname . '\s*\]\s*(?:[!=]==?|!=)\s*(?:' . $lit . ')/i', $code ) ) {
 				$gate = true; // a key-named field compared with a literal
 			}
 			if ( ! $gate && preg_match_all( '/(?:' . $req . '\s*\[[^\]]+\]|md5\s*\(\s*' . $req . '\s*\[[^\]]+\]\s*\))\s*===?\s*(?:md5\s*\(\s*)?(' . $const . ')\b|hash_equals\s*\(\s*(' . $const . ')\s*,\s*' . $req . '|hash_equals\s*\(\s*' . $req . '\s*\[[^\]]+\]\s*,\s*(' . $const . ')\b/i', $code, $gm ) ) {
