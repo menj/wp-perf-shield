@@ -8237,6 +8237,55 @@ class WPS_Scanner {
 	}
 
 	/**
+	 * Does this code enforce an administrator-level capability or a nonce on the way to a
+	 * command call? Presence is not enough (a check in a branch that does nothing protects
+	 * nothing), so three enforcing forms count:
+	 *  - a negated check followed closely by an exit: `if ( ! current_user_can( 'manage_options' ) ) { return; }`
+	 *    (also wp_die, die, exit, wp_send_json_error), and the same with `! wp_verify_nonce(`;
+	 *  - check_admin_referer() or check_ajax_referer(), which stop the request on failure unless
+	 *    their third argument is false;
+	 *  - a positive check whose braces contain the command call or a call to a function that
+	 *    holds it (`if ( current_user_can( 'manage_options' ) ) { run_it(); }`).
+	 * `read` and is_user_logged_in() pass for any subscriber and do not count.
+	 *
+	 * @param string[] $names Names of the functions that hold the command call or the gate.
+	 */
+	private static function guards_command_route( string $code, string $exec_re, array $names ): bool {
+		$cap  = '(?:manage_options|install_plugins|edit_plugins|activate_plugins|update_core|edit_users|delete_users|manage_network|unfiltered_upload)';
+		$test = 'current_user_can\s*\(\s*[\'"]' . $cap . '[\'"]\s*\)|wp_verify_nonce\s*\(';
+		$stop = '(?:return|exit|die|wp_die|wp_send_json_error)\b';
+		if ( preg_match( '/!\s*(?:' . $test . ')[^;{}]{0,200}[;{}]?[^;]{0,200}?' . $stop . '/is', $code ) ) {
+			return true;
+		}
+		if ( preg_match( '/check_(?:admin|ajax)_referer\s*\((?![^;]*,\s*false\s*\))/i', $code ) ) {
+			return true;
+		}
+		// A positive check wrapping the call.
+		$call = '\b' . $exec_re . '\s*\(';
+		foreach ( $names as $n ) {
+			$call .= '|\b' . preg_quote( $n, '/' ) . '\s*\(';
+		}
+		if ( preg_match_all( '/\bif\s*\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*?(?:' . $test . ')(?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)\s*\{/is', $code, $m, PREG_OFFSET_CAPTURE ) ) {
+			foreach ( $m[0] as $hit ) {
+				$open  = $hit[1] + strlen( $hit[0] ) - 1;
+				$depth = 0;
+				$len   = strlen( $code );
+				for ( $k = $open; $k < $len; $k++ ) {
+					if ( '{' === $code[ $k ] ) {
+						++$depth;
+					} elseif ( '}' === $code[ $k ] && 0 === --$depth ) {
+						break;
+					}
+				}
+				if ( preg_match( '/' . $call . '/i', substr( $code, $open, $k - $open + 1 ) ) ) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * 1.4.144: a command-execution backdoor gated only by a hard-coded key.
 	 *
 	 * Recovered shape (`wp-shell.php`, header "WP Site Maintenance"): on `init`, if
@@ -8310,29 +8359,64 @@ class WPS_Scanner {
 			if ( ! $gate ) {
 				continue;
 			}
-			// Only checks that actually protect count: an administrator-level capability or a nonce, and
-			// only when it sits in the function that holds the command call or in the function that holds
-			// the gate. A check in an unrelated page function (current_user_can( 'manage_options' ) on a
-			// settings screen) says nothing about the command route. `read` and is_user_logged_in()
-			// pass for any subscriber and do not count.
-			$protect = '/current_user_can\s*\(\s*[\'"](?:manage_options|install_plugins|edit_plugins|activate_plugins|update_core|edit_users|delete_users|manage_network|unfiltered_upload)[\'"]|wp_verify_nonce\s*\(|check_ajax_referer\s*\(|check_admin_referer\s*\(/i';
-			$bodies  = self::php_function_bodies( $code );
-			$scoped  = [];
-			foreach ( $bodies as $body ) {
-				if ( preg_match( '/\b' . $exec_re . '\s*\(/i', $body ) || preg_match( $gate_re, $body ) ) {
-					$scoped[] = $body;
+			// Which named functions hold the command call and which hold the gate, and are they connected?
+			// The key must actually lead to the command: the gate and the call in one function, or the
+			// gate function calling the function that holds the call (one hop). A key compare on one
+			// path and a command on another is not this backdoor.
+			$bodies = self::php_function_bodies( $code );
+			$exec_names = [];
+			$gate_names = [];
+			foreach ( $bodies as $key => $body ) {
+				$name = strstr( $key, '@', true );
+				if ( preg_match( '/\b' . $exec_re . '\s*\(/i', $body ) ) {
+					$exec_names[] = $name;
+				}
+				if ( preg_match( $gate_re, $body ) ) {
+					$gate_names[] = $name;
 				}
 			}
-			$guarded = false;
-			if ( $scoped ) {
-				foreach ( $scoped as $body ) {
-					if ( preg_match( $protect, $body ) ) {
+			if ( $bodies && ( $exec_names || $gate_names ) ) {
+				$connected = (bool) array_intersect( $exec_names, $gate_names );
+				if ( ! $connected ) {
+					foreach ( $bodies as $key => $body ) {
+						if ( in_array( strstr( $key, '@', true ), $gate_names, true ) ) {
+							foreach ( $exec_names as $en ) {
+								if ( preg_match( '/\b' . preg_quote( $en, '/' ) . '\s*\(/', $body ) ) {
+									$connected = true;
+									break 2;
+								}
+							}
+						}
+					}
+				}
+				if ( ! $connected ) {
+					continue;
+				}
+			}
+			// Protection must be enforced, not merely present: see guards_command_route(). Only the
+			// functions that hold the call or the gate, or call one that does, are considered, so a check
+			// on an unrelated page function (current_user_can( 'manage_options' ) on a settings screen)
+			// says nothing about the command route.
+			$route_names = array_values( array_unique( array_merge( $exec_names, $gate_names ) ) );
+			$guarded     = false;
+			if ( $bodies && $route_names ) {
+				foreach ( $bodies as $key => $body ) {
+					$relevant = preg_match( '/\b' . $exec_re . '\s*\(/i', $body ) || preg_match( $gate_re, $body );
+					if ( ! $relevant ) {
+						foreach ( $route_names as $rn ) {
+							if ( preg_match( '/\b' . preg_quote( $rn, '/' ) . '\s*\(/', $body ) ) {
+								$relevant = true;
+								break;
+							}
+						}
+					}
+					if ( $relevant && self::guards_command_route( $body, $exec_re, $route_names ) ) {
 						$guarded = true;
 						break;
 					}
 				}
-			} elseif ( preg_match( $protect, $code ) ) {
-				$guarded = true; // top-level or closure code: no function to scope to, so the whole file counts
+			} elseif ( self::guards_command_route( $code, $exec_re, [] ) ) {
+				$guarded = true; // top-level or closure code: no function to scope to, so the whole file is judged
 			}
 			if ( $guarded ) {
 				continue;

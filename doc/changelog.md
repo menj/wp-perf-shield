@@ -15,8 +15,9 @@ Eight uploads triaged statically (nothing executed). One new detection, one wide
 - **Nitpick (PR 20): the modulo-256 test never reached the wrapped value.** The 8226 was appended after the 600 decoded numbers. The first number of the fixture is now 115 plus 8192, so the decoded prefix itself depends on the wrap.
 - **Nitpick: `125bVl80` has five digits, not four.** The test name and this entry are corrected.
 
+- **CodeAnt's risk summary on the fix: protection must be enforced, and the key must lead to the command.** Two limits it named in `check_keyed_command_backdoor` are closed. (1) An administrator or nonce check counted as protection if it appeared anywhere in a relevant function, even in a branch that did nothing, so a decoy `if ( current_user_can( 'manage_options' ) ) { echo 'hello'; }` ahead of the open route hid the backdoor. Protection now has to be enforcing: a negated check followed by an exit (`if ( ! current_user_can( ... ) ) { return; }`, also `wp_die`, `die`, `exit`, with `! wp_verify_nonce(` the same way), `check_admin_referer()` or `check_ajax_referer()` (which stop the request unless their third argument is false), or a positive check whose braces contain the command call or a call to the function that holds it, which also covers authorization enforced by the caller. (2) The key compare and the command call could sit on unrelated paths and still match. They must now be in one function, or the gate function must call the function that holds the command. Tested: the decoy is reported; a caller-enforced check, `check_admin_referer` and the original gate-function check are protection; a key compare and a command on unrelated paths is not reported. The real `wp-shell.php` is still detected and allowed for removal. The two nitpicks in the same list were against the earlier commit and were fixed in the previous commit.
 
-Tests: `test-plugin-malware-detection.php` 122 cases. Registered checks: 111 (was 110).
+Tests: `test-plugin-malware-detection.php` 126 cases. Registered checks: 111 (was 110).
 
 ## 1.4.143
 
