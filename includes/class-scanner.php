@@ -8250,21 +8250,45 @@ class WPS_Scanner {
 	 *
 	 * @param string[] $names Names of the functions that hold the command call or the gate.
 	 */
-	private static function guards_command_route( string $code, string $exec_re, array $names ): bool {
+	private static function guards_command_route( string $code, string $exec_re, array $names, string $gate_re = '', bool $is_body = true ): bool {
 		$cap  = '(?:manage_options|install_plugins|edit_plugins|activate_plugins|update_core|edit_users|delete_users|manage_network|unfiltered_upload)';
 		$test = 'current_user_can\s*\(\s*[\'"]' . $cap . '[\'"]\s*\)|wp_verify_nonce\s*\(';
 		$stop = '(?:return|exit|die|wp_die|wp_send_json_error)\b';
-		if ( preg_match( '/!\s*(?:' . $test . ')[^;{}]{0,200}[;{}]?[^;]{0,200}?' . $stop . '/is', $code ) ) {
-			return true;
-		}
-		if ( preg_match( '/check_(?:admin|ajax)_referer\s*\((?![^;]*,\s*false\s*\))/i', $code ) ) {
-			return true;
-		}
-		// A positive check wrapping the call.
 		$call = '\b' . $exec_re . '\s*\(';
 		foreach ( $names as $n ) {
 			$call .= '|\b' . preg_quote( $n, '/' ) . '\s*\(';
 		}
+		// The first place the route can run: the command call, a call to a function that holds it,
+		// or the key compare. A guard has to come before it.
+		$first = PHP_INT_MAX;
+		if ( preg_match( '/' . $call . '/i', $code, $fm, PREG_OFFSET_CAPTURE ) ) {
+			$first = $fm[0][1];
+		}
+		if ( '' !== $gate_re && preg_match( $gate_re, $code, $gm, PREG_OFFSET_CAPTURE ) ) {
+			$first = min( $first, $gm[0][1] );
+		}
+		// Unconditional means at the top level of the function (depth 1 inside its braces), or of
+		// the file when there is no function to scope to (depth 0): a check inside an `if` that is
+		// about something else, or after the route has already run, guards nothing.
+		$top = $is_body ? 1 : 0;
+		$ok  = static function ( int $pos ) use ( $code, $first, $top ): bool {
+			return $pos < $first && self::brace_depth_at( $code, $pos ) === $top;
+		};
+		if ( preg_match_all( '/!\s*(?:' . $test . ')[^;{}]{0,200}[;{}]?[^;]{0,200}?' . $stop . '/is', $code, $m, PREG_OFFSET_CAPTURE ) ) {
+			foreach ( $m[0] as $hit ) {
+				if ( $ok( $hit[1] ) ) {
+					return true;
+				}
+			}
+		}
+		if ( preg_match_all( '/check_(?:admin|ajax)_referer\s*\((?![^;]*,\s*false\s*\))/i', $code, $m, PREG_OFFSET_CAPTURE ) ) {
+			foreach ( $m[0] as $hit ) {
+				if ( $ok( $hit[1] ) ) {
+					return true;
+				}
+			}
+		}
+		// A positive check wrapping the call.
 		if ( preg_match_all( '/\bif\s*\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*?(?:' . $test . ')(?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)\s*\{/is', $code, $m, PREG_OFFSET_CAPTURE ) ) {
 			foreach ( $m[0] as $hit ) {
 				$open  = $hit[1] + strlen( $hit[0] ) - 1;
@@ -8283,6 +8307,20 @@ class WPS_Scanner {
 			}
 		}
 		return false;
+	}
+
+	/** Curly-brace depth just before byte offset $pos (braces in strings are not skipped; close enough for this use). */
+	private static function brace_depth_at( string $code, int $pos ): int {
+		$depth = 0;
+		$stop  = min( $pos, strlen( $code ) );
+		for ( $i = 0; $i < $stop; $i++ ) {
+			if ( '{' === $code[ $i ] ) {
+				++$depth;
+			} elseif ( '}' === $code[ $i ] ) {
+				--$depth;
+			}
+		}
+		return $depth;
 	}
 
 	/**
@@ -8410,12 +8448,12 @@ class WPS_Scanner {
 							}
 						}
 					}
-					if ( $relevant && self::guards_command_route( $body, $exec_re, $route_names ) ) {
+					if ( $relevant && self::guards_command_route( $body, $exec_re, $route_names, $gate_re, true ) ) {
 						$guarded = true;
 						break;
 					}
 				}
-			} elseif ( self::guards_command_route( $code, $exec_re, [] ) ) {
+			} elseif ( self::guards_command_route( $code, $exec_re, [], $gate_re, false ) ) {
 				$guarded = true; // top-level or closure code: no function to scope to, so the whole file is judged
 			}
 			if ( $guarded ) {
