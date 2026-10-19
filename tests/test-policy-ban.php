@@ -140,6 +140,19 @@ check( 'a longer plugin name that merely contains code-snippets is not banned (s
 check( 'code-snippets-pro, a prefixed folder and the main file path are still banned', WPS_Blocker::is_policy_banned( 'code-snippets-pro/code-snippets.php' ) && WPS_Blocker::is_policy_banned( 'my-code-snippets/x.php' ) && WPS_Blocker::is_policy_banned( 'code-snippets/code-snippets.php' ) );
 check( 'the activation guard refuses code-snippets under any folder', WPS_Blocker::is_policy_banned( 'code-snippets/code-snippets.php' ) && WPS_Blocker::is_policy_banned( 'whatever/code-snippets.php' ) );
 
+// Filester (operator ban, 1.4.145): under its own name, as a pro variant, and under a folder name nobody listed.
+$fs = "<?php\n/**\n * Plugin Name: Filester - File Manager Pro\n * Version: 2.1.4\n */\n";
+put( $P . '/filester/ninja-file-manager.php', $fs );
+put( $P . '/filester-pro/x.php', "<?php\n" );
+put( $P . '/qq-renamed-47/ninja-file-manager.php', $fs );
+put( $P . '/ninja-file-manager-compat/ninja-file-manager.php', "<?php\n/**\n * Plugin Name: Filester - File Manager Pro Compatible\n */\n" );
+put( $P . '/filesterx-addon/x.php', "<?php\n" );
+$removed = WPS_Blocker::enforce_policy_ban();
+check( 'Filester is removed under its own name and as the pro variant', in_array( 'filester', $removed, true ) && in_array( 'filester-pro', $removed, true ), json_encode( $removed ) );
+check( 'Filester under an unlisted folder name is removed by its main file', in_array( 'qq-renamed-47', $removed, true ), json_encode( $removed ) );
+check( 'a plugin whose header only starts with the Filester name, and a name that merely contains the word, are left alone', is_dir( $P . '/ninja-file-manager-compat' ) && is_dir( $P . '/filesterx-addon' ) );
+check( 'the activation guard refuses Filester under any folder, not filesterx', WPS_Blocker::is_policy_banned( 'filester/ninja-file-manager.php' ) && WPS_Blocker::is_policy_banned( 'whatever/filester-pro.php' ) && ! WPS_Blocker::is_policy_banned( 'filesterx/x.php' ) );
+
 // A tombstone written for a folder banned by its main file (an arbitrary name) must SURVIVE the
 // next sweep; it used to be deleted because that folder name is not itself banned.
 WPS_Blocker::enforce_policy_ban();

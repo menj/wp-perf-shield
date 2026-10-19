@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.145
+
+**Filester is now banned.** It is refused at install and activation and removed from disk if present (quarantined first, restorable from Diagnostics). If you rely on it, untick the enforcement option under Settings, Banned plugins before updating (that switches the whole list off). Its settings and uploaded files are not touched.
+
 ## 1.4.144
 
 **New detection: a command-execution backdoor whose only gate is a fixed key written into the file** (the plugin `wp-shell.php` is an example). It is removed automatically. If the scan reports one, anyone who knew the key could run commands on the server: check administrator users and application passwords, reset passwords and salts, and ask your host to check for processes and cron jobs. Nothing to configure.

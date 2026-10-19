@@ -106,6 +106,7 @@ class WPS_Blocker {
             'fileorganizer',   // elFinder-based full-filesystem file manager (Softaculous); same risk class as wp-file-manager. Substring match also catches the fileorganizer-pro add-on.
             'protect-uploads', // operator preference (1.4.128): not sanctioned on this site. Substring match covers the plugin's own files wherever it is installed.
             'code-snippets',   // operator ban (1.4.142): runs PHP stored in the database, so a stolen admin login becomes code that survives replacing every file. Substring match also takes Code Snippets Pro and a renamed folder via its main file.
+            'filester',        // operator ban (1.4.145): elFinder-based full-filesystem file manager (Ninja Team), the same risk class as wp-file-manager and fileorganizer; a copy of it was found carrying a planted loader. Matched on a name boundary, so it also takes filester-pro and a renamed copy, not an unrelated name that merely contains the word.
             'rcromlb',         // folder name the same plugin has been found under (1.4.128); a random name, so it cannot collide with a real slug
             'hvmosjt',         // second such folder name (1.4.128)
         ];
@@ -260,9 +261,12 @@ class WPS_Blocker {
     /**
      * Main files that identify a banned plugin whose main file does not carry its
      * slug: WP File Manager's is file_folder_manager.php. Matched by exact name
-     * plus a Plugin Name header, so the plugin is found under any folder name.
+     * plus a Plugin Name header, so the plugin is found under any folder name. Filester's is ninja-file-manager.php.
      */
-    const BAN_MAIN_FILES = [ 'file_folder_manager.php' => [ 'slug' => 'wp-file-manager', 'header' => 'WP File Manager' ] ];
+    const BAN_MAIN_FILES = [
+        'file_folder_manager.php' => [ 'slug' => 'wp-file-manager', 'header' => 'WP File Manager' ],
+        'ninja-file-manager.php'  => [ 'slug' => 'filester', 'header' => 'Filester - File Manager Pro' ],
+    ];
 
     public static function is_hard_banned( string $slug ): bool {
         return in_array( strtolower( $slug ), self::HARD_BAN_SLUGS, true );
@@ -563,7 +567,7 @@ class WPS_Blocker {
      * letter or digit, or the start or end of the name, so `code-snippets-pro` and
      * `code-snippets/code-snippets.php` still match.
      */
-    private const BOUNDARY_SLUGS = [ 'code-snippets' ];
+    private const BOUNDARY_SLUGS = [ 'code-snippets', 'filester' ];
 
     /** Does the lower-case name contain the banned slug, under the matching rule that slug uses? */
     public static function slug_in( string $lower, string $slug ): bool {
