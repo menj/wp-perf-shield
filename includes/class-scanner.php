@@ -8124,20 +8124,22 @@ class WPS_Scanner {
 			}
 			// A flat character class, not a repeated group: the group form exhausts the regex
 			// engine's stack on a 300 KB literal and the match silently fails. The numbers are
-			// checked in PHP.
+			// checked in PHP. The variable that holds the list must be used inside an eval
+			// statement, so an unrelated eval beside a numeric table does not qualify.
+			$code = self::code_without_comments( $raw );
 			$list = '';
-			if ( preg_match_all( '/[\'"]([0-9,]{6000,})[\'"]/', $raw, $lm ) ) {
-				foreach ( $lm[1] as $cand ) {
-					if ( preg_match( '/^\d{2,3},\d/', $cand ) && substr_count( $cand, ',' ) >= 1500 && ! preg_match( '/,,|,$/', $cand ) ) {
-						$list = $cand;
+			if ( preg_match_all( '/(\$\w+)\s*=\s*[\'"]([0-9,]{6000,})[\'"]/', $raw, $lm, PREG_SET_ORDER ) ) {
+				foreach ( $lm as $cand ) {
+					if ( ! preg_match( '/^\d{2,5},\d/', $cand[2] ) || substr_count( $cand[2], ',' ) < 1500 || preg_match( '/,,|,$/', $cand[2] ) ) {
+						continue;
+					}
+					if ( preg_match( '/\beval\s*\([^;]*' . preg_quote( $cand[1], '/' ) . '\b/i', $code ) ) {
+						$list = $cand[2];
 						break;
 					}
 				}
 			}
 			if ( '' === $list ) {
-				continue;
-			}
-			if ( ! preg_match( '/\beval\s*\(/i', self::code_without_comments( $raw ) ) ) {
 				continue;
 			}
 			$decoded = '';
@@ -8151,7 +8153,13 @@ class WPS_Scanner {
 				// chr() wraps modulo 256, which is what the evaluated code does too.
 				$decoded .= chr( $c % 256 );
 			}
-			if ( ! $ok || ! preg_match( '/set_time_limit|error_reporting|<\?php|\$_(?:POST|GET|REQUEST|SERVER|SESSION)|\bfunction\s|shell_exec|base64_decode|file_put_contents|\beval\s*\(/i', $decoded ) ) {
+			$indicators = 0;
+			foreach ( [ '/set_time_limit/', '/error_reporting/', '/<\?php/', '/\$_(?:POST|GET|REQUEST|SERVER|SESSION)/', '/\bfunction\s/', '/shell_exec/', '/base64_decode/', '/file_put_contents/', '/\beval\s*\(/' ] as $re ) {
+				if ( preg_match( $re, $decoded ) ) {
+					++$indicators;
+				}
+			}
+			if ( ! $ok || $indicators < 2 ) {
 				continue;
 			}
 			$printable = preg_match_all( '/[\x09\x0a\x0d\x20-\x7e]/', $decoded );
@@ -8172,6 +8180,60 @@ class WPS_Scanner {
 			}
 		}
 		return $found;
+	}
+
+	/**
+	 * Bodies of the named functions and methods in PHP source, by name, found with the
+	 * tokenizer and brace matching. Closures are not named and are left inside the body
+	 * that contains them. Used to scope a check to the function a call sits in.
+	 *
+	 * @return array<string, string>
+	 */
+	private static function php_function_bodies( string $code ): array {
+		$bodies = [];
+		$tokens = @token_get_all( $code );
+		$n      = count( $tokens );
+		for ( $i = 0; $i < $n; $i++ ) {
+			if ( ! is_array( $tokens[ $i ] ) || T_FUNCTION !== $tokens[ $i ][0] ) {
+				continue;
+			}
+			$j = $i + 1;
+			while ( $j < $n && is_array( $tokens[ $j ] ) && in_array( $tokens[ $j ][0], [ T_WHITESPACE ], true ) ) {
+				++$j;
+			}
+			if ( '&' === ( $tokens[ $j ] ?? '' ) ) {
+				++$j;
+				while ( $j < $n && is_array( $tokens[ $j ] ) && T_WHITESPACE === $tokens[ $j ][0] ) {
+					++$j;
+				}
+			}
+			if ( ! isset( $tokens[ $j ] ) || ! is_array( $tokens[ $j ] ) || T_STRING !== $tokens[ $j ][0] ) {
+				continue; // a closure
+			}
+			$name = $tokens[ $j ][1] . '@' . $i;
+			while ( $j < $n && '{' !== $tokens[ $j ] && ';' !== $tokens[ $j ] ) {
+				++$j;
+			}
+			if ( $j >= $n || '{' !== $tokens[ $j ] ) {
+				continue; // an abstract or interface method
+			}
+			$depth = 0;
+			$text  = '';
+			for ( ; $j < $n; $j++ ) {
+				$t = $tokens[ $j ];
+				if ( '{' === $t || ( is_array( $t ) && in_array( $t[0], [ T_CURLY_OPEN, T_DOLLAR_OPEN_CURLY_BRACES ], true ) ) ) {
+					++$depth;
+				} elseif ( '}' === $t ) {
+					--$depth;
+				}
+				$text .= is_array( $t ) ? $t[1] : $t;
+				if ( 0 === $depth ) {
+					break;
+				}
+			}
+			$bodies[ $name ] = $text;
+		}
+		return $bodies;
 	}
 
 	/**
@@ -8209,17 +8271,12 @@ class WPS_Scanner {
 				continue;
 			}
 			$code = self::code_without_comments( $raw );
-			// Only checks that actually protect count: an administrator-level capability or a nonce.
-			// `current_user_can( 'read' )` and is_user_logged_in() pass for any subscriber, and a
-			// backdoor can carry one on a page that does not guard the command route.
-			if ( preg_match( '/current_user_can\s*\(\s*[\'"](?:manage_options|install_plugins|edit_plugins|activate_plugins|update_core|edit_users|delete_users|manage_network|unfiltered_upload)[\'"]|wp_verify_nonce\s*\(|check_ajax_referer\s*\(|check_admin_referer\s*\(/i', $code ) ) {
-				continue;
-			}
 			// A request value reaches an execution function, directly or through one variable.
 			$req     = '\$_(?:REQUEST|POST|GET|COOKIE)';
-			$direct  = preg_match( '/\b(?:shell_exec|system|exec|passthru|popen|proc_open)\s*\(\s*' . $req . '\s*\[/i', $code );
+			$exec_re = '(?:shell_exec|system|exec|passthru|popen|proc_open)';
+			$direct  = preg_match( '/\b' . $exec_re . '\s*\(\s*' . $req . '\s*\[/i', $code );
 			$through = false;
-			if ( preg_match_all( '/\b(?:shell_exec|system|exec|passthru|popen|proc_open)\s*\(\s*(\$\w+)/i', $code, $vm ) ) {
+			if ( preg_match_all( '/\b' . $exec_re . '\s*\(\s*(\$\w+)/i', $code, $vm ) ) {
 				foreach ( array_unique( $vm[1] ) as $var ) {
 					if ( preg_match( '/' . preg_quote( $var, '/' ) . '\s*=\s*(?:isset\s*\([^;]*?\)\s*\?\s*)?' . $req . '\s*\[/', $code ) ) {
 						$through = true;
@@ -8230,10 +8287,54 @@ class WPS_Scanner {
 			if ( ! $direct && ! $through ) {
 				continue;
 			}
-			// The only gate: request input compared with a constant or a short literal.
-			$gate = preg_match( '/' . $req . '\s*\[[^\]]+\]\s*===?\s*(?:[A-Z][A-Z0-9_]{2,}|[\'"][^\'"]{1,64}[\'"])/', $code )
-				|| preg_match( '/md5\s*\(\s*' . $req . '\s*\[[^\]]+\]\s*\)\s*===?\s*md5\s*\(\s*[A-Z][A-Z0-9_]{2,}\s*\)/', $code );
+			// The gate: request input compared with a secret-looking value, that is a constant defined as
+			// a literal, or a field named like a key, password or token. An ordinary option comparison
+			// (`$_POST['action'] === 'run'`) is not a gate.
+			$keyish = '[\'"][^\'"]*(?:key|pass|pwd|token|auth|secret|sig)[^\'"]*[\'"]|[\'"]k[\'"]';
+			$const  = '[A-Z][A-Z0-9_]{2,}';
+			$gate_re = '/' . $req . '\s*\[\s*(?:' . $keyish . ')\s*\]\s*===?\s*[\'"][^\'"]{1,64}[\'"]'
+				. '|' . $req . '\s*\[[^\]]+\]\s*===?\s*(' . $const . ')'
+				. '|md5\s*\(\s*' . $req . '\s*\[[^\]]+\]\s*\)\s*===?\s*md5\s*\(\s*(' . $const . ')\s*\)/';
+			$gate = false;
+			if ( preg_match_all( $gate_re, $code, $gm ) ) {
+				foreach ( array_merge( array_filter( $gm[1] ), array_filter( $gm[2] ) ) as $cname ) {
+					if ( preg_match( '/define\s*\(\s*[\'"]' . preg_quote( $cname, '/' ) . '[\'"]\s*,\s*[\'"][^\'"]+[\'"]/', $code ) ) {
+						$gate = true; // compared with a constant that is a literal in this file
+						break;
+					}
+				}
+				if ( ! $gate && preg_match( '/' . $req . '\s*\[\s*(?:' . $keyish . ')\s*\]\s*===?\s*[\'"][^\'"]{1,64}[\'"]/', $code ) ) {
+					$gate = true; // a key-named field compared with a literal
+				}
+			}
 			if ( ! $gate ) {
+				continue;
+			}
+			// Only checks that actually protect count: an administrator-level capability or a nonce, and
+			// only when it sits in the function that holds the command call or in the function that holds
+			// the gate. A check in an unrelated page function (current_user_can( 'manage_options' ) on a
+			// settings screen) says nothing about the command route. `read` and is_user_logged_in()
+			// pass for any subscriber and do not count.
+			$protect = '/current_user_can\s*\(\s*[\'"](?:manage_options|install_plugins|edit_plugins|activate_plugins|update_core|edit_users|delete_users|manage_network|unfiltered_upload)[\'"]|wp_verify_nonce\s*\(|check_ajax_referer\s*\(|check_admin_referer\s*\(/i';
+			$bodies  = self::php_function_bodies( $code );
+			$scoped  = [];
+			foreach ( $bodies as $body ) {
+				if ( preg_match( '/\b' . $exec_re . '\s*\(/i', $body ) || preg_match( $gate_re, $body ) ) {
+					$scoped[] = $body;
+				}
+			}
+			$guarded = false;
+			if ( $scoped ) {
+				foreach ( $scoped as $body ) {
+					if ( preg_match( $protect, $body ) ) {
+						$guarded = true;
+						break;
+					}
+				}
+			} elseif ( preg_match( $protect, $code ) ) {
+				$guarded = true; // top-level or closure code: no function to scope to, so the whole file counts
+			}
+			if ( $guarded ) {
 				continue;
 			}
 			$found[] = [
