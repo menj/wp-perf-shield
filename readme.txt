@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.140
+Stable tag: 1.4.141
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.141 =
+Detects and removes the Tiny File Manager program placed inside wp-content, and PHP files stamped with a shell kit's random marker (including look-alike names), found in trojanised copies of Akismet.
 
 = 1.4.140 =
 New detection and removal of the Medusa FM kit (crawler-cloaking gate that rewrites index.php and .htaccess and heals itself through a mu-plugin), including its remote content host and file names.
@@ -656,6 +659,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.141 =
+Adds removal of file-manager web shells and marker-stamped placeholder files hidden in copies of real plugins.
 
 = 1.4.140 =
 Adds detection of the Medusa FM crawler-cloaking kit hidden inside a trojanised Protect Uploads.

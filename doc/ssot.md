@@ -678,3 +678,6 @@ A subagent was asked to break the new code, read-only, and every finding was ver
 
 ### Medusa FM kit (1.4.140)
 Decision: the kit is matched by its own names (two markers in one file, or its content host), and removal is file-level so a trojanised legitimate plugin keeps its code. `clr.php` (a plain cache purger) is deliberately not flagged. Digest 1.4.140: `check_medusa_fm_kit`, `cookie_exfil_c2_domains`, `secondary_backdoor_filenames`, `INDICATOR_VERSION` 1.4.140-1, `CONCLUSIVE_TYPES`.
+
+### Tiny File Manager and marker-stamped files (1.4.141)
+The three existing file-manager checks report and set no removal target by design, because a file manager can be a legitimate plugin. The stand-alone Tiny File Manager program is different: its banner, constants and write calls together, in wp-content, are a shell by location. Detection that never removes is not done: this release was found by running a sample through the removal policy, not only the scan. Digest 1.4.141: `check_tiny_file_manager_shell`, `check_marker_comment_php`, `plugin_php_files` min-size parameter, `CONCLUSIVE_TYPES`.

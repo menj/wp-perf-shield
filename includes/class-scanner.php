@@ -611,6 +611,8 @@ class WPS_Scanner {
 			'check_embedded_js_injector' => [ __CLASS__, 'check_embedded_js_injector' ], // 1.4.135: plugin that keeps a large encoded script and prints it to visitors on every page
 			'check_medusa_fm_kit' => [ __CLASS__, 'check_medusa_fm_kit' ], // 1.4.140: Medusa FM kit files (encrypted loader, index/.htaccess self-heal, early crawler router) by their own markers
 			'check_mass_post_sitemap' => [ __CLASS__, 'check_mass_post_sitemap' ], // 1.4.140: static sitemap listing hundreds of consecutive ?p=<id> URLs from one day (a spam kit's post flood)
+			'check_tiny_file_manager_shell' => [ __CLASS__, 'check_tiny_file_manager_shell' ], // 1.4.141: the stand-alone Tiny File Manager script placed inside wp-content (a web shell by location)
+			'check_marker_comment_php' => [ __CLASS__, 'check_marker_comment_php' ], // 1.4.141: PHP file that opens with a random-token HTML comment, the tag a shell kit stamps on its files
 			'check_search_console_stub' => [ __CLASS__, 'check_search_console_stub' ], // 1.4.137: Search Console ownership stubs planted by doorway kits (and, on Site Kit sites, any at the root)
 			'check_remote_code_installer' => [ __CLASS__, 'check_remote_code_installer' ], // 1.4.120: REST/AJAX endpoint gated by a hard-coded token that unpacks an uploaded zip into an executable directory
 			'check_mu_plugin_dropper' => [ __CLASS__, 'check_mu_plugin_dropper' ], // 1.4.120: plugin that copies bundled folders into mu-plugins and writes require loaders for them
@@ -6425,7 +6427,7 @@ class WPS_Scanner {
 	 *
 	 * @return \Generator<int, array{0:string,1:string,2:bool}> path, root, is-mu
 	 */
-	private static function plugin_php_files( bool $with_mu = true ): \Generator {
+	private static function plugin_php_files( bool $with_mu = true, int $min_size = 80 ): \Generator {
 		$roots = [];
 		if ( defined( 'WP_PLUGIN_DIR' ) && is_dir( WP_PLUGIN_DIR ) ) {
 			$roots[] = [ rtrim( WP_PLUGIN_DIR, '/\\' ), false ];
@@ -6450,7 +6452,7 @@ class WPS_Scanner {
 						continue;
 					}
 					$size = $f->getSize();
-					if ( false === $size || $size < 80 || $size > 400000 ) {
+					if ( false === $size || $size < $min_size || $size > 400000 ) {
 						continue;
 					}
 					$path = $f->getPathname();
@@ -7828,6 +7830,139 @@ class WPS_Scanner {
 				}
 			} catch ( \Throwable $t ) {
 				continue;
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * Every PHP file the plugin-shaped checks look at, plus the odd folders under
+	 * wp-content and the web root (the same set the kit checks use).
+	 *
+	 * @return array<string, true> absolute path => true
+	 */
+	private static function kit_and_plugin_php_files( int $min_size = 80 ): array {
+		$files = [];
+		foreach ( self::plugin_php_files( true, $min_size ) as [ $path ] ) {
+			$files[ $path ] = true;
+		}
+		foreach ( self::kit_roots() as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 4 );
+				$n = 0;
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() ) {
+						break 2;
+					}
+					if ( $f instanceof SplFileInfo && $f->isFile() && self::is_php_executable( $f ) && ++$n <= 4000 ) {
+						$files[ $f->getPathname() ] = true;
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		return $files;
+	}
+
+	/**
+	 * 1.4.141: the stand-alone Tiny File Manager script found inside wp-content.
+	 *
+	 * Recovered shape (`sldebar.php` and `abilities/custom.file.3.<timestamp>.php`
+	 * inside a copy of Akismet, 231 KB each): the whole open-source Tiny File Manager
+	 * program under a misspelt theme-file name or a timestamped name. It is a
+	 * program a person runs on its own, never as part of a WordPress plugin, and
+	 * its built-in sign-in ships with well-known default passwords, so a copy
+	 * inside wp-content is a web shell with a front door that anyone can open.
+	 * The program's own banner and constants must be present, and so must its
+	 * file-writing functions.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_tiny_file_manager_shell(): array {
+		$found    = [];
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		foreach ( array_keys( self::kit_and_plugin_php_files() ) as $path ) {
+			$size = @filesize( $path );
+			if ( false === $size || $size < 60000 || $size > 600000 ) {
+				continue;
+			}
+			$real = realpath( $path ) ?: $path;
+			if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
+				continue;
+			}
+			if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+				continue;
+			}
+			$raw = @file_get_contents( $path );
+			if ( ! is_string( $raw ) || false === strpos( $raw, 'Tiny File Manager' ) ) {
+				continue;
+			}
+			$code = self::code_without_comments( $raw );
+			if ( ! preg_match( '/define\s*\(\s*[\'"]APP_TITLE[\'"]\s*,\s*[\'"]Tiny File Manager[\'"]/', $code )
+				|| ! preg_match( '/move_uploaded_file\s*\(/', $code ) || ! preg_match( '/\bunlink\s*\(/', $code ) || ! preg_match( '/\brmdir\s*\(/', $code ) ) {
+				continue;
+			}
+			$found[] = [
+				'severity'    => 'critical',
+				'type'        => 'Tiny File Manager web shell',
+				'subject'     => self::display_path( $path ) . ' is the stand-alone Tiny File Manager program placed inside wp-content',
+				'path'        => $path,
+				'action'      => 'This is the open-source Tiny File Manager program, which lets whoever signs in browse, upload, edit and delete every file on the site. It ships with default passwords, and it has no place inside a WordPress plugin. It is removed. Treat the site as compromised: find how it was written, check administrator users and application passwords, and reset passwords and salts.',
+				'auto_delete' => true,
+				'delete_path' => $path,
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'tiny_file_manager_found', self::display_path( $path ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.141: a PHP file that opens with an HTML comment holding a random token.
+	 *
+	 * Recovered shape: `styIe.php` (16 bytes, only `<!--z3woRLP0-->`) and the Tiny
+	 * File Manager files, which open with `<!--j3btCRiG-->`. The token is how the
+	 * kit finds and counts its own files; a lookalike name (`styIe.php` with a
+	 * capital I, `sldebar.php`) is the cover. A comment made of letters and
+	 * digits with at least one digit and one capital, as the first thing in a
+	 * PHP file, is not something a template or plugin does.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_marker_comment_php(): array {
+		$found    = [];
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		foreach ( array_keys( self::kit_and_plugin_php_files( 1 ) ) as $path ) {
+			$real = realpath( $path ) ?: $path;
+			if ( '' !== $self_dir && self::is_self_path( $real, $self_dir ) ) {
+				continue;
+			}
+			$head = (string) @file_get_contents( $path, false, null, 0, 120 );
+			if ( ! preg_match( '/^\s*<!--([A-Za-z0-9]{6,16})-->/', $head, $m ) || ! preg_match( '/\d/', $m[1] ) || ! preg_match( '/[A-Z]/', $m[1] ) || ! preg_match( '/[a-z]/', $m[1] ) ) {
+				continue;
+			}
+			if ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) {
+				continue;
+			}
+			$size    = (int) @filesize( $path );
+			$stub    = $size <= 80;
+			$found[] = [
+				'severity'    => 'critical',
+				'type'        => 'PHP file stamped with a shell kit\'s random marker',
+				'subject'     => self::display_path( $path ) . ( $stub ? ' is only the marker <!--' . $m[1] . '-->' : ' opens with the marker <!--' . $m[1] . '-->' ),
+				'path'        => $path,
+				'action'      => 'A PHP file whose first line is an HTML comment holding a random token is how a shell kit tags the files it plants, often under a lookalike name. ' . ( $stub ? 'This one holds nothing else, a placeholder waiting for a payload or what is left of one. ' : '' ) . 'The file is removed. Look in the same folder for other planted files, and find how it was written.',
+				'auto_delete' => true,
+				'delete_path' => $path,
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'marker_comment_php_found', self::display_path( $path ) );
 			}
 		}
 		return $found;

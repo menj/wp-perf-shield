@@ -1,5 +1,17 @@
 # WP Perf Shield changelog
 
+## 1.4.141
+
+**Trojanised Akismet: detected, but the shells were never removed.** Three uploads (`widget_1791852124`, `widget-1791852130`, `widget-1792360616`) are copies of the real Akismet 5.7 under random folder names. Compared against the official 5.7 checksums, every genuine file is unmodified in all three; only the added files differ, so the carrier itself is clean and the extras are the attack.
+- **`widget-1791852130`:** two extra 231 KB files, `sldebar.php` (a misspelt `sidebar.php`) and `abilities/custom.file.3.1791852131.php`. Both are the open-source Tiny File Manager program. Three checks flagged them as web shells, but none of those checks sets a removal target, so they were reported and left in place.
+- **`widget_1791852124`:** one extra file, `styIe.php` (a capital I in place of the l in `style`), 16 bytes: `<!--z3woRLP0-->`. A placeholder, and nothing detected it.
+- **`widget-1792360616`:** no extra files, a clean Akismet in a random folder. Not malware; the ban list does not cover Akismet, so nothing is reported.
+- **New `check_tiny_file_manager_shell`.** The stand-alone program's banner and constants (`APP_TITLE` set to Tiny File Manager) plus its upload, unlink and rmdir calls, in a file of 60 KB or more inside a plugin folder or an odd folder under wp-content or the web root. It is a program someone runs on its own and ships with default passwords, so inside wp-content it is a shell by location. Critical, removed (the file only). A plugin that merely mentions the name is not reported (tested).
+- **New `check_marker_comment_php`.** A PHP file whose first line is an HTML comment holding a random token of letters and digits with at least one digit, one capital and one lower-case letter (`<!--z3woRLP0-->`, `<!--j3btCRiG-->`). The kit stamps its files with it; the tiny stub and the shells both carry one. Ordinary template comments are not reported (tested). Critical, removed. The plugin file walker's 80-byte minimum had to become a parameter to see the 16-byte stub.
+- Both types are in `CO107LUSIVE_TYPES`; an end-to-end run through the removal policy reports all four extra files allowed.
+
+Tests: `test-plugin-malware-detection.php` 97 cases. Registered checks: NC (was 105).
+
 ## 1.4.140
 
 **The Medusa FM kit: a trojanised Protect Uploads that turns the site into a crawler-cloaking gate.** Uploaded as folder `mcurcff` (the real Protect Uploads files, which are banned on this site, plus extras) with the extras again as loose files, a cache purger `clr.php` and an empty `uconvert.php`.

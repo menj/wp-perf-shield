@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.141
+
+**New detections: the Tiny File Manager shell and kit-stamped PHP files.** A copy of the stand-alone Tiny File Manager program inside wp-content, and a PHP file that opens with a random-token comment such as `<!--z3woRLP0-->`, are removed automatically. If the scan reports one, the plugin folder it was in (often a copy of a real plugin under a random name) was a carrier: check the genuine plugin files against wordpress.org's checksums, then delete the carrier folder. Nothing to configure.
+
 ## 1.4.140
 
 **New detection: the Medusa FM kit** (a cloaking gate that replaces index.php and .htaccess and heals itself through a mu-plugin). Its files are removed automatically. If the scan reports one, remove `wp-content/mu-plugins/ms-index-heal.php` first, then restore `index.php` and `.htaccess` (they are locked read-only), and check `advanced-cache.php`, the `WP_CACHE` line in `wp-config.php` and a stray `license.html` in the web root. Nothing to configure.

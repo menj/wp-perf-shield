@@ -192,6 +192,10 @@ final class WPS_Remediation_Policy {
 		'Medusa FM kit file',
 		// 1.4.140: a static sitemap of 100+ consecutive ?p=<id> entries, nearly all dated one day.
 		'Sitemap listing a flood of injected posts',
+		// 1.4.141: the stand-alone Tiny File Manager program (banner, constants and file-writing
+		// functions together) inside wp-content; a PHP file opening with a random-token comment.
+		'Tiny File Manager web shell',
+		'PHP file stamped with a shell kit',
 	];
 
 	/*
