@@ -100,6 +100,16 @@ class WPS_Admin {
 			$existing = [];
 		}
 
+		// An address list that was typed but parsed to nothing (every entry mistyped) is not
+		// saved as an empty list, which would silently mean "allow everyone" (allow list) or
+		// "refuse no one" (deny list). The previous value stays, and the operator is told.
+		$xr_rejected = [];
+		foreach ( [ 'allow' => 'xr_allow_ips', 'deny' => 'xr_deny_ips' ] as $label => $field ) {
+			$raw_list = (string) wp_unslash( $_POST[ $field ] ?? '' );
+			if ( WPS_Exposure_Guard::rules_rejected( $raw_list ) ) {
+				$xr_rejected[] = $label;
+			}
+		}
 		update_option( WPS_OPTION, array_merge( $existing, [
 			'extra_slugs' => self::sanitize_slug_list( (string) wp_unslash( $_POST['extra_slugs'] ?? '' ) ),
 			// 1.4.11: operator-declared first-party plugins. Same shape as the slug
@@ -169,7 +179,8 @@ class WPS_Admin {
 			'xr_remove_emoji'           => isset( $_POST['xr_remove_emoji'] ) ? '1' : '0',
 			'xr_disable_oembed'         => isset( $_POST['xr_disable_oembed'] ) ? '1' : '0',
 		] ) );
-		wp_safe_redirect( admin_url( 'tools.php?page=wp-perf-shield&saved=1&tab=settings' ) );
+		$xr_arg = $xr_rejected ? '&xr_rejected=' . implode( ',', $xr_rejected ) : '';
+		wp_safe_redirect( admin_url( 'tools.php?page=wp-perf-shield&saved=1&tab=settings' . $xr_arg ) );
 		exit;
 	}
 
@@ -613,6 +624,13 @@ class WPS_Admin {
 
 		<?php if ( $saved ) : ?>
 			<div class="notice notice-success is-dismissible wps-notice-tight"><p>Settings saved.</p></div>
+			<?php
+			// Only the two known words are ever echoed, so the query value cannot inject markup.
+			$xr_bad = array_intersect( [ 'allow', 'deny' ], explode( ',', isset( $_GET['xr_rejected'] ) ? sanitize_text_field( wp_unslash( (string) $_GET['xr_rejected'] ) ) : '' ) );
+			if ( $xr_bad ) :
+				?>
+				<div class="notice notice-warning is-dismissible wps-notice-tight"><p>The XML-RPC <?php echo esc_html( implode( ' and ', $xr_bad ) ); ?> list <?php echo count( $xr_bad ) > 1 ? 'were' : 'was'; ?> not saved: no entry in it was a valid IP address or range, so the previous value was kept. Use one address or range such as <code>203.0.113.7</code> or <code>203.0.113.0/24</code> per line.</p></div>
+			<?php endif; ?>
 		<?php endif; ?>
 
 		<!-- Tab nav -->

@@ -362,6 +362,11 @@ class WPS_Exposure_Guard {
 		return ( '' === $clean && '' !== trim( $raw ) ) ? $previous : $clean;
 	}
 
+	/** True when something was typed but not one entry was a valid address or range. */
+	public static function rules_rejected( string $raw ): bool {
+		return '' !== trim( $raw ) && '' === self::sanitize_rules( $raw );
+	}
+
 	public static function maybe_enforce_ip_policy(): void {
 		if ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) {
 			self::enforce_ip_policy();
