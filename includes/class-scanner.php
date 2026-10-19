@@ -7319,7 +7319,12 @@ class WPS_Scanner {
 					if ( self::out_of_time() ) {
 						return $found;
 					}
-					if ( ! ( $f instanceof SplFileInfo ) || ! preg_match( '/^(deep_check|upload_test)_([0-9a-f]{32})\.txt$/i', $f->getFilename(), $m ) ) {
+					if ( ! ( $f instanceof SplFileInfo ) ) {
+						continue;
+					}
+					// `.vc_marker`: eight hex characters and nothing else, the same kind of write test.
+					$vc = '.vc_marker' === strtolower( $f->getFilename() );
+					if ( ! $vc && ! preg_match( '/^(deep_check|upload_test)_([0-9a-f]{32})\.txt$/i', $f->getFilename(), $m ) ) {
 						continue;
 					}
 					if ( ++$n > 500 || ! $f->isFile() || $f->getSize() > 200 ) {
@@ -7330,7 +7335,7 @@ class WPS_Scanner {
 						continue;
 					}
 					$body = trim( (string) @file_get_contents( $f->getPathname() ) );
-					if ( 0 !== strcasecmp( $body, strtoupper( $m[1] ) . '_OK_' . $m[2] ) ) {
+					if ( $vc ? ! preg_match( '/^[0-9a-f]{8}$/i', $body ) : 0 !== strcasecmp( $body, strtoupper( $m[1] ) . '_OK_' . $m[2] ) ) {
 						continue;
 					}
 					$seen[ $real ] = true;
@@ -7400,6 +7405,14 @@ class WPS_Scanner {
 				}
 			} catch ( \Throwable $t ) {} // phpcs:ignore
 		}
+		// Folders that hold other things and are never removed whole: the uploads root, wp-content
+		// and the web root. A kit folder directly under wp-content or the web root is its own unit
+		// (it is also a scan root here), so it can go with its stub and sitemap.
+		$containers = array_filter( [
+			'' !== $base ? realpath( $base ) : false,
+			defined( 'WP_CONTENT_DIR' ) ? realpath( WP_CONTENT_DIR ) : false,
+			defined( 'ABSPATH' ) ? realpath( ABSPATH ) : false,
+		] );
 		$seen = [];
 		$n    = 0;
 		foreach ( array_unique( $roots ) as $root ) {
@@ -7459,7 +7472,7 @@ class WPS_Scanner {
 						'path'        => $path,
 						'action'      => 'This page ranks your domain for gambling searches and sends visitors to the operator. It was planted, not written by you. The page (and its folder when it holds nothing else) is removed. Treat the site as compromised: find how the file was written, remove unknown administrators, reset passwords and salts, then ask Google Search Console to recrawl and remove the URL.',
 						'auto_delete' => true,
-						'delete_path' => 0 === $count && realpath( $dir ) !== realpath( $root ) && realpath( $dir ) !== realpath( ABSPATH ) ? $dir : $path,
+						'delete_path' => 0 === $count && ! in_array( realpath( $dir ), $containers, true ) ? $dir : $path,
 					];
 					if ( class_exists( 'WPS_Logger' ) ) {
 						WPS_Logger::log_event( 'gambling_doorway_found', self::display_path( $path ) );
@@ -7616,11 +7629,11 @@ class WPS_Scanner {
 						$in_uploads    = '' !== $up_base && 0 === strpos( $dir . '/', $up_base . '/' );
 						$found[]       = [
 							'severity'    => 'high',
-							'type'        => $at_root ? 'Search Console verification file on a Site Kit site' : 'Search Console verification file inside a subfolder',
+							'type'        => ( $at_root || $site_kit ) ? 'Search Console verification file on a Site Kit site' : 'Search Console verification file inside a subfolder',
 							'subject'     => self::display_path( $path ) . ( $at_root ? ' (you said Site Kit handles verification)' : ' (a genuine one lives at the web root)' ),
 							'path'        => $path,
-							'action'      => 'This file proves to Google that whoever placed it owns the domain, which lets them submit sitemaps and request indexing for pages they planted. ' . ( $at_root ? 'You have said this site verifies through Site Kit, so the file is not yours; it is moved to quarantine.' : ( $in_uploads ? 'Uploads never hold a genuine verification file; it is moved to quarantine.' : 'A genuine one can sit in a subfolder when that folder is its own Search Console property, so this is reported, not removed: check it is yours.' ) ) . ' Then open Search Console, Settings, Users and permissions, and remove any owner you did not add, and delete sitemaps you did not submit.',
-							'auto_delete' => $at_root ? $site_kit : $in_uploads,
+							'action'      => 'This file proves to Google that whoever placed it owns the domain, which lets them submit sitemaps and request indexing for pages they planted. ' . ( ( $at_root || $site_kit ) ? 'You have said this site verifies through Site Kit, so the file is not yours; it is moved to quarantine.' : ( $in_uploads ? 'Uploads never hold a genuine verification file; it is moved to quarantine.' : 'A genuine one can sit in a subfolder when that folder is its own Search Console property, so this is reported, not removed: check it is yours.' ) ) . ' Then open Search Console, Settings, Users and permissions, and remove any owner you did not add, and delete sitemaps you did not submit.',
+							'auto_delete' => $site_kit || $in_uploads,
 							'delete_path' => $path,
 						];
 					} elseif ( $site_kit && $at_root && 'sitemap.xml' === strtolower( $name ) ) {

@@ -9,6 +9,14 @@
 - **Indicators** (`INDICATOR_VERSION` 1.4.140-1): the content host `istanbulescortladys.com` joins the known C2 domains, and the kit's file names `fm_index_heal.php`, `fm_early_router.php`, `ms-index-heal.php`, `.ms_index.bak.php` and `.ms_htaccess.bak` are known loose dropper components.
 - **Cleaning up after removal.** Order matters, because the heal mu-plugin puts the gate back: remove `wp-content/mu-plugins/ms-index-heal.php` first, then the `.ms_index.bak.php` and `.ms_htaccess.bak` backups, then restore `index.php` and `.htaccess` (the kit sets them 0444; make them writable first), check `wp-content/advanced-cache.php` and the `WP_CACHE` line in `wp-config.php`, and delete the web-root `license.html`.
 
+### Also in this release: "detectable and removed" checked end to end
+The gambling doorway kit (`blog/`, `rebuttals/`) was re-tested through the whole path, scan then removal policy then deletion, instead of detection alone. Two gaps showed up:
+- **Removal was denied by the policy for a kit folder under the web root** on the released 1.4.138: detection fired and the finding then read "REMOVAL DENIED BY POLICY". The 1.4.139 policy change (the doorway type is now conclusive) fixes it; the end-to-end run now reports it allowed.
+- **Only `index.html` would have been deleted, not the folder.** A kit folder directly under the web root or wp-content is also a scan root, and the check refused to delete any scan root, so the Search Console stub and sitemap beside the page stayed behind. Only the uploads root, wp-content and the web root are protected now; the kit folder goes whole.
+- **Stubs on a Site Kit site are removed wherever they are.** With "This site verifies Search Console through Site Kit" on, a `google<16 hex>.html` stub in any subfolder is quarantined too (a second stub with another token, `googlec3c02453592387a7.html`, came with the next upload). Without the setting a subfolder stub is still only reported.
+- **A third write-test marker.** `.vc_marker` holding eight hex characters joins `deep_check_*` and `upload_test_*` as an intruder's write probe, removed when its content matches.
+- Not detectable, by design: three zero-byte PHP files (`backend.php`, `partition.php`, `search.php`) came in the same batch. They are blanked placeholders with no content to match, and matching empty files by name would flag ordinary empty theme templates. In uploads they already raise the generic "PHP file in uploads" finding.
+
 Tests: `test-plugin-malware-detection.php` 82 cases. Registered checks: NC (was 103).
 
 ## 1.4.139

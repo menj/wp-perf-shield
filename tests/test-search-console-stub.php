@@ -72,6 +72,8 @@ $GLOBALS['opts'] = [ 'site_kit_search_console' => '1' ];
 $f = run();
 $r = has( $f, $tmp . '/' . $stub );
 check( 'Site Kit on: the root stub is reported and removable', $r && ! empty( $r['auto_delete'] ) );
+$b2 = has( $f, '/blog/' );
+check( 'Site Kit on: a stub in a web-root subfolder is also removable', $b2 && ! empty( $b2['auto_delete'] ) && 'Search Console verification file on a Site Kit site' === $b2['type'] );
 $s = has( $f, '/sitemap.xml' );
 check( 'Site Kit on: the root sitemap.xml is reported but never auto-deleted', $s && empty( $s['auto_delete'] ) );
 
