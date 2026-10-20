@@ -700,3 +700,6 @@ ClamAV formats, not ClamAV: hash signatures are exact and remove (when Auto-dele
 
 ### Casino-spam checks (1.4.147)
 Behaviour checks, not name checks: the option names from the write-up are generic, so removal needs the value to be a payload too. Removal of a file is limited to dropped files; a spliced-in block is reported, because deleting the host file would delete the plugin or theme. `.htaccess` is never edited or deleted automatically.
+
+### Incident-review release (1.4.148)
+The two new automatic actions (close an open-registration-plus-admin-role combination, switch off a malicious snippet) are limited to cases that are not a legitimate configuration and are reversible (old values in the finding; a snippet is deactivated, never deleted). A permanent block now applies to every surface that can write, except for addresses the operator has vouched for. Checks that run out of budget are carried over, not retried in the same order.

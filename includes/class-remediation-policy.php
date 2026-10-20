@@ -209,6 +209,8 @@ final class WPS_Remediation_Policy {
 		'Signature database match, removal enabled',
 		// 1.4.147: a file that runs a stored payload only for search crawlers; and one that appends hidden gambling links to content.
 		'Crawler-only payload runner',
+		// 1.4.148: a file that holds a token only an injector writes.
+		'File carrying a known injector marker',
 		'Hidden gambling-link injector',
 	];
 

@@ -143,6 +143,17 @@ class WPS_Indicators {
 		return [ '_wp_seo_boost', '_cache_optimizer_v2', 'theme_perf_settings', 'wp_ad_render_cache' ];
 	}
 
+	/**
+	 * Tokens an injector from the October 2026 incident review writes into its own files. Each is a
+	 * name or address nothing else uses; a file carrying one is reported. (A seventh token from the
+	 * same notes, `v0db073`, is left out: seven characters with no context is too short to trust.)
+	 *
+	 * @return list<string>
+	 */
+	public static function incident_code_markers(): array {
+		return [ 'WM_CUSTOM_FILTERS_LOADED', 'vitrina-managed', 'data-seo-links-block', 'data-affgun-media', 'vitrina/api/gate.php', 'zhongmenchuang.co' ];
+	}
+
 	//  .sbs cookie-exfil + persistent-admin toolkit (added 1.3.33)
 	//
 	// A separate campaign from the ClickFix/render-hijacker family. Three

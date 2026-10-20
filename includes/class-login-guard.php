@@ -236,6 +236,89 @@ final class WPS_Login_Guard {
 			// ground the all-or-nothing toggle never offered.
 			add_filter( 'xmlrpc_methods', [ __CLASS__, 'strip_multicall_only' ] );
 		}
+
+		// 1.4.148: a permanent block used to stop sign-in and nothing else. An address blocked at
+		// 14:34 uploaded 24 files through xmlrpc.php at 14:38 with a session it already held.
+		if ( self::surface_block_enabled() ) {
+			add_action( 'init', [ __CLASS__, 'refuse_blocked_surfaces' ], 0 );
+			add_filter( 'rest_authentication_errors', [ __CLASS__, 'refuse_blocked_rest' ], 1 );
+			add_filter( 'wp_handle_upload_prefilter', [ __CLASS__, 'refuse_blocked_upload' ], 1 );
+		}
+	}
+
+	/** On by default: a permanent block is an explicit decision about an address. */
+	public static function surface_block_enabled(): bool {
+		$s = get_option( WPS_OPTION, [] );
+		return ! is_array( $s ) || ( $s['login_block_surfaces'] ?? '1' ) !== '0';
+	}
+
+	/**
+	 * Is this request from a permanently blocked address that is not protected?
+	 * An allowlisted address, or one an administrator has recently signed in from, is never refused.
+	 */
+	private static function from_blocked_address(): bool {
+		$ip = self::ip();
+		return '' !== $ip && ! self::is_protected_ip( $ip ) && self::is_permanently_blocked( $ip );
+	}
+
+	/**
+	 * Which surface this request is using that a blocked address may not use: `xmlrpc`, `upload`,
+	 * or '' for neither. Pure of side effects, so it can be tested.
+	 */
+	public static function blocked_surface(): string {
+		if ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) {
+			return 'xmlrpc';
+		}
+		$script = basename( (string) ( $_SERVER['SCRIPT_NAME'] ?? '' ) );
+		if ( 'async-upload.php' === $script ) {
+			return 'upload';
+		}
+		if ( 'POST' === strtoupper( (string) ( $_SERVER['REQUEST_METHOD'] ?? '' ) ) && ! empty( $_FILES ) ) {
+			return 'upload';
+		}
+		return '';
+	}
+
+	private static function note_refused( string $surface ): void {
+		$ip   = self::ip();
+		$tkey = 'wps_bs_' . md5( $ip . $surface );
+		if ( class_exists( 'WPS_Logger' ) && ! ( function_exists( 'get_transient' ) && get_transient( $tkey ) ) ) {
+			WPS_Logger::log_event( 'blocked_surface_refused', $surface . ' request refused: this address is permanently blocked', $ip );
+			if ( function_exists( 'set_transient' ) ) {
+				set_transient( $tkey, 1, 600 );
+			}
+		}
+	}
+
+	public static function refuse_blocked_surfaces(): void {
+		$surface = self::blocked_surface();
+		if ( '' === $surface || ! self::from_blocked_address() ) {
+			return;
+		}
+		self::note_refused( $surface );
+		if ( function_exists( 'status_header' ) ) {
+			status_header( 403 );
+		}
+		exit( 'This address is blocked.' );
+	}
+
+	/** REST: a blocked address may read what is public, and may not write. @param mixed $result */
+	public static function refuse_blocked_rest( $result ) {
+		$method = strtoupper( (string) ( $_SERVER['REQUEST_METHOD'] ?? 'GET' ) );
+		if ( in_array( $method, [ 'GET', 'HEAD', 'OPTIONS' ], true ) || ! self::from_blocked_address() ) {
+			return $result;
+		}
+		self::note_refused( 'rest' );
+		return new WP_Error( 'wps_address_blocked', 'This address is blocked.', [ 'status' => 403 ] );
+	}
+
+	/** @param array<string, mixed> $file */
+	public static function refuse_blocked_upload( $file ) {
+		if ( is_array( $file ) && self::from_blocked_address() ) {
+			self::note_refused( 'upload' );
+			$file['error'] = 'Uploads are not permitted from this address.';
+		}
+		return $file;
 	}
 
 	/**
@@ -1253,7 +1336,7 @@ final class WPS_Login_Guard {
 			WPS_Logger::log_event(
 				'ip_blocked_permanently',
 				$ip . ' permanently blocked from signing in: ' . $reason
-					. ' (site access is unaffected; remove it from Diagnostics if this was wrong)',
+					. ' (sign-in, XML-RPC, REST writes and uploads from it are refused; remove it from Diagnostics if this was wrong)',
 				$ip
 			);
 		}
@@ -1325,7 +1408,7 @@ final class WPS_Login_Guard {
 			WPS_Logger::log_event(
 				'range_blocked_permanently',
 				$cidr . ' permanently blocked from signing in by the operator: ' . $reason
-					. ' (site access is unaffected; remove it from Diagnostics if this was wrong)',
+					. ' (sign-in, XML-RPC, REST writes and uploads from it are refused; remove it from Diagnostics if this was wrong)',
 				$subnet
 			);
 		}
@@ -1384,6 +1467,22 @@ final class WPS_Login_Guard {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Has an administrator signed in from this address recently, or is it on the allowlist?
+	 * Unlike is_protected_ip() this ignores who is signed in right now, so a stolen session on
+	 * a new address is not vouched for by the very session being judged.
+	 */
+	public static function admin_ip_known( string $ip ): bool {
+		if ( '' === $ip ) {
+			return false;
+		}
+		if ( in_array( $ip, self::allowlist(), true ) ) {
+			return true;
+		}
+		$known = get_option( self::ADMIN_IPS_OPTION, [] );
+		return is_array( $known ) && isset( $known[ $ip ] ) && (int) $known[ $ip ] > ( time() - self::ADMIN_IP_TTL );
 	}
 
 	/** @return array<int, string> */

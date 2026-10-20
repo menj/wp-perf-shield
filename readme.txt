@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.147
+Stable tag: 1.4.148
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.148 =
+From the October 2026 incident review: a permanent block now also refuses XML-RPC, REST writes and uploads; malicious code in the Code Snippets table and WPCode is found; open registration with an administrator default role is closed; skipped checks run first next time; and the log says how an actor authenticated.
 
 = 1.4.147 =
 Detects the casino-spam injector described in a public write-up: a payload that runs only for search crawlers, hidden gambling links added to content, rewrite rules to a PHP script in uploads, and its encoded payload options.
@@ -677,6 +680,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.148 =
+Adds a block on XML-RPC, REST writes and uploads from permanently blocked addresses, a scan of the Code Snippets table, and a rotation so skipped checks run first on the next scan.
 
 = 1.4.147 =
 Adds detection of a casino-spam injector that shows spam only to search crawlers.

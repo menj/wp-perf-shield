@@ -38,6 +38,7 @@ class WPS_Remediation_Controller {
 			'wps_clear_transients'      => 'clear_transients',
 			'wps_invalidate_sessions'   => 'invalidate_sessions',
 			'wps_regenerate_salts'      => 'regenerate_salts',
+			'wps_revoke_app_passwords'  => 'revoke_app_passwords', // 1.4.148
 			'wps_delete_user'           => 'delete_user',
 			'wps_delete_attachment'     => 'delete_attachment',
 			'wps_delete_plugin_folder'  => 'delete_plugin_folder',
@@ -998,6 +999,39 @@ class WPS_Remediation_Controller {
 		WPS_Logger::log_event( 'sessions_invalidated', 'All user sessions invalidated (' . $deleted . ' rows)' );
 		wp_send_json_success( [
 			'message' => 'All user sessions invalidated every user must log in again. ' . $deleted . ' session record(s) removed.',
+		] );
+	}
+
+	/**
+	 * 1.4.148: revoke every application password on every administrator account and end their sessions.
+	 * A rogue application password was the way back in on one compromised site, and it survives a
+	 * password change. Editors and other roles are not touched: this is the takeover response, not
+	 * a sweep of every integration on the site.
+	 */
+	public static function revoke_app_passwords(): void {
+		WPS_Utils::guard_request( 'manage_options' );
+		WPS_Utils::enforce_cooldown( 'revoke_app_passwords', 30 );
+		if ( ! class_exists( 'WP_Application_Passwords' ) ) {
+			wp_send_json_error( [ 'error' => 'Application passwords are not available on this WordPress version.' ] );
+		}
+		$ids = get_users( [ 'role__in' => [ 'administrator' ], 'fields' => 'ID', 'number' => 500 ] );
+		$pw  = 0;
+		$who = 0;
+		foreach ( (array) $ids as $id ) {
+			$id    = (int) $id;
+			$count = count( (array) WP_Application_Passwords::get_user_application_passwords( $id ) );
+			if ( $count > 0 ) {
+				WP_Application_Passwords::delete_all_application_passwords( $id );
+				$pw += $count;
+				++$who;
+			}
+			if ( class_exists( 'WP_Session_Tokens' ) ) {
+				WP_Session_Tokens::get_instance( $id )->destroy_all();
+			}
+		}
+		WPS_Logger::log_event( 'app_passwords_revoked', $pw . ' application password(s) revoked on ' . $who . ' administrator account(s); sessions ended for ' . count( (array) $ids ) );
+		wp_send_json_success( [
+			'message' => $pw . ' application password(s) revoked on ' . $who . ' administrator account(s), and every administrator session ended. Anything that used one must be given a new one.',
 		] );
 	}
 

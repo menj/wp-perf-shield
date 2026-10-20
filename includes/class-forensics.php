@@ -814,6 +814,7 @@ class WPS_Forensics {
             '/usr/local/cpanel/',
             '/var/cpanel/',
             '/opt/hostinger/',
+            '/var/lib/monarx-agent/',   // 1.4.148: Monarx host security agent (its loader.php was reported as a dropper)
         ];
         foreach ( $safe_prefixes as $sp ) {
             if ( strpos( $abs_norm, $sp ) === 0 ) return 'safe';

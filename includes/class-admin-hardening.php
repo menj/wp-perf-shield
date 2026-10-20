@@ -58,6 +58,11 @@ class WPS_Admin_Hardening {
 						<td class="wps-sm wps-muted">Forces every logged-in user to re-authenticate</td>
 						<td class="wps-right"><?php echo self::apply_btn( 'wps-h-sessions', 'Invalidate sessions', 'wps_invalidate_sessions', [], true ); ?></td>
 					</tr>
+					<tr>
+						<td>Revoke administrator application passwords</td>
+						<td class="wps-sm wps-muted">An application password keeps working after the account password changes. This removes every one on every administrator account and ends their sessions. Integrations that use one (a mobile app, Zapier) must be given a new one. After a takeover, also rotate the authentication salts in the next section.</td>
+						<td class="wps-right"><?php echo self::apply_btn( 'wps-h-apppw', 'Revoke application passwords', 'wps_revoke_app_passwords', [], true ); ?></td>
+					</tr>
 				</table>
 			</div>
 
