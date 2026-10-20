@@ -40,6 +40,9 @@ final class WPS_Spam_Signatures {
 		'pragmatic play', 'sbobet', 'dominoqq', 'bandarq', 'pkv games',
 		'idn poker', 'mahjong ways', 'zeus slot', 'gates of olympus',
 		'link slot', 'akun pro', 'scatter hitam',
+		// 1.4.147: phrases from a casino-spam doorway write-up; they are SEO-spam phrasing, not prose.
+		'online casino no deposit bonus', 'free spins no deposit', 'slot review bonus',
+		'オンラインカジノ入金不要ボーナス',
 	];
 
 	/** Ordinary gambling words: counted only in bulk and only with a structural tell. */
@@ -106,6 +109,25 @@ final class WPS_Spam_Signatures {
 
 		$out_links = preg_match_all( '/<a\s[^>]*href\s*=\s*["\']https?:\/\//i', $text );
 
+		// 1.4.148: a link block hidden off-screen or clipped to nothing. `display:none` is left out on
+		// purpose (accordions use it); these are the tells of a block meant for crawlers only.
+		if ( preg_match( '/data-seo-links-block|data-affgun-media/i', $text ) ) {
+			return [
+				'spam'       => true,
+				'confidence' => 'high',
+				'signals'    => [ 'hidden SEO link block marker' ],
+				'reason'     => 'a hidden SEO link block (data-seo-links-block / data-affgun-media)',
+			];
+		}
+		if ( $out_links >= 5 && preg_match( '/clip\s*:\s*rect\(\s*0|position\s*:\s*absolute[^;"\']{0,30};\s*width\s*:\s*1px|left\s*:\s*-\d{4,}px|text-indent\s*:\s*-\d{4,}/i', $text ) ) {
+			return [
+				'spam'       => true,
+				'confidence' => 'medium',
+				'signals'    => [ $out_links . ' links in a block hidden off-screen or clipped to nothing' ],
+				'reason'     => $out_links . ' outbound links inside a block hidden off-screen or clipped to nothing',
+			];
+		}
+
 		// Bulk gambling vocabulary AND a structural tell: two independent signals,
 		// which ordinary prose does not combine.
 		if ( count( $gen ) >= 3 && $cloaked ) {
@@ -138,6 +160,6 @@ final class WPS_Spam_Signatures {
 
 	/** The SQL LIKE fragments to pre-filter candidate rows before the matcher confirms them. */
 	public static function like_prefilter_terms(): array {
-		return [ 'gacor', 'togel', 'judi', 'casino', 'maxwin', 'sbobet', 'slot', 'rtp live', 'bocoran' ];
+		return [ 'gacor', 'togel', 'judi', 'casino', 'maxwin', 'sbobet', 'slot', 'rtp live', 'bocoran', 'free spins', 'オンラインカジノ' ];
 	}
 }

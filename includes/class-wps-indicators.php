@@ -72,6 +72,8 @@ class WPS_Indicators {
 			'wpconsole_key',
 			'wps_emergency_pass',
 			'malwary_pass',
+			// 1.4.147: casino-spam injector (guardiangaze.com write-up): the encoded page-generator payload, a name nothing else uses.
+			'_gg_link_cache',
 		];
 	}
 
@@ -126,7 +128,30 @@ class WPS_Indicators {
 			'wpconsole',
 			'malwary',
 			'wp_perf_ok',
+			'gg_casino_reinstall', // 1.4.147: hourly re-download of the casino-spam payload; the whole hook name, because the list matches substrings
 		];
+	}
+
+	/**
+	 * Option names a casino-spam injector stores its payload under, taken from one public
+	 * write-up. The names are generic enough that another plugin could use one, so none is
+	 * removed on its name: the value must also be an encoded or executable payload.
+	 *
+	 * @return list<string>
+	 */
+	public static function casino_spam_option_names(): array {
+		return [ '_wp_seo_boost', '_cache_optimizer_v2', 'theme_perf_settings', 'wp_ad_render_cache' ];
+	}
+
+	/**
+	 * Tokens an injector from the October 2026 incident review writes into its own files. Each is a
+	 * name or address nothing else uses; a file carrying one is reported. (A seventh token from the
+	 * same notes, `v0db073`, is left out: seven characters with no context is too short to trust.)
+	 *
+	 * @return list<string>
+	 */
+	public static function incident_code_markers(): array {
+		return [ 'WM_CUSTOM_FILTERS_LOADED', 'vitrina-managed', 'data-seo-links-block', 'data-affgun-media', 'vitrina/api/gate.php', 'zhongmenchuang.co' ];
 	}
 
 	//  .sbs cookie-exfil + persistent-admin toolkit (added 1.3.33)

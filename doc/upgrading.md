@@ -59,6 +59,18 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.148
+
+**Permanent blocks are stronger.** An address you have blocked permanently is now also refused on XML-RPC, on REST requests that change anything, and on uploads, not only at sign-in. Addresses on your allowlist, and addresses an administrator has signed in from in the last 30 days, are never refused. To go back to sign-in only, untick "Also refuse XML-RPC, REST writes and uploads" under Settings, Sign-in.
+
+**Two automatic actions are new, both under Auto-delete.** Open registration combined with an administrator or editor default role is closed (registration off, role subscriber). A malicious snippet in the Code Snippets table or WPCode is switched off, not deleted. Neither runs with Auto-delete off.
+
+**The scan now rotates.** Checks skipped for time run first on the next scan. A site whose scan is always partial will see the skipped list change from scan to scan until everything has run.
+
+## 1.4.147
+
+**New detections for a casino-spam injector.** Four new checks: a payload that runs only for search crawlers, hidden gambling links added to content, `.htaccess` rules that send URLs to a PHP script in uploads, and an encoded payload kept under a known option name. A dropped file (in mu-plugins, outside the plugin and theme folders, or a small plugin file) is removed; code spliced into a larger plugin or theme file, and the `.htaccess` rules, are only reported, and you cut them out by hand. If the scan reports one, also check the cron events for `gg_casino_reinstall` and the options `_gg_link_cache` and the four named in the changelog.
+
 ## 1.4.146
 
 **New: a ClamAV-format signature database.** Nothing changes until you put database files in `wp-content/wps-signatures/`. A whole-file hash match is removed; a body or logical match is only reported unless you turn on removal under Settings, Detection. Read `doc/signatures.md` first, and test a database on a copy: a signature with a false positive on a hash match removes the file (quarantined, restorable from Diagnostics). To switch it off, untick "Scan with a ClamAV-format signature database".

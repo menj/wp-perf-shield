@@ -83,6 +83,9 @@ class WPS_EDR {
 		'theme_switched'         => 35,
 		'file_editor_opened'     => 60,
 		'file_uploaded'          => 15,
+		// 1.4.148: an application password is a second way in that survives a password change.
+		'application_password_created' => 60,
+		'password_reset_requested'     => 30,
 		// reconnaissance - individually trivial, meaningful in aggregate
 		'admin_screen_visited'   => 8,
 		'settings_changed'       => 20,
@@ -236,6 +239,13 @@ class WPS_EDR {
 		$ip   = self::client_ip();
 		$risk = isset( $ctx['risk'] ) ? (int) $ctx['risk'] : self::score_for( $event_type );
 
+		// 1.4.148: say how the actor authenticated. On a compromised site the log showed uploads and
+		// posts from the admin account and no way to tell a dashboard session from XML-RPC, an
+		// application password or a stolen cookie.
+		$via = self::auth_method();
+		if ( '' !== $via && $user_id ) {
+			$ctx['notes'] = trim( (string) ( $ctx['notes'] ?? '' ) . ' [via ' . $via . ']' );
+		}
 		$fields = [
 			'event_type'  => $event_type,
 			'action'      => $event_type,
@@ -259,6 +269,81 @@ class WPS_EDR {
 		WPS_Event_Log::record( $fields );
 	}
 
+	/** The application password that authenticated this request, when one did. */
+	private static $app_password = '';
+
+	/**
+	 * How the current request authenticated: cli, xmlrpc, application password, rest api, cookie
+	 * session, wp-cron, or '' when unknown.
+	 */
+	public static function auth_method(): string {
+		if ( defined( 'WP_CLI' ) && WP_CLI ) {
+			return 'wp-cli';
+		}
+		if ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) {
+			return 'xmlrpc';
+		}
+		if ( '' !== self::$app_password ) {
+			return 'application password "' . self::$app_password . '"';
+		}
+		if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
+			return 'rest api';
+		}
+		if ( defined( 'DOING_CRON' ) && DOING_CRON ) {
+			return 'wp-cron';
+		}
+		return function_exists( 'is_user_logged_in' ) && is_user_logged_in() ? 'cookie session' : '';
+	}
+
+	/** @param mixed $user @param mixed $item */
+	public static function on_app_password_auth( $user = null, $item = null ): void {
+		self::$app_password = is_array( $item ) ? substr( preg_replace( '/[^\P{C}]+/u', '', (string) ( $item['name'] ?? '' ) ) ?? '', 0, 60 ) : 'unnamed';
+		if ( '' === self::$app_password ) {
+			self::$app_password = 'unnamed';
+		}
+	}
+
+	/**
+	 * A new application password. Alerts when it was made from an address no administrator has
+	 * signed in from, which is what a stolen session does.
+	 *
+	 * @param mixed $user_id @param mixed $item
+	 */
+	public static function on_app_password_created( $user_id = 0, $item = null ): void {
+		$ip      = (string) self::client_ip();
+		$name    = is_array( $item ) ? substr( preg_replace( '/[^\P{C}]+/u', '', (string) ( $item['name'] ?? '' ) ) ?? '', 0, 60 ) : '';
+		$known   = class_exists( 'WPS_Login_Guard' ) && WPS_Login_Guard::admin_ip_known( $ip );
+		$risk    = $known ? self::score_for( 'application_password_created' ) : self::score_for( 'application_password_created' ) + 60;
+		self::record( 'application_password_created', [
+			'user_id'     => (int) $user_id,
+			'object_type' => 'application_password',
+			'object_name' => $name,
+			'severity'    => $known ? 'info' : 'warning',
+			'risk'        => $risk,
+			'notes'       => 'application password "' . $name . '" created'
+				. ( $known ? '' : ' from an address no administrator has signed in from recently: if you did not make it, revoke it and every session for this account' ),
+		] );
+	}
+
+	/** A password-reset request, for an account that can administer the site. @param mixed $login */
+	public static function on_password_reset_requested( $login = '' ): void {
+		$login = is_string( $login ) ? $login : '';
+		if ( '' === $login || ! function_exists( 'get_user_by' ) ) {
+			return;
+		}
+		$user = get_user_by( strpos( $login, '@' ) ? 'email' : 'login', $login );
+		if ( ! $user || ! function_exists( 'user_can' ) || ! user_can( $user, 'manage_options' ) ) {
+			return;
+		}
+		self::record( 'password_reset_requested', [
+			'user_id'     => (int) $user->ID,
+			'object_type' => 'user',
+			'object_name' => (string) $user->user_login,
+			'severity'    => 'warning',
+			'notes'       => 'a password reset was requested for an administrator account; if you did not ask for it, someone is trying to take the account',
+		] );
+	}
+
 	//  Hooks 
 
 	public static function register_hooks(): void {
@@ -277,6 +362,9 @@ class WPS_EDR {
 		add_action( 'switch_theme', [ __CLASS__, 'on_theme_switched' ], 10, 1 );
 		add_action( 'upgrader_process_complete', [ __CLASS__, 'on_upgrader_complete' ], 10, 2 );
 		add_action( 'add_attachment', [ __CLASS__, 'on_attachment_added' ], 10, 1 );
+		add_action( 'application_password_did_authenticate', [ __CLASS__, 'on_app_password_auth' ], 10, 2 );
+		add_action( 'wp_create_application_password', [ __CLASS__, 'on_app_password_created' ], 10, 2 );
+		add_action( 'retrieve_password', [ __CLASS__, 'on_password_reset_requested' ], 10, 1 );
 		add_action( 'current_screen', [ __CLASS__, 'on_admin_screen' ], 10, 1 );
 		// 1.4.10: scan-time detection finds the bad state; these find the moment
 		// it was set, and who was signed in when it happened.

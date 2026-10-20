@@ -38,6 +38,27 @@ class WPS_Admin {
 		add_action( 'admin_post_wps_reset_breaker', [ __CLASS__, 'handle_reset_breaker' ] );
 		add_action( 'admin_post_wps_chain_selftest', [ __CLASS__, 'handle_chain_selftest' ] );
 		add_action( 'admin_post_wps_save_settings', [ self::class, 'save_settings' ] );
+		// 1.4.148: a persistent notice while a threat that automatic removal could not touch is still there.
+		add_action( 'admin_notices', [ __CLASS__, 'render_withheld_notice' ] );
+		add_action( 'network_admin_notices', [ __CLASS__, 'render_withheld_notice' ] );
+	}
+
+	/** Red notice, on every admin screen, for each threat that is still live because removal failed. */
+	public static function render_withheld_notice(): void {
+		if ( ! current_user_can( 'manage_options' ) || ! class_exists( 'WPS_Scanner' ) ) {
+			return;
+		}
+		$list = WPS_Scanner::withheld_remediations();
+		if ( ! $list ) {
+			return;
+		}
+		$store = class_exists( 'WPS_Quarantine' ) ? WPS_Quarantine::store_dir() : 'wp-content/wps-quarantine';
+		echo '<div class="notice notice-error"><p><strong>WP Perf Shield could not remove ' . count( $list ) . ' confirmed threat' . ( 1 === count( $list ) ? '' : 's' ) . '. ' . ( 1 === count( $list ) ? 'It is' : 'They are' ) . ' still on this site.</strong> Removal moves a file into the quarantine folder first, and that step failed, so nothing was deleted.</p>';
+		foreach ( array_slice( $list, 0, 5, true ) as $path => $meta ) {
+			$rel = str_replace( rtrim( str_replace( '\\', '/', ABSPATH ), '/' ) . '/', '', str_replace( '\\', '/', $path ) );
+			echo '<p><code>' . esc_html( $rel ) . '</code> (' . esc_html( $meta['type'] ) . ', ' . esc_html( gmdate( 'Y-m-d H:i', $meta['at'] ) ) . ' UTC)</p>';
+		}
+		echo '<p>Do one of these: make <code>' . esc_html( str_replace( rtrim( str_replace( '\\', '/', ABSPATH ), '/' ) . '/', '', $store ) ) . '</code> exist and be writable by the web server, with free disk space, then run a scan; or delete the path above yourself over SFTP or SSH. This notice goes when the path is gone.</p></div>';
 	}
 
 	public static function add_menu(): void {
@@ -139,6 +160,8 @@ class WPS_Admin {
 			'signature_db_enabled'   => isset( $_POST['signature_db_enabled'] ) ? '1' : '0',
 			'signature_auto_remove'  => isset( $_POST['signature_auto_remove'] ) ? '1' : '0',
 			'login_network_guard'  => isset( $_POST['login_network_guard'] ) ? '1' : '0',
+			// 1.4.148: a permanent block also refuses XML-RPC, REST writes and uploads.
+			'login_block_surfaces' => isset( $_POST['login_block_surfaces'] ) ? '1' : '0',
 			'login_report_spam'    => isset( $_POST['login_report_spam'] ) ? '1' : '0',
 			'akismet_report_all_blocks' => isset( $_POST['akismet_report_all_blocks'] ) ? '1' : '0',
 			// 1.4.60: was read by akismet_available() but never written, so the

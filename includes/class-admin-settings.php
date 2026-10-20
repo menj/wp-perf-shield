@@ -130,6 +130,18 @@ class WPS_Admin_Settings {
 							</td>
 						</tr>
 						<tr>
+							<th><label for="login_block_surfaces">Permanent blocks</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="login_block_surfaces" name="login_block_surfaces" value="1" <?php checked( ( $settings['login_block_surfaces'] ?? '1' ) !== '0' ); ?>>
+									<span>
+										<strong>Also refuse XML-RPC, REST writes and uploads from a permanently blocked address</strong><br>
+										<span class="description">A permanent block used to stop sign-in only, so an address that already held a session or an application password could keep writing. With this on, a blocked address is refused on <code>xmlrpc.php</code>, on REST requests that change anything, and on uploads. An address on your allowlist, or one an administrator has signed in from recently, is never refused. <strong>On by default.</strong></span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						<tr>
 							<th><label for="login_ip_allowlist">Never block these addresses</label></th>
 							<td>
 								<textarea id="login_ip_allowlist" name="login_ip_allowlist" rows="2" class="wps-mono wps-sm"><?php echo esc_textarea( (string) ( $settings['login_ip_allowlist'] ?? '' ) ); ?></textarea>
