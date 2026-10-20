@@ -128,7 +128,7 @@ class WPS_Indicators {
 			'wpconsole',
 			'malwary',
 			'wp_perf_ok',
-			'gg_casino', // 1.4.147: hourly re-download of the casino-spam payload (gg_casino_reinstall)
+			'gg_casino_reinstall', // 1.4.147: hourly re-download of the casino-spam payload; the whole hook name, because the list matches substrings
 		];
 	}
 

@@ -8023,19 +8023,19 @@ class WPS_Scanner {
 
 	/**
 	 * Whether a flagged file has no business existing, so removing it is the fix: a file dropped
-	 * into mu-plugins or outside the plugin and theme folders, or a small plugin file (a few
-	 * kilobytes) that is only the payload. A large plugin or theme file with the code spliced in
-	 * is reported for cleaning by hand, because removing it would remove the plugin or the theme.
+	 * into mu-plugins or outside the plugin and theme folders. A file inside a plugin or theme
+	 * folder is reported for cleaning by hand, because removing it could remove the plugin or the theme.
 	 */
 	private static function is_dropped_file( string $path, int $size ): bool {
 		$norm = strtolower( str_replace( '\\', '/', $path ) );
 		if ( false !== strpos( $norm, '/mu-plugins/' ) ) {
 			return true;
 		}
-		if ( false === strpos( $norm, '/plugins/' ) && false === strpos( $norm, '/themes/' ) ) {
-			return true;
-		}
-		return $size <= 12000 && false !== strpos( $norm, '/plugins/' );
+		// Outside the plugin and theme folders (uploads, cache, a stray folder in wp-content).
+		// A file inside a plugin or theme folder is never removed on a proximity match alone: these
+		// detectors are conjunctions of nearby tokens, not exact content, so inside a managed
+		// location they report and leave the removal to a person.
+		return false === strpos( $norm, '/plugins/' ) && false === strpos( $norm, '/themes/' );
 	}
 
 	/**
@@ -8197,7 +8197,7 @@ class WPS_Scanner {
 				'path'     => $path,
 				'action'   => 'This token is written by an injector seen on compromised sites and is not used by anything else. ' . ( $delete
 					? 'The file is removed. Look for the rest of the kit: hidden link blocks in posts, an option or table the code reads from, and a cron event that restores it.'
-					: 'It sits inside a plugin or theme file that holds other code, so nothing is removed automatically; cut the block out by hand, or replace the file from a clean copy.' ),
+					: 'It sits inside a plugin or theme folder, so nothing is removed automatically; cut the block out by hand, or replace the file from a clean copy.' ),
 				'auto_delete' => $delete,
 			];
 			if ( $delete ) {
@@ -8396,7 +8396,7 @@ class WPS_Scanner {
 				'path'     => $path,
 				'action'   => 'This is the shape of a black-hat SEO injector: the page looks normal to you and shows casino or other spam to Googlebot and Bingbot. ' . ( $delete
 					? 'The file is removed. Then look for the payload it ran (an option such as _gg_link_cache), for an hourly cron event that re-downloads it, for rewrite rules in .htaccess, and for other files dropped beside it.'
-					: 'It sits inside a plugin or theme file that holds other code, so nothing is removed automatically; cut the block out by hand, or replace the file from a clean copy. Then look for the payload option, an hourly cron event that re-downloads it, and rewrite rules in .htaccess.' ),
+					: 'It sits inside a plugin or theme folder, so nothing is removed automatically; cut the block out by hand, or replace the file from a clean copy. Then look for the payload option, an hourly cron event that re-downloads it, and rewrite rules in .htaccess.' ),
 				'auto_delete' => $delete,
 			];
 			if ( $delete ) {
@@ -8577,8 +8577,14 @@ class WPS_Scanner {
 			}
 			$text = is_string( $val ) ? $val : (string) wp_json_encode( $val );
 			$why  = '';
-			if ( strlen( $text ) >= 200 && preg_match( '/^[A-Za-z0-9+\/=\s]{200,}$/', substr( $text, 0, 4000 ) ) ) {
-				$why = 'a long base64 blob';
+			$b64 = strlen( $text ) >= 200 && preg_match( '/^[A-Za-z0-9+\/=\s]{200,}$/', substr( $text, 0, 4000 ) );
+			if ( $b64 ) {
+				// A long base64 value is only a payload when it decodes to code or markup: another
+				// plugin may keep ordinary encoded settings under one of these names.
+				$dec = base64_decode( (string) preg_replace( '/\s+/', '', substr( $text, 0, 20000 ) ), true );
+				if ( is_string( $dec ) && preg_match( '/<\?php|\beval\s*\(|base64_decode|gzinflate|str_rot13|<script|<iframe|data-seo-links-block|<a\s[^>]*href/i', $dec ) ) {
+					$why = 'a base64 blob that decodes to code or markup';
+				}
 			} elseif ( preg_match( '/\beval\s*\(|base64_decode|gzinflate|str_rot13/i', $text ) ) {
 				$why = 'code that decodes or runs a payload';
 			} elseif ( class_exists( 'WPS_Spam_Signatures' ) && strlen( $text ) >= 120 && preg_match( '/<a\s[^>]*href/i', $text ) ) {

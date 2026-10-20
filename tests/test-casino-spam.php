@@ -99,7 +99,7 @@ put( $P . '/far/far.php', "<?php\n/* Plugin Name: Far */\nif (preg_match('/googl
 $f  = run( 'check_crawler_gated_eval' );
 $by = by_name( $f );
 check( 'a crawler-only eval dropped into mu-plugins is a removable finding', isset( $by['wp-seo-helper.php'] ) && ! empty( $by['wp-seo-helper.php']['auto_delete'] ) && 'Crawler-only payload runner' === $by['wp-seo-helper.php']['type'] );
-check( 'a small plugin file that is only the payload is removable', isset( $by['tiny-seo.php'] ) && ! empty( $by['tiny-seo.php']['auto_delete'] ) );
+check( 'even a small plugin file holding only the payload is reported, not removed: inside a plugin folder a proximity match is not enough to delete', isset( $by['tiny-seo.php'] ) && empty( $by['tiny-seo.php']['auto_delete'] ) && ! isset( $by['tiny-seo.php']['delete_path'] ) );
 check( 'the same code spliced into a large plugin file is reported, not removed', isset( $by['big-seo.php'] ) && empty( $by['big-seo.php']['auto_delete'] ) && ! isset( $by['big-seo.php']['delete_path'] ), json_encode( $by['big-seo.php'] ?? null ) );
 check( 'a crawler list with no eval, an eval with no crawler, and the two far apart are all quiet', ! isset( $by['crawler-list.php'] ) && ! isset( $by['evaler.php'] ) && ! isset( $by['far.php'] ), implode( ',', array_keys( $by ) ) );
 
@@ -139,6 +139,17 @@ foreach ( $f as $x ) {
 	$by[ strtok( $x['subject'], ' ' ) ] = $x;
 }
 check( 'a base64 blob and an eval under the listed names are found and cleaned', isset( $by['_wp_seo_boost'] ) && isset( $by['wp_ad_render_cache'] ) && ! empty( $by['_wp_seo_boost']['remediated'] ) && in_array( '_wp_seo_boost', $GLOBALS['deleted'], true ), json_encode( array_keys( $by ) ) );
+$GLOBALS['options'] = [ '_wp_seo_boost' => base64_encode( str_repeat( 'ordinary encoded setting value, nothing executable here. ', 12 ) ), 'wp_ad_render_cache' => base64_encode( random_bytes( 240 ) ) ];
+$GLOBALS['deleted'] = [];
+$f = run( 'check_casino_spam_options' );
+check( 'a long base64 value that decodes to plain text or binary is left alone', [] === $f && ! $GLOBALS['deleted'], json_encode( array_map( static fn( $x ) => $x['subject'], $f ) ) );
+$GLOBALS['options'] = [ '_wp_seo_boost' => $blob, 'theme_perf_settings' => 'a:2:{s:5:"color";s:3:"red";s:4:"size";i:12;}', 'wp_ad_render_cache' => "<?php eval(base64_decode('" . str_repeat( 'QQ', 60 ) . "')); ?>", '_cache_optimizer_v2' => '1' ];
+$GLOBALS['deleted'] = [];
+$f  = run( 'check_casino_spam_options' );
+$by = [];
+foreach ( $f as $x ) {
+	$by[ strtok( $x['subject'], ' ' ) ] = $x;
+}
 check( 'an ordinary settings array and a one-character value under the same names are left alone', ! isset( $by['theme_perf_settings'] ) && ! isset( $by['_cache_optimizer_v2'] ) && ! in_array( 'theme_perf_settings', $GLOBALS['deleted'], true ) );
 $GLOBALS['opts']    = [ 'quarantine_enabled' => '0', 'auto_delete_enabled' => '0' ];
 $GLOBALS['options'] = [ '_wp_seo_boost' => $blob ];
@@ -147,11 +158,11 @@ $f = run( 'check_casino_spam_options' );
 check( 'with Auto-delete off the option is reported and kept', 1 === count( $f ) && empty( $f[0]['remediated'] ) && ! in_array( '_wp_seo_boost', $GLOBALS['deleted'], true ), json_encode( [ count( $f ), $f[0]['remediated'] ?? null, $GLOBALS['deleted'] ] ) );
 $GLOBALS['opts']    = [ 'quarantine_enabled' => '0', 'auto_delete_enabled' => '0' ];
 $GLOBALS['options'] = [ '_gg_link_cache' => 'QQ==' ];
-$GLOBALS['crons']   = [ 12345 => [ 'gg_casino_reinstall' => [ 'x' => [ 'schedule' => 'hourly' ] ], 'my_plugin_nightly' => [ 'y' => [] ] ] ];
+$GLOBALS['crons']   = [ 12345 => [ 'gg_casino_reinstall' => [ 'x' => [ 'schedule' => 'hourly' ] ], 'my_plugin_nightly' => [ 'y' => [] ], 'my_gg_casino_stats' => [ 'z' => [] ] ] ];
 $f = run( 'check_malicious_db_options' );
 $s = implode( ' | ', array_map( static fn( $x ) => $x['subject'] . ':' . $x['type'], $f ) );
 check( 'the payload option _gg_link_cache is a known-bad key', false !== strpos( $s, '_gg_link_cache' ), $s );
-check( 'the gg_casino_reinstall cron hook is found and an ordinary hook is not', false !== strpos( $s, 'gg_casino_reinstall' ) && false === strpos( $s, 'my_plugin_nightly' ), $s );
+check( 'the gg_casino_reinstall cron hook is found; an ordinary hook and an unrelated hook with gg_casino in its name are not', false !== strpos( $s, 'gg_casino_reinstall' ) && false === strpos( $s, 'my_plugin_nightly' ) && false === strpos( $s, 'my_gg_casino_stats' ), $s );
 $GLOBALS['options'] = [];
 $GLOBALS['crons']   = [];
 $GLOBALS['opts']    = [ 'quarantine_enabled' => '0' ];
@@ -173,7 +184,7 @@ foreach ( $ro as $x ) {
 	$ok = $ok && ! WPS_Remediation_Policy::decide( $x )['allowed'];
 }
 check( 'and denies the report-only ones', $ro && $ok );
-$all = array_map( 'basename', array_keys( [] ) );
+check( 'the scheduled scan reaches posts that carry only the Japanese marker or the free-spins phrase', in_array( 'オンラインカジノ', WPS_Spam_Signatures::like_prefilter_terms(), true ) && in_array( 'free spins', WPS_Spam_Signatures::like_prefilter_terms(), true ) );
 check( 'the four checks are registered', 4 === preg_match_all( "/'check_(?:crawler_gated_eval|hidden_link_filter|htaccess_php_doorway|casino_spam_options)' => \\[ __CLASS__/", (string) file_get_contents( dirname( __DIR__ ) . '/includes/class-scanner.php' ) ) );
 
 exec( 'rm -rf ' . escapeshellarg( $tmp ) );

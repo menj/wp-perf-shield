@@ -160,6 +160,6 @@ final class WPS_Spam_Signatures {
 
 	/** The SQL LIKE fragments to pre-filter candidate rows before the matcher confirms them. */
 	public static function like_prefilter_terms(): array {
-		return [ 'gacor', 'togel', 'judi', 'casino', 'maxwin', 'sbobet', 'slot', 'rtp live', 'bocoran' ];
+		return [ 'gacor', 'togel', 'judi', 'casino', 'maxwin', 'sbobet', 'slot', 'rtp live', 'bocoran', 'free spins', 'オンラインカジノ' ];
 	}
 }
