@@ -48,6 +48,7 @@ New tests: `test-surface-block.php` (18), `test-incident-response.php` (46), `te
 
 ### CodeAnt's review of this release
 - **Proximity detectors no longer remove files inside a plugin or theme folder** (the 12,000-byte exception is gone): in a managed location they report and leave removal to a person. **The Japanese marker and the free-spins phrase** were never reached by scheduled scans because the database pre-filter was ASCII-only. **A base64-only value under a generic option name** is now reported only if it decodes to code or markup. **`gg_casino` matched any hook containing it**; the catalogue now holds the whole name `gg_casino_reinstall`. A dead assignment in a test was removed.
+- **Second pass on the same release:** decoded links alone under a generic option name (an encoded footer) are no longer enough; they must read as gambling spam. And the option is deleted only if the quarantine copy was made; if it could not be, the option is kept and the finding says so (the earlier code deleted it regardless). The older known-bad-options check still deletes after a failed copy; its names are specific to malware, so I left it.
 
 ## 1.4.146
 

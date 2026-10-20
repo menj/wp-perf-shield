@@ -151,6 +151,25 @@ foreach ( $f as $x ) {
 	$by[ strtok( $x['subject'], ' ' ) ] = $x;
 }
 check( 'an ordinary settings array and a one-character value under the same names are left alone', ! isset( $by['theme_perf_settings'] ) && ! isset( $by['_cache_optimizer_v2'] ) && ! in_array( 'theme_perf_settings', $GLOBALS['deleted'], true ) );
+// Decoded links alone (an encoded footer) are ordinary; links that read as gambling spam are not.
+$GLOBALS['opts']    = [ 'quarantine_enabled' => '0' ];
+$GLOBALS['options'] = [ 'theme_perf_settings' => base64_encode( '<p>Follow us: <a href="https://example.com/news">our news page</a> and <a href="https://example.com/contact">contact us</a>. ' . str_repeat( 'Thank you for visiting. ', 10 ) . '</p>' ) ];
+$GLOBALS['deleted'] = [];
+check( 'an encoded footer with ordinary links under a generic name is left alone', [] === run( 'check_casino_spam_options' ) && ! $GLOBALS['deleted'] );
+$GLOBALS['options'] = [ 'theme_perf_settings' => base64_encode( '<div><a href="https://x.invalid/a">online casino no deposit bonus</a> <a href="https://x.invalid/b">Slot Gacor</a> ' . str_repeat( 'pad ', 40 ) . '</div>' ) ];
+check( 'encoded links that read as gambling spam are found', 1 === count( run( 'check_casino_spam_options' ) ) );
+// With quarantine on and the store unwritable, the option is kept.
+$GLOBALS['opts']    = [ 'quarantine_enabled' => '1' ];
+$GLOBALS['options'] = [ '_wp_seo_boost' => $blob ];
+$GLOBALS['deleted'] = [];
+file_put_contents( WP_CONTENT_DIR . '/wps-quarantine', 'not a folder' );
+$f = run( 'check_casino_spam_options' );
+check( 'when the quarantine copy cannot be made the option is not deleted and the finding says so', 1 === count( $f ) && empty( $f[0]['remediated'] ) && ! $GLOBALS['deleted'] && false !== strpos( $f[0]['action'], 'NOT removed' ), json_encode( [ $f[0]['action'] ?? '', $GLOBALS['deleted'] ] ) );
+unlink( WP_CONTENT_DIR . '/wps-quarantine' );
+$GLOBALS['options'] = [ '_wp_seo_boost' => $blob ];
+$f = run( 'check_casino_spam_options' );
+check( 'with a working quarantine the option is copied there and then deleted', 1 === count( $f ) && ! empty( $f[0]['remediated'] ) && in_array( '_wp_seo_boost', $GLOBALS['deleted'], true ) && is_dir( WP_CONTENT_DIR . '/wps-quarantine' ), json_encode( [ $f[0]['action'] ?? '', $GLOBALS['deleted'] ] ) );
+$GLOBALS['opts'] = [ 'quarantine_enabled' => '0' ];
 $GLOBALS['opts']    = [ 'quarantine_enabled' => '0', 'auto_delete_enabled' => '0' ];
 $GLOBALS['options'] = [ '_wp_seo_boost' => $blob ];
 $GLOBALS['deleted'] = [];

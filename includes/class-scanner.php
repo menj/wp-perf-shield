@@ -8582,8 +8582,11 @@ class WPS_Scanner {
 				// A long base64 value is only a payload when it decodes to code or markup: another
 				// plugin may keep ordinary encoded settings under one of these names.
 				$dec = base64_decode( (string) preg_replace( '/\s+/', '', substr( $text, 0, 20000 ) ), true );
-				if ( is_string( $dec ) && preg_match( '/<\?php|\beval\s*\(|base64_decode|gzinflate|str_rot13|<script|<iframe|data-seo-links-block|<a\s[^>]*href/i', $dec ) ) {
+				if ( is_string( $dec ) && preg_match( '/<\?php|\beval\s*\(|base64_decode|gzinflate|str_rot13|<script|<iframe|data-seo-links-block/i', $dec ) ) {
 					$why = 'a base64 blob that decodes to code or markup';
+				} elseif ( is_string( $dec ) && class_exists( 'WPS_Spam_Signatures' ) && preg_match( '/<a\s[^>]*href/i', $dec ) && WPS_Spam_Signatures::evaluate( $dec )['spam'] ) {
+					// Links alone are ordinary (an encoded footer or banner); links that read as gambling spam are not.
+					$why = 'a base64 blob that decodes to gambling links';
 				}
 			} elseif ( preg_match( '/\beval\s*\(|base64_decode|gzinflate|str_rot13/i', $text ) ) {
 				$why = 'code that decodes or runs a payload';
@@ -8604,13 +8607,21 @@ class WPS_Scanner {
 				'preview'  => substr( $text, 0, 80 ),
 			];
 			if ( $autoclean ) {
+				// With quarantine on, the option is deleted only if it was copied to the quarantine first: a
+				// name this generic can hold a real setting, and a failed copy must not become a lost one.
+				$saved = true;
 				if ( self::quarantine_enabled() && class_exists( 'WPS_Quarantine' ) ) {
-					WPS_Quarantine::quarantine_option( $opt, [ 'type' => 'db_option (casino-spam kit)', 'reason' => 'auto-clean of an encoded payload under a casino-spam option name' ] );
+					$saved = null !== WPS_Quarantine::quarantine_option( $opt, [ 'type' => 'db_option (casino-spam kit)', 'reason' => 'auto-clean of an encoded payload under a casino-spam option name' ] );
 				}
-				delete_option( $opt );
-				$entry['remediated'] = true;
-				$entry['action']     = 'Auto-deleted by WP Perf Shield (quarantined first while quarantine is on). Also check for an hourly cron event that downloads it again, and the file that reads this option.';
-				WPS_Logger::log_event( 'db_option_deleted', $opt . ' (auto, casino-spam kit)' );
+				if ( $saved ) {
+					delete_option( $opt );
+					$entry['remediated'] = true;
+					$entry['action']     = 'Auto-deleted by WP Perf Shield (quarantined first while quarantine is on). Also check for an hourly cron event that downloads it again, and the file that reads this option.';
+					WPS_Logger::log_event( 'db_option_deleted', $opt . ' (auto, casino-spam kit)' );
+				} else {
+					$entry['action'] = 'NOT removed: the quarantine copy could not be made, and this option name is generic enough to hold a real setting, so nothing was deleted. Check that the quarantine folder is writable, then scan again, or read the option and delete it yourself.';
+					WPS_Logger::log_event( 'auto_remediation_withheld', $opt . ' (quarantine of the option failed; not deleted)' );
+				}
 			} else {
 				$entry['action'] = 'Auto-clean is off. Delete this option by hand after reading it, and find the file that reads it.';
 			}
