@@ -703,3 +703,6 @@ Behaviour checks, not name checks: the option names from the write-up are generi
 
 ### Incident-review release (1.4.148)
 The two new automatic actions (close an open-registration-plus-admin-role combination, switch off a malicious snippet) are limited to cases that are not a legitimate configuration and are reversible (old values in the finding; a snippet is deactivated, never deleted). A permanent block now applies to every surface that can write, except for addresses the operator has vouched for. Checks that run out of budget are carried over, not retried in the same order.
+
+### Trojanized plugin kit (1.4.149)
+Decision: match each planted tool on two or more behaviours, never on file name, and remove only the file; the plugin folder is reported, not deleted, because the host plugin still works and the operator may want it back after a clean reinstall. A cluster of three or more tools in one folder is the signal that upgrades the file managers there from review-only to removable. The upload ban uses only strings that exist in the kit and nowhere else (pool, hosts, banners). Fixtures in tests are assembled at run time so the plugin's own zip does not trip its own ban. Digest 1.4.149: `check_trojanized_plugin_tools`, `trojan_tool_signature`, new entries in `WPS_Blocker::zip_content_signature`; registered checks 121.

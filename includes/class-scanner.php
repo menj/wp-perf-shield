@@ -608,6 +608,7 @@ class WPS_Scanner {
 			'check_redirect_doorway' => [ __CLASS__, 'check_redirect_doorway' ], // 1.4.132: tiny uploads page that only forwards the visitor (and URL fragment) to another site, or a blanked one
 			'check_probe_marker_files' => [ __CLASS__, 'check_probe_marker_files' ], // 1.4.133: deep_check_<hex>.txt / upload_test_<hex>.txt write-access probes
 			'check_gambling_doorway_page' => [ __CLASS__, 'check_gambling_doorway_page' ], // 1.4.134: static slot/togel landing page planted in uploads, wp-content or the web root
+			'check_trojanized_plugin_tools' => [ __CLASS__, 'check_trojanized_plugin_tools' ], // 1.4.149: miner dropper, mass defacer, wp-config reader, mass-copy and uploader shells planted inside a genuine plugin
 			'check_embedded_js_injector' => [ __CLASS__, 'check_embedded_js_injector' ], // 1.4.135: plugin that keeps a large encoded script and prints it to visitors on every page
 			'check_medusa_fm_kit' => [ __CLASS__, 'check_medusa_fm_kit' ], // 1.4.140: Medusa FM kit files (encrypted loader, index/.htaccess self-heal, early crawler router) by their own markers
 			'check_mass_post_sitemap' => [ __CLASS__, 'check_mass_post_sitemap' ], // 1.4.140: static sitemap listing hundreds of consecutive ?p=<id> URLs from one day (a spam kit's post flood)
@@ -9330,6 +9331,187 @@ class WPS_Scanner {
 			}
 		}
 		return $found;
+	}
+
+	/**
+	 * 1.4.149: attack tools planted inside a genuine plugin, theme or uploads.
+	 *
+	 * Recovered shape: a copy of a real plugin (Yoast Duplicate Post 4.4) whose
+	 * `src/ui/` folder held 20 extra files next to the real ones: a cryptominer
+	 * dropper, a mass defacer, a wp-config.php reader, a script that copies
+	 * itself into every folder under the account, an unauthenticated uploader,
+	 * a vhost-bypass tool, a script that overwrites uploads `.htaccess` from a
+	 * remote text file, file managers, and a `.htaccess` that lets PHP run.
+	 * The plugin itself works, so a plugin-level check sees nothing wrong.
+	 *
+	 * Each file is matched on what it does, never on its name. Only the file is
+	 * removed. When three or more such files share one plugin or theme folder
+	 * the folder is reported as trojanized, and any unauthenticated file
+	 * manager the other check found in that same folder is removed with them,
+	 * since a real plugin does not ship with a cluster of attack tools.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_trojanized_plugin_tools(): array {
+		$found = [];
+		$roots = [];
+		foreach ( [ 'WP_PLUGIN_DIR', 'WPMU_PLUGIN_DIR' ] as $const ) {
+			if ( defined( $const ) && is_dir( constant( $const ) ) ) {
+				$roots[ rtrim( constant( $const ), '/\\' ) ] = 1;
+			}
+		}
+		if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR . '/themes' ) ) {
+			$roots[ rtrim( WP_CONTENT_DIR, '/\\' ) . '/themes' ] = 1;
+		}
+		$up = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
+		if ( is_array( $up ) && empty( $up['error'] ) && ! empty( $up['basedir'] ) && is_dir( $up['basedir'] ) ) {
+			$roots[ rtrim( $up['basedir'], '/\\' ) ] = 1;
+		}
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		$hits     = []; // path => [ description, owner folder ]
+		$htaccess = []; // path => owner folder
+		$n        = 0;
+		foreach ( array_keys( $roots ) as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				$iter->setMaxDepth( 6 );
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() || ++$n > 20000 ) {
+						break 2;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
+						continue;
+					}
+					$name = strtolower( $f->getFilename() );
+					$ext  = strtolower( $f->getExtension() );
+					if ( ! in_array( $ext, [ 'php', 'phtml', 'phar', 'html', 'htm', 'txt' ], true ) && '.htaccess' !== $name ) {
+						continue;
+					}
+					$size = $f->getSize();
+					if ( false === $size || $size < 10 || $size > 300000 ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( ( '' !== $self_dir && 0 === strpos( $real, $self_dir ) ) || ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) ) {
+						continue;
+					}
+					$raw = @file_get_contents( $path );
+					if ( ! is_string( $raw ) ) {
+						continue;
+					}
+					$owner = $root;
+					$rel   = ltrim( substr( dirname( $path ), strlen( $root ) ), '/\\' );
+					if ( '' !== $rel ) {
+						$owner = $root . '/' . strtok( str_replace( '\\', '/', $rel ), '/' );
+					}
+					if ( '.htaccess' === $name ) {
+						if ( preg_match( '/<FilesMatch[^>]*php/i', $raw ) && preg_match( '/Allow\s+from\s+all/i', $raw ) && ! preg_match( '/Deny\s+from\s+all|Require\s+all\s+denied/i', $raw ) ) {
+							$htaccess[ $path ] = $owner;
+						}
+						continue;
+					}
+					$why = self::trojan_tool_signature( $raw );
+					if ( '' !== $why ) {
+						$hits[ $path ] = [ $why, $owner ];
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		$folders = [];
+		foreach ( $hits as $path => $h ) {
+			$folders[ $h[1] ][] = $path;
+		}
+		// A .htaccess that lets PHP run counts only beside a file that already matched.
+		foreach ( $htaccess as $path => $owner ) {
+			if ( array_filter( $folders[ $owner ] ?? [], static fn( $p ) => dirname( $p ) === dirname( $path ) ) ) {
+				$hits[ $path ] = [ 'is an .htaccess that lets PHP files run, placed beside attack tools', $owner ];
+				$folders[ $owner ][] = $path;
+			}
+		}
+		foreach ( $hits as $path => $h ) {
+			$found[] = [
+				'severity'    => 'critical',
+				'type'        => 'Attack tool planted in a plugin, theme or uploads folder',
+				'subject'     => self::display_path( $path ) . ' ' . $h[0],
+				'path'        => $path,
+				'action'      => 'This file has no place in a plugin, theme or uploads folder. It is removed (to quarantine when enabled). Treat the site as compromised: find how it was written, replace the host plugin or theme with a clean copy from its official source, remove unknown administrators and application passwords, and reset passwords and salts.',
+				'auto_delete' => true,
+				'delete_path' => $path,
+			];
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'trojan_tool_found', self::display_path( $path ) );
+			}
+		}
+		foreach ( $folders as $owner => $paths ) {
+			if ( count( $paths ) < 3 ) {
+				continue;
+			}
+			$found[] = [
+				'severity' => 'critical',
+				'type'     => 'Trojanized plugin or theme',
+				'subject'  => self::display_path( $owner ) . ' holds ' . count( $paths ) . ' planted attack tools',
+				'path'     => $owner,
+				'action'   => 'A genuine plugin or theme was repackaged with a cluster of attack tools. The tools are removed, but the rest of the folder came from the same source and cannot be trusted: delete the folder and reinstall it from the official repository.',
+			];
+			// File managers the other check reported in this folder are part of the same kit.
+			foreach ( self::check_unauthenticated_file_manager() as $fm ) {
+				$fp = (string) ( $fm['path'] ?? '' );
+				if ( '' !== $fp && 0 === strpos( $fp, $owner . '/' ) && 'critical' === ( $fm['severity'] ?? '' ) && ! isset( $hits[ $fp ] ) ) {
+					$fm['auto_delete'] = true;
+					$fm['delete_path'] = $fp;
+					$fm['action']      = 'Part of a cluster of planted attack tools in this folder; removed. ' . $fm['action'];
+					$found[]           = $fm;
+				}
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * Describe what an attack-tool file does, or '' when it matches nothing.
+	 * Every rule needs two or more independent behaviours, so ordinary code
+	 * that runs a command or reads wp-config.php is not taken.
+	 */
+	private static function trojan_tool_signature( string $raw ): string {
+		$has = static fn( string $rx ): bool => (bool) preg_match( $rx, $raw );
+		$run = '/\b(?:exec|shell_exec|system|passthru|popen|proc_open)\s*\(/i';
+		if ( $has( $run ) && $has( '/\b(?:curl|wget)\b/i' ) && $has( '/xmrig|randomx|stratum\+|cpuminer|minerd/i' ) ) {
+			return 'downloads and starts a cryptocurrency miner';
+		}
+		if ( $has( '/posix_getpwuid/i' ) && $has( '/wp-config\.php/i' ) && $has( '/file_get_contents\s*\(/i' ) ) {
+			return 'searches the account for wp-config.php and prints it (database credentials)';
+		}
+		if ( $has( '/posix_getpwuid/i' ) && $has( '/\bmkdir\s*\(/i' ) && $has( '/\bcopy\s*\(/i' ) && $has( '/getcwd\s*\(/i' ) ) {
+			return 'copies itself into every folder under the account';
+		}
+		if ( $has( '/\.htaccess/i' ) && $has( '/DOCUMENT_ROOT/i' ) && $has( '/\b(?:fwrite|file_put_contents)\s*\(/i' ) && $has( '/curl_init\s*\(|file_get_contents\s*\(\s*[\'"]?https?:/i' ) ) {
+			return 'overwrites .htaccess files with text fetched from a remote server';
+		}
+		if ( $has( '/Mass\s+Defacer|Script\s+Deface/i' ) ) {
+			return 'is a mass defacement tool';
+		}
+		if ( $has( '/Vhost\s+bypass/i' ) || $has( '/Coded\s+by\s+Fallag\s+Gassrini/i' ) ) {
+			return 'is a virtual-host bypass tool';
+		}
+		if ( $has( '/move_uploaded_file\s*\(/i' ) && $has( '/\$_FILES\b/' ) && $has( '/mkdir\s*\([^)]*0777/i' ) && ! $has( '/current_user_can|wp_verify_nonce|check_admin_referer|defined\s*\(\s*[\'"]ABSPATH/i' ) ) {
+			return 'accepts file uploads from anyone into a random folder';
+		}
+		if ( $has( '/posix_getpwuid/i' ) && $has( '/\bscandir\s*\(/i' ) && $has( '/\$_GET\s*\[/' ) && ! $has( '/defined\s*\(\s*[\'"]ABSPATH/i' ) ) {
+			return 'lists the account\'s home folders from a request parameter';
+		}
+		if ( $has( '/\$GLOBALS\s*\[\s*\'_\d+_\'\s*\]\s*=\s*Array\s*\(\s*base64_decode\s*\(\s*\'\'\s*\./i' ) && ! $has( '/defined\s*\(\s*[\'"]ABSPATH/i' ) ) {
+			return 'hides its function names behind split base64 literals (a standalone script)';
+		}
+		if ( preg_match( '/^\s*botnet-[a-z]+\s*$/i', $raw ) ) {
+			return 'is a botnet marker file';
+		}
+		return '';
 	}
 
 	private static function check_headless_plugin_folder(): array {

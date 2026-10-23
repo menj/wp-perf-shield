@@ -1537,6 +1537,12 @@ class WPS_Blocker {
             'polygon-public.nodies.app',
             'polygon-pokt.nodies.app',
             'cf-captcha-verified',
+            'fr-tarirx.luckypool.io',         // 1.4.149: miner pool of the trojanized Duplicate Post kit
+            'staging.levillagestbarth.fr',    // 1.4.149: miner download host of the same kit
+            '213.232.193.94/ww/',             // 1.4.149: remote .htaccess text of the same kit
+            'Folder Mass Defacer by',         // 1.4.149: mass defacer banner
+            'Coded by Fallag Gassrini',       // 1.4.149: vhost-bypass tool banner
+            'botnet-iranian',                 // 1.4.149: marker file of the same kit
         ];
 
         foreach ( $signatures as $signature ) {
