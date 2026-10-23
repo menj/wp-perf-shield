@@ -1,5 +1,23 @@
 # WP Perf Shield changelog
 
+## 1.4.149
+
+**A trojanized "Yoast Duplicate Post 4.4" is now detected, removed and refused.** The sample is a working copy of the real plugin with 20 extra files in `src/ui/`. Nothing was executed; every file was read statically.
+
+### What was in it
+- **Miner dropper (`index2.php`):** downloads a Monero miner and starts it against a mining pool, repeated through `exec`, `shell_exec`, `system` and `passthru`. No existing check saw it.
+- **Account tools:** `config.php` searches the account for `wp-config.php` and prints it; `ms2.php` copies itself into a new folder under every directory it finds; `mmd/index.php` lists the account's folders; `ff.php` overwrites `.htaccess` in uploads with text fetched from a remote server; `up.php` accepts uploads from anyone into a random folder; `d.php` is a mass defacer; `vh.php` is a virtual-host bypass tool; `dom.php` hides its function names behind split base64 literals.
+- **File managers and loaders:** `about.php`, `w.php`, `elp.php`, `terms.php` (and a copy under `mmd/`), plus two eval wrappers (`muncul.php`, `mmd/loyal.php`) and a Telegram credential logger (`logcp.php`). These were already reported; the managers were review-only inside a plugin folder.
+- **`.htaccess` and `b0x.txt`:** the `.htaccess` lets PHP files run in the folder; `b0x.txt` holds a one-word botnet marker.
+
+### Changes
+- **Scanner:** new `check_trojanized_plugin_tools` searches plugins, mu-plugins, themes and uploads. Each rule needs two or more behaviours together, so a plugin that runs `curl`, or reads `wp-config.php`, is left alone (tested). A matching file is critical and removed. A `.htaccess` that lets PHP run is removed only beside a matching file.
+- **Cluster rule:** three or more matches in one plugin or theme folder report the folder as trojanized (report only, reinstall it) and also remove the file managers the other check found in that same folder.
+- **Upload ban:** an uploaded or installed zip containing the kit's pool, miner host, remote `.htaccess` address, defacer banner, vhost-tool banner or botnet marker is refused (`WPS_Blocker::zip_content_signature`).
+- The real Yoast files in the sample are not reported.
+
+Tests: `test-plugin-malware-detection.php` (13 new, with near-miss controls). Registered checks: 121 (was 120).
+
 ## 1.4.148
 
 **From the October 2026 incident review** (database dumps and logs of five sites, 6 to 19 October: brute force of wp-login and XML-RPC, two admin takeovers, REST post injection, a rogue application password, and snippet-table malware with a self-restoring cron). Each item below is something the data showed, with what was done; what was not done follows.

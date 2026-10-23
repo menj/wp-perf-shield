@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.149
+
+**Planted attack tools are removed.** A genuine plugin or theme repackaged with attack tools (a cryptominer dropper, a mass defacer, a wp-config.php reader, a script that copies itself into every folder, an anonymous uploader, and a `.htaccess` that lets PHP run) is now found by behaviour. Each tool is removed (to quarantine when enabled); the folder is reported as trojanized and should be deleted and reinstalled from the official source, because the rest of it came from the same place. An uploaded or installed zip that carries the kit's pool, host or banners is refused. If the scan reports one, treat the site as compromised: remove unknown administrators and application passwords, and reset passwords and salts. Nothing to configure.
+
 ## 1.4.148
 
 **Permanent blocks are stronger.** An address you have blocked permanently is now also refused on XML-RPC, on REST requests that change anything, and on uploads, not only at sign-in. Addresses on your allowlist, and addresses an administrator has signed in from in the last 30 days, are never refused. To go back to sign-in only, untick "Also refuse XML-RPC, REST writes and uploads" under Settings, Sign-in.
