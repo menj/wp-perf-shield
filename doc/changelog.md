@@ -1,5 +1,11 @@
 # WP Perf Shield changelog
 
+## 1.4.150
+
+**Review findings on 1.4.149 (CodeAnt), both valid.** The zip inspector read only `.php` entries, so the kit's botnet marker (`b0x.txt`) and any `.htaccess` text passed the upload ban. The test called the string matcher directly and so could not see that.
+- The six kit markers are now one constant (`WPS_Blocker::ZIP_KIT_MARKERS`). Entries ending `.htaccess`, `.txt`, `.html`, `.htm`, `.phtml`, `.phar`, `.inc` or `.js` are read for those markers only; the broader signature list still applies to PHP entries alone, so ordinary readmes are not at risk. This plugin's own package is skipped for non-PHP entries.
+- Tests build real zip files and run `inspect_zip_for_malware`: three refusals (PHP, `.txt`, `.htaccess`) and a clean zip that passes.
+
 ## 1.4.149
 
 **A trojanized "Yoast Duplicate Post 4.4" is now detected, removed and refused.** The sample is a working copy of the real plugin with 20 extra files in `src/ui/`. Nothing was executed; every file was read statically.

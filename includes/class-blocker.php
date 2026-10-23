@@ -11,6 +11,16 @@ class WPS_Blocker {
     private const IP_BLOCK_DAYS_KNOWN = 30;
     private const ZIP_PHP_SCAN_MAX_BYTES = 2097152;
 
+    /** Strings that exist only in the trojanized-plugin kit (1.4.149); checked in every text-like zip entry, not only PHP. */
+    private const ZIP_KIT_MARKERS = [
+        'fr-tarirx.luckypool.io',
+        'staging.levillagestbarth.fr',
+        '213.232.193.94/ww/',
+        'Folder Mass Defacer by',
+        'Coded by Fallag Gassrini',
+        'botnet-iranian',
+    ];
+
     //  Pattern lists 
 
     /** @return string[] */
@@ -1351,7 +1361,9 @@ class WPS_Blocker {
                     return 'entry=' . self::short_log_value( $entry );
                 }
 
-                if ( strtolower( pathinfo( $entry, PATHINFO_EXTENSION ) ) !== 'php' ) {
+                $is_php = strtolower( pathinfo( $entry, PATHINFO_EXTENSION ) ) === 'php';
+                // 1.4.149: the kit hides markers in .htaccess, .txt and script-like files; read those for its markers only.
+                if ( ! $is_php && ! in_array( strtolower( pathinfo( $entry, PATHINFO_EXTENSION ) ), [ 'htaccess', 'txt', 'html', 'htm', 'phtml', 'phar', 'inc', 'js' ], true ) && '.htaccess' !== strtolower( basename( $entry ) ) ) {
                     continue;
                 }
 
@@ -1378,6 +1390,18 @@ class WPS_Blocker {
                 }
 
                 if ( $is_self_package && self::zip_entry_is_wp_perf_shield_indicator_file( $entry ) ) {
+                    continue;
+                }
+
+                if ( ! $is_php ) {
+                    if ( $is_self_package ) {
+                        continue;
+                    }
+                    foreach ( self::ZIP_KIT_MARKERS as $marker ) {
+                        if ( stripos( $contents, $marker ) !== false ) {
+                            return 'signature=' . self::short_log_value( $marker ) . ' entry=' . self::short_log_value( $entry );
+                        }
+                    }
                     continue;
                 }
 
@@ -1537,15 +1561,9 @@ class WPS_Blocker {
             'polygon-public.nodies.app',
             'polygon-pokt.nodies.app',
             'cf-captcha-verified',
-            'fr-tarirx.luckypool.io',         // 1.4.149: miner pool of the trojanized Duplicate Post kit
-            'staging.levillagestbarth.fr',    // 1.4.149: miner download host of the same kit
-            '213.232.193.94/ww/',             // 1.4.149: remote .htaccess text of the same kit
-            'Folder Mass Defacer by',         // 1.4.149: mass defacer banner
-            'Coded by Fallag Gassrini',       // 1.4.149: vhost-bypass tool banner
-            'botnet-iranian',                 // 1.4.149: marker file of the same kit
         ];
 
-        foreach ( $signatures as $signature ) {
+        foreach ( array_merge( $signatures, self::ZIP_KIT_MARKERS ) as $signature ) {
             if ( stripos( $contents, $signature ) !== false ) {
                 return $signature;
             }
