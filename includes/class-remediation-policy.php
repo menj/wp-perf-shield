@@ -211,6 +211,10 @@ final class WPS_Remediation_Policy {
 		'Crawler-only payload runner',
 		// 1.4.148: a file that holds a token only an injector writes.
 		'File carrying a known injector marker',
+		// 1.4.151: each rule in check_trojanized_plugin_tools is two behaviours together (download and run a miner
+		// against a pool; walk the account and read wp-config.php; take an anonymous upload). Without this the
+		// 1.4.149 release reported the files inside the trojanized plugin and the policy refused to remove them.
+		'Attack tool planted in a plugin, theme or uploads folder',
 		'Hidden gambling-link injector',
 	];
 

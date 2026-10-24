@@ -1,5 +1,15 @@
 # WP Perf Shield changelog
 
+## 1.4.151
+
+**The 1.4.149 removal did not happen.** `check_trojanized_plugin_tools` set `auto_delete` on each attack tool it found, and the test asserted that flag, but the finding type was never added to the removal policy's conclusive list. The policy therefore classed it as heuristic and refused every removal under `wp-content/plugins` and `wp-content/themes` (`heuristic_in_managed_location`); only a copy under `uploads/` would have been removed. The real sample kept its twenty tools inside the plugin's `src/ui/`, so on that sample nothing would have been removed, while the changelog said "removed". Found by running the 1.4.149 fixture end to end through `WPS_Remediation_Policy::decide()` during the pre-deployment check of `main`.
+
+- `Attack tool planted in a plugin, theme or uploads folder` is now conclusive. Each of its rules is two behaviours together (download and run a miner against a pool; walk the account and read `wp-config.php`; take an anonymous upload; a mass-defacer banner with a request-driven base directory), which is the bar the other conclusive types meet. `Trojanized plugin or theme` stays report only, as designed.
+- The test now asks the policy, not the flag: every tool inside the fixture plugin must be allowed, and the plugin folder must still be refused. The first assertion fails on 1.4.150.
+- `doc/ssot.md` now lists the five test files added in 1.4.146 to 1.4.148.
+
+Lesson, recorded in `doc/ssot.md`: a check that sets `auto_delete` is not finished until a test runs its finding through `WPS_Remediation_Policy::decide()` from the location the real sample used. The flag alone has now been wrong twice (1.4.94 and 1.4.149).
+
 ## 1.4.150
 
 **Review findings on 1.4.149 (CodeAnt), both valid.** The zip inspector read only `.php` entries, so the kit's botnet marker (`b0x.txt`) and any `.htaccess` text passed the upload ban. The test called the string matcher directly and so could not see that.
