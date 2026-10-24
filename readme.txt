@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.150
+Stable tag: 1.4.151
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.151 =
+Fixes the 1.4.149 release: the attack tools found inside a trojanized plugin were reported but the removal policy refused to remove them. They are now removed; the plugin folder itself is still only reported.
 
 = 1.4.150 =
 The upload ban now also reads .htaccess, .txt, HTML and script-like files inside a zip for the trojanized-plugin kit markers, not only PHP files.
@@ -686,6 +689,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.151 =
+The attack-tool files from 1.4.149 are now removed, not only reported. Nothing else changes.
 
 = 1.4.150 =
 Closes a gap in the upload ban: kit markers hidden in non-PHP files of a zip are now refused.

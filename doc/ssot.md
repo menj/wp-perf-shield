@@ -178,6 +178,11 @@ tests/test-exposure-guard.php             XML-RPC and exposure guard: hooks, IP/
 tests/test-settings-render.php            the real Settings tab renders and every xr_ field is saved and read (15 cases)
 tests/test-search-console-stub.php        Search Console stub check with the Site Kit setting off and on (7 cases)
 tests/test-docs-sync.php                  version markers, changelog entries, and Appendix F against the code
+tests/test-signature-engine.php           ClamAV-format signature engine: formats, wildcards, logical expressions, limits, and the scanner check through the removal policy
+tests/test-casino-spam.php                casino-spam injector checks with near misses, and the removal policy for both file checks
+tests/test-surface-block.php              a permanent block refuses XML-RPC, REST writes and uploads; exiting behaviour via subprocess
+tests/test-incident-response.php          snippet stores, registration role flip, hidden link blocks, plugin folder names, injector markers, scan rotation, withheld-removal notice
+tests/test-official-suppression.php       a self-concealing finding is dropped for a file identical to its official release
 ```
 
 Each runs from the command line with `php tests/<file>` and exits non-zero on failure. All but `test-docs-sync.php`, which only reads the repository's own files and compares text, build synthetic fixtures in a temporary directory (random bytes stand in for payloads, so no real malware is stored) and run the real plugin code against small in-memory stand-ins for WordPress. They do not need the rebuilt harness described in `doc/remediation-roadmap.md`. `tests/` carries an `index.php` and an `.htaccess` that denies access, like `tools/`, and every test file exits unless run from the command line.
@@ -706,3 +711,6 @@ The two new automatic actions (close an open-registration-plus-admin-role combin
 
 ### Trojanized plugin kit (1.4.149)
 Decision: match each planted tool on two or more behaviours, never on file name, and remove only the file; the plugin folder is reported, not deleted, because the host plugin still works and the operator may want it back after a clean reinstall. A cluster of three or more tools in one folder is the signal that upgrades the file managers there from review-only to removable. The upload ban uses only strings that exist in the kit and nowhere else (pool, hosts, banners). Fixtures in tests are assembled at run time so the plugin's own zip does not trip its own ban. Digest 1.4.149: `check_trojanized_plugin_tools`, `trojan_tool_signature`, new entries in `WPS_Blocker::zip_content_signature`; registered checks 121.
+
+### A removal is not done until the policy says so (1.4.151)
+Twice now (1.4.94, 1.4.149) a check set `auto_delete` and shipped with a test that asserted the flag, while the removal policy refused the type as heuristic. The rule for every check that removes anything: the test must build the finding where the real sample sat and assert `WPS_Remediation_Policy::decide()['allowed']`. A type goes on the conclusive list only when each of its rules is a conjunction no legitimate software exhibits; a check whose rules mix conjunctions and single phrases gives the phrase matches a different type.

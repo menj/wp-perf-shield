@@ -9414,9 +9414,9 @@ class WPS_Scanner {
 						}
 						continue;
 					}
-					$why = self::trojan_tool_signature( $raw );
-					if ( '' !== $why ) {
-						$hits[ $path ] = [ $why, $owner ];
+					$sig = self::trojan_tool_signature( $raw );
+					if ( null !== $sig ) {
+						$hits[ $path ] = [ $sig[0], $owner, $sig[1] ];
 					}
 				}
 			} catch ( \Throwable $t ) {
@@ -9427,20 +9427,31 @@ class WPS_Scanner {
 		foreach ( $hits as $path => $h ) {
 			$folders[ $h[1] ][] = $path;
 		}
-		// A .htaccess that lets PHP run counts only beside a file that already matched.
+		// A .htaccess that lets PHP run counts only beside a file that already matched, and is only as
+		// certain as the strongest match beside it.
 		foreach ( $htaccess as $path => $owner ) {
-			if ( array_filter( $folders[ $owner ] ?? [], static fn( $p ) => dirname( $p ) === dirname( $path ) ) ) {
-				$hits[ $path ] = [ 'is an .htaccess that lets PHP files run, placed beside attack tools', $owner ];
+			$beside = array_filter( $folders[ $owner ] ?? [], static fn( $p ) => dirname( $p ) === dirname( $path ) );
+			if ( $beside ) {
+				$sure = (bool) array_filter( $beside, static fn( $p ) => ! empty( $hits[ $p ][2] ) );
+				$hits[ $path ] = [ 'is an .htaccess that lets PHP files run, placed beside attack tools', $owner, $sure ];
 				$folders[ $owner ][] = $path;
 			}
 		}
 		foreach ( $hits as $path => $h ) {
+			// 1.4.151: a rule that is a conjunction of behaviours is conclusive and the file is removed wherever it
+			// sits. A rule that is one phrase (a defacer banner, a botnet marker) is not: the removal policy then
+			// removes the file under uploads and only reports it inside a plugin or theme, where a security
+			// plugin's own signature list could carry the same words.
+			$sure    = ! empty( $h[2] );
 			$found[] = [
 				'severity'    => 'critical',
-				'type'        => 'Attack tool planted in a plugin, theme or uploads folder',
+				'type'        => $sure ? 'Attack tool planted in a plugin, theme or uploads folder' : 'Suspected attack tool (text match) in a plugin, theme or uploads folder',
 				'subject'     => self::display_path( $path ) . ' ' . $h[0],
 				'path'        => $path,
-				'action'      => 'This file has no place in a plugin, theme or uploads folder. It is removed (to quarantine when enabled). Treat the site as compromised: find how it was written, replace the host plugin or theme with a clean copy from its official source, remove unknown administrators and application passwords, and reset passwords and salts.',
+				'action'      => ( $sure
+					? 'This file has no place in a plugin, theme or uploads folder. It is removed (to quarantine when enabled). '
+					: 'This file carries wording an attack tool uses, but the match is the wording alone, so it is removed only outside the plugin and theme folders; inside one, read it and remove it by hand if it is not part of that plugin. ' )
+					. 'Treat the site as compromised: find how it was written, replace the host plugin or theme with a clean copy from its official source, remove unknown administrators and application passwords, and reset passwords and salts.',
 				'auto_delete' => true,
 				'delete_path' => $path,
 			];
@@ -9474,44 +9485,52 @@ class WPS_Scanner {
 	}
 
 	/**
-	 * Describe what an attack-tool file does, or '' when it matches nothing.
-	 * Every rule needs two or more independent behaviours, so ordinary code
-	 * that runs a command or reads wp-config.php is not taken.
+	 * Describe what an attack-tool file does, or null when it matches nothing.
+	 *
+	 * Returns [ description, conclusive ]. A conclusive rule is two or more independent behaviours
+	 * together, so ordinary code that runs a command or reads wp-config.php is not taken, and the
+	 * file is removed wherever it sits. A rule that is one phrase is not conclusive (1.4.151).
+	 *
+	 * @return array{0:string,1:bool}|null
 	 */
-	private static function trojan_tool_signature( string $raw ): string {
+	private static function trojan_tool_signature( string $raw ): ?array {
 		$has = static fn( string $rx ): bool => (bool) preg_match( $rx, $raw );
 		$run = '/\b(?:exec|shell_exec|system|passthru|popen|proc_open)\s*\(/i';
 		if ( $has( $run ) && $has( '/\b(?:curl|wget)\b/i' ) && $has( '/xmrig|randomx|stratum\+|cpuminer|minerd/i' ) ) {
-			return 'downloads and starts a cryptocurrency miner';
+			return [ 'downloads and starts a cryptocurrency miner', true ];
 		}
 		if ( $has( '/posix_getpwuid/i' ) && $has( '/wp-config\.php/i' ) && $has( '/file_get_contents\s*\(/i' ) ) {
-			return 'searches the account for wp-config.php and prints it (database credentials)';
+			return [ 'searches the account for wp-config.php and prints it (database credentials)', true ];
 		}
 		if ( $has( '/posix_getpwuid/i' ) && $has( '/\bmkdir\s*\(/i' ) && $has( '/\bcopy\s*\(/i' ) && $has( '/getcwd\s*\(/i' ) ) {
-			return 'copies itself into every folder under the account';
+			return [ 'copies itself into every folder under the account', true ];
 		}
 		if ( $has( '/\.htaccess/i' ) && $has( '/DOCUMENT_ROOT/i' ) && $has( '/\b(?:fwrite|file_put_contents)\s*\(/i' ) && $has( '/curl_init\s*\(|file_get_contents\s*\(\s*[\'"]?https?:/i' ) ) {
-			return 'overwrites .htaccess files with text fetched from a remote server';
+			return [ 'overwrites .htaccess files with text fetched from a remote server', true ];
 		}
 		if ( $has( '/Mass\s+Defacer|Script\s+Deface/i' ) ) {
-			return 'is a mass defacement tool';
+			// The banner plus request-driven input plus a file write is a working defacer; the banner alone is wording.
+			if ( $has( '/\$_(?:POST|GET|REQUEST)\s*\[/' ) && $has( '/\b(?:fwrite|file_put_contents|copy)\s*\(/i' ) ) {
+				return [ 'is a mass defacement tool', true ];
+			}
+			return [ 'carries a mass-defacement tool\'s banner', false ];
 		}
 		if ( $has( '/Vhost\s+bypass/i' ) || $has( '/Coded\s+by\s+Fallag\s+Gassrini/i' ) ) {
-			return 'is a virtual-host bypass tool';
+			return [ 'carries a virtual-host bypass tool\'s banner', false ];
 		}
 		if ( $has( '/move_uploaded_file\s*\(/i' ) && $has( '/\$_FILES\b/' ) && $has( '/mkdir\s*\([^)]*0777/i' ) && ! $has( '/current_user_can|wp_verify_nonce|check_admin_referer|defined\s*\(\s*[\'"]ABSPATH/i' ) ) {
-			return 'accepts file uploads from anyone into a random folder';
+			return [ 'accepts file uploads from anyone into a random folder', true ];
 		}
 		if ( $has( '/posix_getpwuid/i' ) && $has( '/\bscandir\s*\(/i' ) && $has( '/\$_GET\s*\[/' ) && ! $has( '/defined\s*\(\s*[\'"]ABSPATH/i' ) ) {
-			return 'lists the account\'s home folders from a request parameter';
+			return [ 'lists the account\'s home folders from a request parameter', true ];
 		}
 		if ( $has( '/\$GLOBALS\s*\[\s*\'_\d+_\'\s*\]\s*=\s*Array\s*\(\s*base64_decode\s*\(\s*\'\'\s*\./i' ) && ! $has( '/defined\s*\(\s*[\'"]ABSPATH/i' ) ) {
-			return 'hides its function names behind split base64 literals (a standalone script)';
+			return [ 'hides its function names behind split base64 literals (a standalone script)', true ];
 		}
 		if ( preg_match( '/^\s*botnet-[a-z]+\s*$/i', $raw ) ) {
-			return 'is a botnet marker file';
+			return [ 'is a botnet marker file', false ];
 		}
-		return '';
+		return null;
 	}
 
 	private static function check_headless_plugin_folder(): array {

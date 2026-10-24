@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.151
+
+**Fix for 1.4.149.** The attack tools that release detects inside a trojanized plugin are now removed (quarantined first, restorable from Diagnostics). On 1.4.149 and 1.4.150 they were reported with "REMOVAL DENIED BY POLICY" and left in place. If a scan reported one, run a scan after updating and it is removed. The plugin folder itself is still only reported: reinstall the plugin from a clean copy.
+
 ## 1.4.150
 
 **Upload ban covers non-PHP files.** A zip that hides the 1.4.149 kit's markers in a `.htaccess`, `.txt`, HTML or script-like file is now refused too. Nothing to configure.
