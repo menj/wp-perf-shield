@@ -320,7 +320,11 @@ function wps_uninstall(): void {
 	global $wpdb;
 	if ( isset( $wpdb ) && is_object( $wpdb ) ) {
 		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( 'wps_event_chain_st_' ) . '%' ) );
-		foreach ( (array) $wpdb->get_col( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $wpdb->prefix . 'wps_events' ) . '%' ) ) as $wps_table ) {
+		// The event table and the self-test scratch tables only (wps_events_st_<ns>); a bare prefix
+		// match would also take a table another plugin happened to name wps_events_something.
+		$wps_tables = (array) $wpdb->get_col( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $wpdb->prefix . 'wps_events_st_' ) . '%' ) );
+		$wps_tables[] = $wpdb->prefix . 'wps_events';
+		foreach ( $wps_tables as $wps_table ) {
 			if ( is_string( $wps_table ) && preg_match( '/^[A-Za-z0-9_]+$/', $wps_table ) ) {
 				$wpdb->query( "DROP TABLE IF EXISTS `{$wps_table}`" );
 			}
