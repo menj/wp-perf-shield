@@ -82,6 +82,7 @@ preg_match( '/function wps_uninstall\\(\\): void \\{(.*?)\\n\\}/s', $main, $um )
 $un      = (string) ( $um[1] ?? '' );
 $left    = array_values( array_filter( $written, static fn( string $o ): bool => false === strpos( $un, "'" . $o . "'" ) ) );
 check( 'wps_uninstall() deletes every option the plugin writes (' . count( $written ) . ' found)', '' !== $un && [] === $left, implode( ',', $left ) );
+check( 'wps_uninstall() deletes the settings option named by the WPS_OPTION constant', false !== strpos( $un, 'delete_option( WPS_OPTION )' ) );
 check( 'wps_uninstall() drops the event table and the self-test scratch tables, and no wider', false !== strpos( $un, 'DROP TABLE' ) && false !== strpos( $un, "'wps_events_st_'" ) && false === strpos( $un, "'wps_events' ) . '%'" ) );
 
 echo $fail ? "\n$fail FAILED\n" : "\nAll passed\n";

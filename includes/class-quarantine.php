@@ -132,6 +132,7 @@ class WPS_Quarantine {
 	 * @return string|null Quarantine id on success, null on refusal/failure.
 	 */
 	public static function quarantine( string $path, array $meta = [], bool $move = true ): ?string {
+		self::$last_denial = ''; // a refusal below is this call's; an earlier call's must not be reported for it
 		$real = realpath( $path );
 		if ( ! $real || ! file_exists( $real ) ) {
 			return null;
@@ -161,7 +162,6 @@ class WPS_Quarantine {
 			// path puts the finding's own type in `type`; the two operator paths get the operator type.
 			$finding_type = in_array( $op_type, [ 'manual removal', 'operator_bulk_delete' ], true ) ? 'manual removal by operator' : $op_type;
 		}
-		self::$last_denial = '';
 		// The channel decides what a refusal means: the two operator channels carry the finding's own
 		// type so the policy judges the finding, but a Safe veto on them is a message to the operator,
 		// not a scanner defect, so only the automatic path can trip the circuit breaker.

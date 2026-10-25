@@ -183,13 +183,13 @@ tests/test-casino-spam.php                casino-spam injector checks with near 
 tests/test-surface-block.php              a permanent block refuses XML-RPC, REST writes and uploads; exiting behaviour via subprocess
 tests/test-incident-response.php          snippet stores, registration role flip, hidden link blocks, plugin folder names, injector markers, scan rotation, withheld-removal notice
 tests/test-official-suppression.php       a self-concealing finding is dropped for a file identical to its official release
-tests/test-removal-pipeline.php           the quarantine's policy gate with the real policy, operator removals, policy-ban tiers, the findings screen's forms (35 cases)
+tests/test-removal-pipeline.php           the quarantine's policy gate with the real policy, operator removals, policy-ban tiers, the findings screen's forms (36 cases)
 tests/test-account-guard.php              login fingerprint per device, acting session judged, role on the query string, device expiry, first-contact sign-in for XML-RPC and application passwords (20 cases)
 tests/test-scan-lock.php                  the stale-lock release is conditional on the value read (10 cases)
-tests/test-edr-integrity.php              upgrader attribution on install only; integrity verdicts with the plugins directory outside ABSPATH (8 cases)
+tests/test-edr-integrity.php              upgrader attribution on install only; integrity verdicts with the plugins directory outside ABSPATH, foreign-file slug (10 cases)
 ```
 
-Each runs from the command line with `php tests/<file>` and exits non-zero on failure. All but `test-docs-sync.php`, which only reads the repository's own files and compares text, build synthetic fixtures in a temporary directory (random bytes stand in for payloads, so no real malware is stored) and run the real plugin code against small in-memory stand-ins for WordPress. They do not need the rebuilt harness described in `doc/remediation-roadmap.md`. `tests/` carries an `index.php` and an `.htaccess` that denies access, like `tools/`, and every test file exits unless run from the command line.
+Each runs from the command line with `php tests/<file>` and exits non-zero on failure. All but `test-docs-sync.php` (which only reads the repository's own files and compares text), `test-account-guard.php` and `test-scan-lock.php` (which use in-memory stand-ins alone) build synthetic fixtures in a temporary directory (random bytes stand in for payloads, so no real malware is stored) and run the real plugin code against small in-memory stand-ins for WordPress. They do not need the rebuilt harness described in `doc/remediation-roadmap.md`. `tests/` carries an `index.php` and an `.htaccess` that denies access, like `tools/`, and every test file exits unless run from the command line.
 
 ## Asset Layout
 

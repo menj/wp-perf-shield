@@ -146,6 +146,8 @@ WPS_Remediation_Policy::reset_breaker();
 $id = WPS_Quarantine::quarantine( $P . '/kept/kept.php', [ 'type' => 'operator_bulk_delete', 'finding_type' => 'Known malware upload', 'reason' => 'x' ] );
 check( 'the bulk channel carrying a detector type is refused on a Safe target without tripping the breaker', null === $id && is_file( $P . '/kept/kept.php' ) && ! WPS_Remediation_Policy::breaker_tripped() && false !== strpos( WPS_Quarantine::last_denial(), 'operator_safe' ), WPS_Quarantine::last_denial() );
 
+check( 'a refusal is this call\'s: a later call on a path that is gone reports no stale policy denial', null === WPS_Quarantine::quarantine( $P . '/no-such-file.php', [ 'type' => 'manual removal' ] ) && '' === WPS_Quarantine::last_denial(), WPS_Quarantine::last_denial() );
+
 // ---- 6. the on-disk policy ban: both tiers go through the policy.
 $GLOBALS['opts']['wps_opts'] = [ 'policy_ban_enabled' => '1' ];
 put( $P . '/wp-file-manager/file_folder_manager.php', "<?php\n/* Plugin Name: File Manager */\n" );

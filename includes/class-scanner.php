@@ -9867,9 +9867,13 @@ class WPS_Scanner {
 				if ( WPS_Integrity::FOREIGN !== WPS_Integrity::verify( $path ) ) {
 					continue;
 				}
-				$slug = '';
-				if ( preg_match( '#/plugins/([^/]+)/#', str_replace( '\\', '/', $real ), $sm ) ) {
-					$slug = $sm[1];
+				// 1.4.152: the slug is the first segment below the plugins directory, whatever that
+				// directory is called; a literal '/plugins/' gave a renamed directory an empty slug and
+				// pointed the finding at the whole plugin root.
+				$rel  = substr( str_replace( '\\', '/', $real ), strlen( rtrim( str_replace( '\\', '/', realpath( $root ) ?: $root ), '/' ) ) + 1 );
+				$slug = (string) strtok( $rel, '/' );
+				if ( '' === $slug || false === strpos( $rel, '/' ) ) {
+					continue; // a file directly in the plugins directory belongs to no plugin manifest
 				}
 				$by_slug[ $slug ][] = self::display_path( $path );
 			}

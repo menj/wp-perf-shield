@@ -16,12 +16,12 @@ if ( PHP_SAPI !== 'cli' ) {
 }
 $tmp = sys_get_temp_dir() . '/wps-ei-' . bin2hex( random_bytes( 4 ) );
 mkdir( $tmp . '/site', 0777, true );
-mkdir( $tmp . '/app/plugins/wps-self', 0777, true ); // Bedrock-style: plugins outside ABSPATH
+mkdir( $tmp . '/app/modules/wps-self', 0777, true ); // Bedrock-style: plugins outside ABSPATH, and not called plugins
 define( 'ABSPATH', $tmp . '/site/' );
-define( 'WPS_DIR', $tmp . '/app/plugins/wps-self/' );
+define( 'WPS_DIR', $tmp . '/app/modules/wps-self/' );
 define( 'WPS_OPTION', 'wps_opts' );
 define( 'WP_CONTENT_DIR', $tmp . '/app' );
-define( 'WP_PLUGIN_DIR', $tmp . '/app/plugins' );
+define( 'WP_PLUGIN_DIR', $tmp . '/app/modules' );
 define( 'WPMU_PLUGIN_DIR', $tmp . '/app/mu-plugins' );
 define( 'MINUTE_IN_SECONDS', 60 );
 define( 'HOUR_IN_SECONDS', 3600 );
@@ -98,6 +98,15 @@ check( 'a listed file whose bytes differ is MODIFIED', WPS_Integrity::MODIFIED =
 check( 'a file the manifest never mentions is FOREIGN', WPS_Integrity::FOREIGN === WPS_Integrity::verify( $P . '/akismet/wp-vcd.php' ), WPS_Integrity::verify( $P . '/akismet/wp-vcd.php' ) );
 check( 'a path outside the plugins directory is UNKNOWN', WPS_Integrity::UNKNOWN === WPS_Integrity::verify( ABSPATH . 'wp-load.php' ) );
 check( 'is_official() agrees', WPS_Integrity::is_official( $P . '/akismet/akismet.php' ) && ! WPS_Integrity::is_official( $P . '/akismet/wp-vcd.php' ) );
+
+// ---- 3. the foreign-file check names the plugin by its folder below the plugins directory.
+put( $P . '/stray.php', "<?php\n" ); // directly in the plugins directory: no plugin, no manifest
+$m = new ReflectionMethod( 'WPS_Scanner', 'check_foreign_plugin_files' );
+$m->setAccessible( true );
+$found = $m->invoke( null );
+check( 'one foreign-file finding, for akismet', 1 === count( $found ) && 0 === strpos( (string) $found[0]['subject'], 'akismet: 1 PHP file' ), json_encode( $found ) );
+check( 'the finding points at the plugin folder, not the plugins root', ( $found[0]['path'] ?? '' ) === $P . '/akismet' );
+
 
 $it = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $tmp, FilesystemIterator::SKIP_DOTS ), RecursiveIteratorIterator::CHILD_FIRST );
 foreach ( $it as $f ) { $f->isDir() ? @rmdir( $f->getPathname() ) : @unlink( $f->getPathname() ); }
