@@ -1853,13 +1853,21 @@ final class WPS_Login_Guard {
 			$s = [];
 		}
 
-		// 1.4.155: a record last written on an earlier day holds that day's counts, not today's.
-		$stale = ( $s['day'] ?? '' ) !== gmdate( 'Y-m-d' );
-		$out   = [];
+		// 1.4.155: a record last written on an earlier day holds that day's counts, not today's, and
+		// only days inside the seven-day window count towards the week.
+		$stale    = ( $s['day'] ?? '' ) !== gmdate( 'Y-m-d' );
+		$win_from = gmdate( 'Y-m-d', time() - 6 * DAY_IN_SECONDS );
+		$in_week  = static function ( $day ) use ( $win_from ): bool {
+			return is_string( $day ) && $day >= $win_from;
+		};
+		$out      = [];
 		foreach ( self::COUNTERS as $c ) {
 			$today = $stale ? 0 : (int) ( $s[ $c ] ?? 0 );
-			$week  = $stale ? (int) ( $s[ $c ] ?? 0 ) : $today;
-			foreach ( (array) ( $s['history'] ?? [] ) as $row ) {
+			$week  = $stale ? ( $in_week( $s['day'] ?? '' ) ? (int) ( $s[ $c ] ?? 0 ) : 0 ) : $today;
+			foreach ( (array) ( $s['history'] ?? [] ) as $hday => $row ) {
+				if ( is_string( $hday ) && ! $in_week( $hday ) ) {
+					continue;
+				}
 				$week += (int) ( $row[ $c ] ?? 0 );
 			}
 			$out[ 'today_' . $c ] = $today;

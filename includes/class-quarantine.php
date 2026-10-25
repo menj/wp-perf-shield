@@ -233,14 +233,17 @@ class WPS_Quarantine {
 			],
 			$meta
 		);
-		if ( false === @file_put_contents( $dest . '/manifest.json', wp_json_encode( $manifest ) ) ) {
+		if ( ! self::write_manifest( $dest, $manifest ) ) {
 			// 1.4.155: without its manifest the entry cannot be restored. Put the item back and fail.
 			self::denormalise( $payload ); // undo the .wpsq renames before putting it back
-			$back = $is_dir ? $payload : $payload . '/' . basename( $real );
-			if ( $move && file_exists( $back ) && ! file_exists( $real ) ) {
-				self::move( $back, $real );
+			$back     = $is_dir ? $payload : $payload . '/' . basename( $real );
+			$restored = ! $move || file_exists( $real ) || ( file_exists( $back ) && self::move( $back, $real ) );
+			if ( $restored ) {
+				self::rrmdir( $dest );
+			} else {
+				// The item could not be put back: keep it in the store rather than lose the only copy.
+				self::log( 'quarantine_rollback_failed', $real . ' kept at ' . $dest );
 			}
-			self::rrmdir( $dest );
 			self::log( 'quarantine_manifest_failed', $real );
 			return null;
 		}
@@ -354,7 +357,7 @@ class WPS_Quarantine {
 			],
 			$meta
 		);
-		if ( false === @file_put_contents( $dest . '/manifest.json', wp_json_encode( $manifest ) ) ) {
+		if ( ! self::write_manifest( $dest, $manifest ) ) {
 			// 1.4.155: no manifest, no restorable copy, so the caller must not delete the option.
 			self::rrmdir( $dest );
 			self::log( 'option_snapshot_failed', $name );
@@ -635,6 +638,15 @@ class WPS_Quarantine {
 			}
 		}
 		return @rmdir( $dir );
+	}
+
+	/** Write manifest.json in full: an encode failure or a short write is a failure. */
+	private static function write_manifest( string $dest, array $manifest ): bool {
+		$json = wp_json_encode( $manifest );
+		if ( ! is_string( $json ) || '' === $json ) {
+			return false;
+		}
+		return strlen( $json ) === @file_put_contents( $dest . '/manifest.json', $json );
 	}
 
 	private static function log( string $event, string $subject ): void {

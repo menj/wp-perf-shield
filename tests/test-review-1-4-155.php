@@ -97,14 +97,23 @@ check( 'any other reply is a failure, so the address is retried later', false ==
 $GLOBALS['opts']['wps_login_stats'] = [ 'day' => gmdate( 'Y-m-d', time() - DAY_IN_SECONDS ), 'blocks' => 7, 'attempts' => 9, 'history' => [] ];
 $st = WPS_Login_Guard::stats();
 check( 'a record from an earlier day reports zero today and keeps the counts in the week', 0 === $st['today_blocks'] && 7 === $st['week_blocks'], json_encode( [ $st['today_blocks'], $st['week_blocks'] ] ) );
+$old = gmdate( 'Y-m-d', time() - 9 * DAY_IN_SECONDS );
+$GLOBALS['opts']['wps_login_stats'] = [ 'day' => $old, 'blocks' => 5, 'history' => [ gmdate( 'Y-m-d', time() - 12 * DAY_IN_SECONDS ) => [ 'blocks' => 4 ], gmdate( 'Y-m-d', time() - 2 * DAY_IN_SECONDS ) => [ 'blocks' => 3 ] ] ];
+$st = WPS_Login_Guard::stats();
+check( 'days outside the seven-day window are left out of the week', 0 === $st['today_blocks'] && 3 === $st['week_blocks'], json_encode( [ $st['today_blocks'], $st['week_blocks'] ] ) );
 
 // ---- application password over XML-RPC keeps its label
 WPS_EDR::on_app_password_auth( null, [ 'name' => 'PBN Automation (WPU)' ] );
 check( 'an application password over XML-RPC is named as one', 'application password "PBN Automation (WPU)" over xmlrpc' === WPS_EDR::auth_method(), WPS_EDR::auth_method() );
 
 // ---- forensics commands
-$src = (string) file_get_contents( dirname( __DIR__ ) . '/includes/class-forensics.php' );
-check( 'the generated grep commands pass -REi as flags', false === strpos( $src, 'grep -R Ei' ) && 2 <= substr_count( $src, 'grep -REi' ) );
+$bad = [];
+foreach ( glob( dirname( __DIR__ ) . '/includes/*.php' ) as $f ) {
+	if ( preg_match( '/grep -R [A-Za-z]+ /', (string) file_get_contents( $f ) ) ) {
+		$bad[] = basename( $f );
+	}
+}
+check( 'no generated grep command anywhere passes its flags as a separate word (grep -R Ei)', [] === $bad, implode( ',', $bad ) );
 
 // ---- split-pattern counts above 64
 $tmp = sys_get_temp_dir() . '/wps-r155-' . bin2hex( random_bytes( 4 ) );

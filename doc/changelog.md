@@ -21,8 +21,14 @@
 - Tests taken: `test-account-guard.php` runs on PHP 7.4 and checks in a child process that a refused XML-RPC write ends the request; `test-exposure-guard.php` asserts the refusal log line; `test-manual-removal.php` checks all three options; `test-plugin-malware-detection.php` skips the ZIP cases without the zip extension; `test-settings-render.php` fails on a render exception.
 - Not changed: the known-devices list is still one user-meta value, so two simultaneous publishes from two devices can lose one device's "known" mark; the consequence is now a refused save with an explanation, not a trashed post. The uninstall inventory test still reads only literal option names; the dynamic ones are listed in `wps_uninstall()` by hand.
 
+### Review of this release (CodeAnt on PR 33)
+- The comment stripper found a comment's end with three `strpos()` calls that each ran to the end of the file when a marker was absent, so comment-heavy files were quadratic (40,000 comments: 6 s). One `strcspn()` pass instead.
+- A quarantine rollback that cannot put the item back keeps it in the store instead of deleting the only copy; the manifest write counts as done only when the JSON encoded and every byte was written.
+- `count_variant()` checks the scan's deadline every 64 rounds now that it may run 4,096.
+- The self-test calls a failed reacquire after a correct exclusion inconclusive, not a failure; the week's sign-in figures leave out days older than seven; and the Diagnostics log-search commands use `grep -REi` too, with the test now checking every file.
+
 ### Tests
-- New: `test-review-1-4-155.php` (16 cases). Extended: `test-account-guard.php`, `test-event-log.php`, `test-spam-content-guard.php`, and the five suites above.
+- New: `test-review-1-4-155.php` (18 cases). Extended: `test-account-guard.php`, `test-event-log.php`, `test-spam-content-guard.php`, and the five suites above.
 
 ## 1.4.154
 

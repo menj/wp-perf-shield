@@ -765,17 +765,17 @@ class WPS_Admin_Diagnostics {
 		if ( $pattern !== '' ) {
 			$commands[] = [
 				'label'   => 'Source Trace indicators in Apache logs',
-				'command' => 'grep -R Ei "' . $pattern . '" /var/log/apache2/ 2>/dev/null | tail -150',
+				'command' => 'grep -REi "' . $pattern . '" /var/log/apache2/ 2>/dev/null | tail -150',
 			];
 			$commands[] = [
 				'label'   => 'Source Trace indicators in nginx logs',
-				'command' => 'grep -R Ei "' . $pattern . '" /var/log/nginx/ 2>/dev/null | tail -150',
+				'command' => 'grep -REi "' . $pattern . '" /var/log/nginx/ 2>/dev/null | tail -150',
 			];
 		}
 
 		$commands[] = [
 			'label'   => 'Upload-route POST requests across common web logs',
-			'command' => 'grep -R Ei "POST .*(async-upload|admin-ajax|update\.php|plugin-install|plugins\.php|upload|wp-file-manager|elFinder|elfinder|connector)" /var/log/apache2/ /var/log/nginx/ 2>/dev/null | tail -200',
+			'command' => 'grep -REi "POST .*(async-upload|admin-ajax|update\.php|plugin-install|plugins\.php|upload|wp-file-manager|elFinder|elfinder|connector)" /var/log/apache2/ /var/log/nginx/ 2>/dev/null | tail -200',
 		];
 
 		foreach ( array_slice( array_keys( $ips ), 0, 6 ) as $ip ) {
