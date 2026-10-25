@@ -266,7 +266,12 @@ class WPS_EDR {
 		if ( isset( $ctx['user_role'] ) ) {
 			$fields['user_role'] = $ctx['user_role'];
 		}
-		return null !== WPS_Event_Log::record( $fields );
+		$ok = null !== WPS_Event_Log::record( $fields );
+		if ( ! $ok && class_exists( 'WPS_Logger' ) && method_exists( 'WPS_Logger', 'file_event' ) ) {
+			// 1.4.155: the event store could not keep it; the file log still does.
+			WPS_Logger::file_event( $event_type, (string) ( $fields['notes'] ?? $fields['object_name'] ?? '' ), (string) ( $ip ?? '' ) );
+		}
+		return $ok;
 	}
 
 	/** The application password that authenticated this request, when one did. */
@@ -280,11 +285,11 @@ class WPS_EDR {
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
 			return 'wp-cli';
 		}
+		if ( '' !== self::$app_password ) {
+			return 'application password "' . self::$app_password . '"' . ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ? ' over xmlrpc' : '' );
+		}
 		if ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) {
 			return 'xmlrpc';
-		}
-		if ( '' !== self::$app_password ) {
-			return 'application password "' . self::$app_password . '"';
 		}
 		if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
 			return 'rest api';

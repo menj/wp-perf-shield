@@ -162,6 +162,9 @@ final class WPS_Post_Guard {
 				'wp.newPost',
 				'wp.editPost',
 				'wp.deletePost',
+				'wp.newPage', // 1.4.155: pages are posts too
+				'wp.editPage',
+				'wp.deletePage',
 				'blogger.newPost',
 				'blogger.editPost',
 				'blogger.deletePost',

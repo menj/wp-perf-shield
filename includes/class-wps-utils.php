@@ -357,14 +357,12 @@ class WPS_Utils {
 				continue;
 			}
 			if ( '/' === $ch && $i + 1 < $len && '/' === $content[ $i + 1 ] ) {
-				$end  = strpos( $content, "\n", $i );
-				$i    = ( false === $end ) ? $len : $end;
+				$i    = self::line_comment_end( $content, $i, $len );
 				$out .= ' ';
 				continue;
 			}
 			if ( '#' === $ch && ( $i + 1 >= $len || '[' !== $content[ $i + 1 ] ) ) {
-				$end  = strpos( $content, "\n", $i );
-				$i    = ( false === $end ) ? $len : $end;
+				$i    = self::line_comment_end( $content, $i, $len );
 				$out .= ' ';
 				continue;
 			}
@@ -373,6 +371,31 @@ class WPS_Utils {
 			++$i;
 		}
 		return $out;
+	}
+
+	/**
+	 * Where a one-line comment ends, as PHP's lexer decides it: at "\n", at a lone "\r" (1.4.155;
+	 * a file with old Mac line endings otherwise lost everything after its first // to the
+	 * "comment"), or just before "?>", which closes the PHP block even inside a // comment.
+	 */
+	private static function line_comment_end( string $content, int $i, int $len ): int {
+		// One forward pass to the nearest stop. Three separate strpos() calls each ran to the end of
+		// the file when a marker was absent (no \r in an LF file), which made comment-heavy files quadratic.
+		$p = $i;
+		while ( $p < $len ) {
+			$p += strcspn( $content, "\r\n?", $p );
+			if ( $p >= $len ) {
+				break;
+			}
+			if ( '?' !== $content[ $p ] ) {
+				return $p;
+			}
+			if ( $p + 1 < $len && '>' === $content[ $p + 1 ] ) {
+				return $p;
+			}
+			++$p;
+		}
+		return $len;
 	}
 
 	public static function goto_density( string $content ): array {

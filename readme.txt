@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.154
+Stable tag: 1.4.155
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.155 =
+Fixes from a second whole-codebase review. A held event-store lock no longer hangs a request; the account-takeover guard refuses a suspicious editor save with a visible error instead of trashing the post after "Post updated"; the Application Password check no longer blocks the administrator's own address; and the comment stripper, outbound cookie guard, XML-RPC page methods, Akismet reporting and several diagnostics are corrected.
 
 = 1.4.154 =
 Rank Math SEO's Composer libraries are no longer reported as hidden code folders. The development test suite (tests/) is removed from the installed plugin on activation and on the first admin page load after an update. A git checkout keeps it.
@@ -698,6 +701,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.155 =
+Fixes a request hang when the event store's lock is held, and makes a refused editor save show its reason. Nothing to configure.
 
 = 1.4.154 =
 The Rank Math .helpers finding was a false positive and no longer appears; the tests folder is removed from the site after this update. Nothing to configure.

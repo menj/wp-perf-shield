@@ -96,8 +96,11 @@ final class WPS_Account_Guard {
 	public static function register_hooks(): void {
 		if ( self::enabled() ) {
 			add_action( 'wp_login', [ __CLASS__, 'record_login' ], 10, 2 );
-			add_action( 'rest_insert_post', [ __CLASS__, 'check_rest_write' ], 10, 3 );
-			add_action( 'rest_insert_page', [ __CLASS__, 'check_rest_write' ], 10, 3 );
+			// 1.4.155: judged before the write, so a flagged write is refused with an error the
+			// editor shows. On rest_insert_* the post was already saved and was trashed afterwards,
+			// while the editor reported "updated".
+			add_filter( 'rest_pre_insert_post', [ __CLASS__, 'check_rest_pre_insert' ], 10, 2 );
+			add_filter( 'rest_pre_insert_page', [ __CLASS__, 'check_rest_pre_insert' ], 10, 2 );
 			// xmlrpc.php can publish too (wp.newPost etc.) when WPS_Post_Guard's
 			// XML-RPC method removal is off; catch that route as well rather
 			// than assuming REST is the only door.
@@ -236,6 +239,36 @@ final class WPS_Account_Guard {
 	 * @param \WP_REST_Request  $request The request.
 	 * @param bool              $creating True on create, false on update.
 	 */
+	/**
+	 * rest_pre_insert_{type}: refuse a write that matches the takeover shape before it is saved.
+	 *
+	 * @param mixed $prepared The prepared post object, or an error from an earlier filter.
+	 * @param mixed $request
+	 * @return mixed
+	 */
+	public static function check_rest_pre_insert( $prepared, $request ) {
+		unset( $request );
+		if ( ! is_object( $prepared ) || ( class_exists( 'WP_Error' ) && $prepared instanceof WP_Error ) ) {
+			return $prepared;
+		}
+		$actor = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+		if ( $actor <= 0 ) {
+			return $prepared;
+		}
+		$post_id  = (int) ( $prepared->ID ?? 0 );
+		$creating = $post_id <= 0;
+		// Post id 0: the write is refused, so there is nothing to trash.
+		if ( self::evaluate( $actor, 0, 'rest', $creating, $post_id ) ) {
+			return new WP_Error(
+				'wps_rapid_write_refused',
+				__( 'WP Perf Shield refused this save: it came seconds after a sign-in from a browser this account has never published from, which is the pattern of a stolen password. If this was you, wait a minute and save again.', 'wp-perf-shield' ),
+				[ 'status' => 403 ]
+			);
+		}
+		return $prepared;
+	}
+
+	/** Kept for callers of the pre-1.4.155 hook; judges a write that has already happened. */
 	public static function check_rest_write( $post, $request, $creating ): void {
 		unset( $request );
 		if ( ! is_object( $post ) || empty( $post->ID ) ) {
@@ -300,7 +333,7 @@ final class WPS_Account_Guard {
 	/**
 	 * The actual rapid-write / new-device test, shared by both entry points.
 	 */
-	private static function evaluate( int $user_id, int $post_id, string $vector, bool $creating ): bool {
+	private static function evaluate( int $user_id, int $post_id, string $vector, bool $creating, int $subject_id = 0 ): bool {
 		if ( $user_id <= 0 ) {
 			return false;
 		}
@@ -338,11 +371,12 @@ final class WPS_Account_Guard {
 
 		// Rapid AND unrecognised device: this is the shape recovered from
 		// the incident. Act on it.
-		self::flag( $user_id, $post_id, $vector, $creating, $ip, $ua, $elapsed );
+		self::flag( $user_id, $post_id, $vector, $creating, $ip, $ua, $elapsed, $subject_id );
 		return true;
 	}
 
-	private static function flag( int $user_id, int $post_id, string $vector, bool $creating, string $ip, string $ua, int $elapsed ): void {
+	private static function flag( int $user_id, int $post_id, string $vector, bool $creating, string $ip, string $ua, int $elapsed, int $subject_id = 0 ): void {
+		$named = $post_id > 0 ? $post_id : $subject_id;
 		$user = get_userdata( $user_id );
 		$who  = $user ? $user->user_login : ( 'user #' . $user_id );
 
@@ -351,7 +385,7 @@ final class WPS_Account_Guard {
 				'account_takeover_write_blocked',
 				[
 					'object_type' => 'post',
-					'object_name' => $post_id > 0 ? ( 'post #' . $post_id ) : ( $vector . ' write' ),
+					'object_name' => $named > 0 ? ( 'post #' . $named ) : ( $vector . ' write' ),
 					'severity'    => 'critical',
 					'notes'       => ( $creating ? 'New' : 'Modified' ) . ' content via ' . $vector . ' as ' . $who
 						. ' only ' . $elapsed . 's after that account logged in, from ' . ( '' !== $ip ? $ip : 'an unknown address' )
@@ -449,10 +483,11 @@ final class WPS_Account_Guard {
 				]
 			);
 		}
-		self::block_ip( $ip, 'scripted Application Password self-authorization request (callback to ' . $target_host . ')' );
-
+		// 1.4.155: the visitor here is a signed-in administrator, usually the victim of the phishing
+		// link, and a legitimate integration may send no referer at all. Refuse the page, explain
+		// it, and leave the address alone: blocking it locked the site's own administrator out.
 		wp_die(
-			esc_html__( 'This request was blocked by WP Perf Shield.', 'wp-perf-shield' ),
+			esc_html__( 'WP Perf Shield stopped this Application Password request: it asks to send a new password to another site, and it did not arrive from that site. If you started it from a service you trust, switch off "Application Password phishing" under Settings, Posting & accounts, approve it, then switch the check back on.', 'wp-perf-shield' ),
 			esc_html__( 'Request blocked', 'wp-perf-shield' ),
 			[ 'response' => 403 ]
 		);

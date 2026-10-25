@@ -178,7 +178,7 @@ function run_sub( string $opts, string $mode, string $uri, string $ip = '203.0.1
 }
 $o = run_sub( json_encode( [ 'xr_deny_ips' => '203.0.113.0/24' ] ), 'ip', '/xmlrpc.php' );
 check( 'a denied address is refused with 403 and the script stops', false !== strpos( $o, '[status:403]' ) && false !== strpos( $o, 'not permitted' ) && false === strpos( $o, '[continued]' ), $o );
-check( 'the refusal is logged', false !== strpos( $o, '[logged:xmlrpc_ip_refused]' ) || true ); // transient functions are absent here, so the log line is written once
+check( 'the refusal is logged', false !== strpos( $o, '[logged:xmlrpc_ip_refused]' ), $o ); // transient functions are absent here, so the log line is written once
 $o = run_sub( json_encode( [ 'xr_deny_ips' => '198.51.100.0/24' ] ), 'ip', '/xmlrpc.php' );
 check( 'an address outside the deny list continues', false !== strpos( $o, '[continued]' ) && false === strpos( $o, '403' ), $o );
 $o = run_sub( json_encode( [ 'xr_allow_ips' => "198.51.100.1\n203.0.113.0/24" ] ), 'ip', '/xmlrpc.php' );

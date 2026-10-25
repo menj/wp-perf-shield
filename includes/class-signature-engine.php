@@ -932,6 +932,7 @@ final class WPS_Signature_Engine {
 	public static function scan_data( array $db, string $data, float $budget = self::MAX_FILE_SECS ): ?array {
 		$raw_len  = strlen( $data );
 		$deadline = microtime( true ) + $budget;
+		self::$deadline = $deadline; // 1.4.155: count_variant() honours the same budget
 		foreach ( [ 'raw', 'n7', 'n3' ] as $variant ) {
 			if ( empty( $db['variants'][ $variant ] ) ) {
 				continue;
@@ -997,6 +998,9 @@ final class WPS_Signature_Engine {
 	 * @param array<string, mixed> $v
 	 * @param array{0:string,1:int,2:int} $off
 	 */
+	/** The current scan_data() deadline, for the loops below it (1.4.155). */
+	private static $deadline = 0.0;
+
 	private static function count_variant( array $v, array $off, string $data ): int {
 		$dlen = strlen( $data );
 		if ( 1 === count( $v['parts'] ) && 'any' === $off[0] ) {
@@ -1005,7 +1009,10 @@ final class WPS_Signature_Engine {
 		}
 		$count = 0;
 		$from  = 0;
-		for ( $round = 0; $round < 64; $round++ ) {
+		for ( $round = 0; $round < 4096; $round++ ) { // 1.4.155: was 64, which misjudged counts such as =65
+			if ( 0 === ( $round & 63 ) && $round > 0 && self::$deadline > 0 && microtime( true ) > self::$deadline ) {
+				return $count; // out of time: the scan's own deadline check reports it
+			}
 			$pos   = $from;
 			$first = -1;
 			$end   = -1;

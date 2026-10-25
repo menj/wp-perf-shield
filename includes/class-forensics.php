@@ -1593,11 +1593,11 @@ class WPS_Forensics {
             ],
             [
                 'label'   => 'Find render-hijacker plugin requests in Apache logs',
-                'command' => "grep -R Ei \"{$hijacker_pat}\" /var/log/apache2/ 2>/dev/null | tail -100",
+                'command' => "grep -REi \"{$hijacker_pat}\" /var/log/apache2/ 2>/dev/null | tail -100",
             ],
             [
                 'label'   => 'Find render-hijacker plugin requests in nginx logs',
-                'command' => "grep -R Ei \"{$hijacker_pat}\" /var/log/nginx/ 2>/dev/null | tail -100",
+                'command' => "grep -REi \"{$hijacker_pat}\" /var/log/nginx/ 2>/dev/null | tail -100",
             ],
             [
                 'label'   => 'Find when plugins were activated (WordPress admin actions)',

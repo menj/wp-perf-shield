@@ -1772,6 +1772,20 @@ class WPS_Blocker {
             $body = $flat;
         }
         $body = (string) $body;
+        // 1.4.155: session cookies travel in the cookies argument or a Cookie header as readily as
+        // in the body; read all three.
+        foreach ( (array) ( $args['cookies'] ?? [] ) as $ck => $cv ) {
+            if ( is_object( $cv ) && isset( $cv->name ) ) {
+                $body .= '&' . (string) $cv->name . '=' . (string) ( $cv->value ?? '' );
+            } elseif ( is_scalar( $cv ) ) {
+                $body .= '&' . (string) $ck . '=' . (string) $cv;
+            }
+        }
+        foreach ( (array) ( $args['headers'] ?? [] ) as $hk => $hv ) {
+            if ( is_string( $hk ) && 'cookie' === strtolower( $hk ) ) {
+                $body .= '&' . ( is_array( $hv ) ? implode( '; ', array_map( 'strval', $hv ) ) : (string) $hv );
+            }
+        }
         if ( '' === $body ) {
             return $pre;
         }
@@ -1899,7 +1913,8 @@ class WPS_Blocker {
         // 1.4.71: a malware upload is conclusive abuse — contribute the address
         // to Akismet through the login guard's safeguarded reporter (never a
         // CDN/proxy address, never a range, once per address).
-        if ( class_exists( 'WPS_Login_Guard' ) && method_exists( 'WPS_Login_Guard', 'report_attacker_ip' ) ) {
+        // 1.4.155: not for a refusal on the upload route alone; that is no evidence of malware.
+        if ( 'Unsafe ZIP upload pathway' !== $reason && class_exists( 'WPS_Login_Guard' ) && method_exists( 'WPS_Login_Guard', 'report_attacker_ip' ) ) {
             WPS_Login_Guard::report_attacker_ip( $ip, 'malware upload attempt: ' . substr( sanitize_file_name( $filename ), 0, 120 ) );
         }
     }

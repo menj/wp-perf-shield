@@ -419,10 +419,11 @@ class WPS_Admin {
 		$already = 0;
 		$failed = 0;
 		$cap = 50;
+		$tried = 0; // 1.4.155: the cap counts submissions attempted, not only those that succeeded
 
 		if ( class_exists( 'WPS_Blocker' ) && class_exists( 'WPS_Login_Guard' ) ) {
 			foreach ( WPS_Blocker::get_blocked_ips() as $ip => $detail ) {
-				if ( $sent >= $cap ) {
+				if ( $tried >= $cap ) {
 					break;
 				}
 				$ip = (string) $ip;
@@ -447,6 +448,9 @@ class WPS_Admin {
 				}
 				$user = is_array( $detail ) ? (string) ( $detail['last_user'] ?? '' ) : '';
 				$res  = WPS_Login_Guard::report_ip_manually( $ip, $user );
+				if ( 'already' !== $res ) {
+					++$tried;
+				}
 				if ( 'reported' === $res ) {
 					++$sent;
 				} elseif ( 'already' === $res ) {

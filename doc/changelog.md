@@ -1,5 +1,35 @@
 # WP Perf Shield changelog
 
+## 1.4.155
+
+**Second whole-codebase review** (PR 32, review-only, against an empty base). Ten inline findings and twenty nitpicks, each checked against the code. Fixed with tests unless noted.
+
+### Inline findings
+- **Event-store recursion (regression from 1.4.153).** When an append was refused because the lock was held, `record()` reported it through `WPS_Logger::write()`, which forwards to `log_event()`, which calls `record()` again. With the lock still held this recursed, ten seconds of `GET_LOCK` per level, until the request timed out. It now writes straight to the file log (`WPS_Logger::file_event()`). `test-event-log.php` asserts no forwarding; on 1.4.154 the stand-in counted six levels before its own cap.
+- **The account guard judged REST writes after they happened.** It hooked `rest_insert_post`, trashed a flagged post after the save, and returned nothing to the editor, which then reported success. It now hooks `rest_pre_insert_post`/`_page` and returns a 403 `wps_rapid_write_refused` with an explanation, so nothing is written and nothing needs trashing. `check_rest_write()` remains for callers of the old hook.
+- **Application Password phishing check blocked the administrator.** The page requires a signed-in administrator, usually the phishing victim, and a legitimate integration may send no referer. The refusal stays, with instructions; the address block is removed.
+- **Quarantine manifests.** A failed `manifest.json` write returned an id anyway, for files and for option snapshots, so an option could be deleted with no restorable copy. Both now clean up and fail; a moved file is denormalised and put back.
+- **Outbound guard** reads the `cookies` argument (cookie objects and name/value pairs) and any `Cookie` header, not only the body.
+- **Bulk Akismet report** caps attempts, not successes.
+- **XML-RPC page methods** are removed with the post methods.
+- **Comment stripper**: a one-line comment ends at `\n`, a lone `\r`, or `?>`, as PHP's lexer decides.
+- **EDR**: an event the store could not keep is written to the file log.
+- Not changed: "`xmlrpc_call` fires before authentication". Every core XML-RPC write method calls `$this->login()`, which sets the current user, before `do_action( 'xmlrpc_call', ... )`. The same claim was raised and checked in the first review.
+
+### Nitpicks
+- Taken: a ZIP refused only for its upload route is not reported to Akismet; `submit_spam()` succeeds only on Akismet's thank-you reply; the permanent sign-in denial is judged on the address alone; `stats()` treats a record from an earlier day as yesterday's; `spam_content_stripped` is recorded only when something was removed; the self-test fails rather than skips on a failed lock query and gives the reacquire two seconds; an application password over XML-RPC is labelled as one; the forensics `grep` commands pass `-REi`; split-pattern counting stops at 4,096 rounds, not 64; the SSO comment no longer claims the token value is logged (it deliberately is not); `INDICATOR_VERSION` is `1.4.155-1`.
+- Tests taken: `test-account-guard.php` runs on PHP 7.4 and checks in a child process that a refused XML-RPC write ends the request; `test-exposure-guard.php` asserts the refusal log line; `test-manual-removal.php` checks all three options; `test-plugin-malware-detection.php` skips the ZIP cases without the zip extension; `test-settings-render.php` fails on a render exception.
+- Not changed: the known-devices list is still one user-meta value, so two simultaneous publishes from two devices can lose one device's "known" mark; the consequence is now a refused save with an explanation, not a trashed post. The uninstall inventory test still reads only literal option names; the dynamic ones are listed in `wps_uninstall()` by hand.
+
+### Review of this release (CodeAnt on PR 33)
+- The comment stripper found a comment's end with three `strpos()` calls that each ran to the end of the file when a marker was absent, so comment-heavy files were quadratic (40,000 comments: 6 s). One `strcspn()` pass instead.
+- A quarantine rollback that cannot put the item back keeps it in the store instead of deleting the only copy; the manifest write counts as done only when the JSON encoded and every byte was written.
+- `count_variant()` checks the scan's deadline every 64 rounds now that it may run 4,096.
+- The self-test calls a failed reacquire after a correct exclusion inconclusive, not a failure; the week's sign-in figures leave out days older than seven; and the Diagnostics log-search commands use `grep -REi` too, with the test now checking every file.
+
+### Tests
+- New: `test-review-1-4-155.php` (18 cases). Extended: `test-account-guard.php`, `test-event-log.php`, `test-spam-content-guard.php`, and the five suites above.
+
 ## 1.4.154
 
 **Rank Math SEO is not reported.** The 1.4.148 incident review recorded a hidden `.helpers` folder inside a plugin's vendor tree on all five sites and built `check_plugin_dot_directories` on it. Running the full scanner over Rank Math SEO 1.0.279 shows what it was: `donatj/phpuseragentparser`, a library Rank Math installs through Composer, ships a `.helpers/constants.php` documentation helper, and it was on all five sites because Rank Math was. Two checks reported it (`check_plugin_dot_directories` and `check_dropper_cache`'s hidden-directory hunt). Both now leave alone a hidden folder inside a Composer package: `WPS_Utils::composer_package_of()` says a path is in one when it sits under `vendor/<v>/<p>/`, that folder has a `composer.json`, and `vendor/composer/installed.json` (which only Composer writes) lists the package. `check_plugin_dot_directories` also leaves alone a folder whose every code file matches its plugin's published release. A hidden code folder outside any package, or under `vendor/` with a `composer.json` but no entry in `installed.json`, is still reported. Against the whole Rank Math package: 121 checks, zero findings; the upload inspector accepts its zip; its slug is not banned. `tests/test-rank-math-compat.php` (9 cases) rebuilds the layout from synthetic files.

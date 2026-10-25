@@ -414,10 +414,21 @@ final class WPS_Login_Guard {
 			return $user; // not a submitted login
 		}
 		$ip = self::ip();
-		if ( '' === $ip || self::is_protected_ip( $ip ) ) {
+		if ( '' === $ip ) {
 			return $user;
 		}
-		// 1.4.31: permanent denylist first. No expiry to compute and no
+		// 1.4.31: permanent denylist first. 1.4.155: judged on the address alone, like the surface
+		// refusals; a session already open on a blocked address does not vouch for it.
+		if ( ! self::admin_ip_known( $ip ) && self::is_permanently_blocked( $ip ) ) {
+			return new WP_Error(
+				'wps_login_blocked_permanent',
+				'<strong>Sign-in from this address is blocked.</strong> This address was used in an automated attack on an account that does not exist on this site.'
+			);
+		}
+		if ( self::is_protected_ip( $ip ) ) {
+			return $user;
+		}
+		// The temporary blocks below still honour the signed-in administrator. No expiry to compute and no
 		// duration to report - this address does not sign in here again.
 		if ( self::is_permanently_blocked( $ip ) ) {
 			return new WP_Error(
@@ -1142,8 +1153,10 @@ final class WPS_Login_Guard {
 				'comment_author'  => self::safe( $username ),
 				'comment_content' => 'Automated WordPress login attack blocked by WP Perf Shield: ' . $note . '.',
 			];
-			Akismet::http_post( Akismet::build_query( $body ), 'submit-spam' );
-			return true;
+			$resp = Akismet::http_post( Akismet::build_query( $body ), 'submit-spam' );
+			// 1.4.155: Akismet answers a good submission with a thank-you body; anything else failed.
+			$text = is_array( $resp ) ? (string) ( $resp[1] ?? '' ) : '';
+			return false !== stripos( $text, 'thank' );
 		} catch ( \Throwable $t ) {
 			return false;
 		}
@@ -1840,11 +1853,21 @@ final class WPS_Login_Guard {
 			$s = [];
 		}
 
-		$out = [];
+		// 1.4.155: a record last written on an earlier day holds that day's counts, not today's, and
+		// only days inside the seven-day window count towards the week.
+		$stale    = ( $s['day'] ?? '' ) !== gmdate( 'Y-m-d' );
+		$win_from = gmdate( 'Y-m-d', time() - 6 * DAY_IN_SECONDS );
+		$in_week  = static function ( $day ) use ( $win_from ): bool {
+			return is_string( $day ) && $day >= $win_from;
+		};
+		$out      = [];
 		foreach ( self::COUNTERS as $c ) {
-			$today = (int) ( $s[ $c ] ?? 0 );
-			$week  = $today;
-			foreach ( (array) ( $s['history'] ?? [] ) as $row ) {
+			$today = $stale ? 0 : (int) ( $s[ $c ] ?? 0 );
+			$week  = $stale ? ( $in_week( $s['day'] ?? '' ) ? (int) ( $s[ $c ] ?? 0 ) : 0 ) : $today;
+			foreach ( (array) ( $s['history'] ?? [] ) as $hday => $row ) {
+				if ( is_string( $hday ) && ! $in_week( $hday ) ) {
+					continue;
+				}
 				$week += (int) ( $row[ $c ] ?? 0 );
 			}
 			$out[ 'today_' . $c ] = $today;

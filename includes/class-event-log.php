@@ -340,8 +340,11 @@ class WPS_Event_Log {
 		 */
 		$lock      = self::acquire_append_lock();
 		if ( ( $lock['type'] ?? '' ) === 'refused' ) {
-			if ( class_exists( 'WPS_Logger' ) && method_exists( 'WPS_Logger', 'write' ) ) {
-				WPS_Logger::write( 'event store: append refused rather than fork the chain (' . (string) ( $lock['reason'] ?? '' ) . '): ' . (string) ( $row['event_type'] ?? '' ) );
+			// 1.4.155: straight to the file log. WPS_Logger::write() forwards to log_event(), which
+			// calls record() again; with the lock still held that recursed, ten seconds a level,
+			// until the request died.
+			if ( class_exists( 'WPS_Logger' ) && method_exists( 'WPS_Logger', 'file_event' ) ) {
+				WPS_Logger::file_event( (string) ( $row['event_type'] ?? 'event' ), 'event store: append refused rather than fork the chain (' . (string) ( $lock['reason'] ?? '' ) . '): ' . (string) ( $row['notes'] ?? '' ) );
 			}
 			return null; // the file-log shim keeps its copy; a forked chain would read as tampering
 		}
