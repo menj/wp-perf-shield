@@ -112,6 +112,8 @@ class WPS_Exposure_Guard {
 			add_filter( 'script_loader_src', [ __CLASS__, 'strip_version_param' ] );
 			add_filter( 'style_loader_src', [ __CLASS__, 'strip_version_param' ] );
 			add_action( 'init', [ __CLASS__, 'remove_generator' ] );
+			// 1.4.156: readme.html states the WordPress version in its first heading; three scanners read it.
+			add_action( 'init', [ __CLASS__, 'refuse_core_readme' ], 0 );
 		}
 		if ( self::on( 'xr_remove_discovery_links' ) ) {
 			add_action( 'init', [ __CLASS__, 'remove_discovery_links' ] );
@@ -124,6 +126,15 @@ class WPS_Exposure_Guard {
 		}
 		if ( self::on( 'xr_rest_logged_in_only' ) ) {
 			add_filter( 'rest_authentication_errors', [ __CLASS__, 'rest_gate' ] );
+		}
+		// 1.4.156: on by default. The one option here that is, because an October's logs showed the
+		// two busiest XML-RPC attackers each reading /wp/v2/users for the account names they then
+		// tried, and nothing legitimate needs a signed-out visitor to list accounts.
+		if ( self::user_enum_refused() ) {
+			add_filter( 'rest_endpoints', [ __CLASS__, 'hide_user_routes' ] );
+			add_action( 'init', [ __CLASS__, 'refuse_author_query' ], 0 );
+			add_filter( 'wp_sitemaps_add_provider', [ __CLASS__, 'drop_user_sitemap' ], 10, 2 );
+			add_filter( 'oembed_response_data', [ __CLASS__, 'strip_oembed_author' ] );
 		}
 		if ( self::on( 'xr_slow_heartbeat' ) ) {
 			add_filter( 'heartbeat_settings', [ __CLASS__, 'slow_heartbeat' ] );
@@ -406,6 +417,25 @@ class WPS_Exposure_Guard {
 	}
 
 	/**
+	 * Is this a request for WordPress's own readme.html or license.txt, at the site root or one
+	 * folder down (a subfolder install)? Pure of side effects.
+	 */
+	public static function core_readme_requested(): bool {
+		$path = (string) parse_url( (string) ( $_SERVER['REQUEST_URI'] ?? '' ), PHP_URL_PATH );
+		return 1 === preg_match( '#^/(?:[^/]+/)?(?:readme\.html|license\.txt)$#i', rawurldecode( $path ) );
+	}
+
+	public static function refuse_core_readme(): void {
+		if ( ! self::core_readme_requested() ) {
+			return;
+		}
+		if ( function_exists( 'status_header' ) ) {
+			status_header( 404 );
+		}
+		exit;
+	}
+
+	/**
 	 * Remove ?ver= only when it is the WordPress version itself. Plugin and theme
 	 * versions are left alone so browser cache busting keeps working.
 	 */
@@ -463,6 +493,114 @@ class WPS_Exposure_Guard {
 			}
 		}
 		return new WP_Error( 'wps_rest_signed_out', 'You must be signed in to use the REST API on this site.', [ 'status' => 401 ] );
+	}
+
+	// ---------------------------------------------------------------
+	//  Account-name enumeration (1.4.156)
+	// ---------------------------------------------------------------
+
+	/** On unless the operator switched it off. */
+	public static function user_enum_refused(): bool {
+		return '0' !== self::get( 'xr_no_user_enum', '1' );
+	}
+
+	/**
+	 * `rest_endpoints`: a signed-out request does not get the user collection or a user by id.
+	 * `/wp/v2/users/me` stays, since it answers only for a signed-in user anyway, and every other
+	 * route is untouched, so a public integration that does not list accounts keeps working.
+	 *
+	 * @param array<string, mixed> $endpoints
+	 * @return array<string, mixed>
+	 */
+	public static function hide_user_routes( $endpoints ) {
+		if ( ! is_array( $endpoints ) || ( function_exists( 'is_user_logged_in' ) && is_user_logged_in() ) ) {
+			return $endpoints;
+		}
+		foreach ( array_keys( $endpoints ) as $route ) {
+			if ( preg_match( '#^/wp/v2/users(?:/\(\?P<id>[^/]*\))?$#', (string) $route ) ) {
+				unset( $endpoints[ $route ] );
+			}
+		}
+		// The filter runs for every REST request; only one aimed at the user routes is an event.
+		if ( self::user_route_requested() ) {
+			self::note_enumeration( 'rest' );
+		}
+		return $endpoints;
+	}
+
+	/** Is this request for the user collection or a user by id? Pure of side effects. */
+	public static function user_route_requested(): bool {
+		return 1 === preg_match( '#^/?wp/v2/users(?:/\d+)?/?$#', self::rest_route_of_request() );
+	}
+
+	/**
+	 * Is this a signed-out front-end request for `?author=N`? WordPress answers it with a redirect to
+	 * the author's archive, whose address carries the account name. Pure of side effects.
+	 */
+	public static function author_query_refusable(): bool {
+		if ( function_exists( 'is_admin' ) && is_admin() ) {
+			return false;
+		}
+		if ( function_exists( 'is_user_logged_in' ) && is_user_logged_in() ) {
+			return false;
+		}
+		// A REST query such as /wp/v2/posts?author=1 filters posts; it does not redirect to a name.
+		if ( isset( $_GET['rest_route'] ) || '' !== self::rest_route_of_request() ) {
+			return false;
+		}
+		$author = $_GET['author'] ?? null;
+		return is_string( $author ) && '' !== $author && ctype_digit( $author );
+	}
+
+	public static function refuse_author_query(): void {
+		if ( ! self::author_query_refusable() ) {
+			return;
+		}
+		self::note_enumeration( 'author' );
+		if ( function_exists( 'status_header' ) ) {
+			status_header( 403 );
+		}
+		exit( 'Author archives are not addressed by number on this site.' );
+	}
+
+	/**
+	 * `wp_sitemaps_add_provider`: the core user sitemap lists every account that has published.
+	 *
+	 * @param mixed  $provider
+	 * @param string $name
+	 * @return mixed
+	 */
+	public static function drop_user_sitemap( $provider, $name = '' ) {
+		return 'users' === $name ? false : $provider;
+	}
+
+	/**
+	 * `oembed_response_data`: an embed answer carries the author's display name and archive address.
+	 *
+	 * @param mixed $data
+	 * @return mixed
+	 */
+	public static function strip_oembed_author( $data ) {
+		if ( is_array( $data ) ) {
+			unset( $data['author_name'], $data['author_url'] );
+		}
+		return $data;
+	}
+
+	/** One event per address and route every ten minutes, like the surface refusals. */
+	private static function note_enumeration( string $how ): void {
+		if ( ! class_exists( 'WPS_Logger' ) ) {
+			return;
+		}
+		$ip   = class_exists( 'WPS_Blocker' ) ? WPS_Blocker::client_ip() : (string) ( $_SERVER['REMOTE_ADDR'] ?? '' );
+		$tkey = 'wps_ue_' . md5( $ip . $how );
+		if ( function_exists( 'get_transient' ) && get_transient( $tkey ) ) {
+			return;
+		}
+		WPS_Logger::log_event( 'user_enumeration_refused', ( 'rest' === $how ? 'signed-out request for the REST user list' : 'signed-out ?author=N request' ) . ' refused', $ip );
+		if ( function_exists( 'set_transient' ) ) {
+			set_transient( $tkey, 1, 600 );
+		}
 	}
 
 	/** @return string[] */

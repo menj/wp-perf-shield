@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP Perf Shield
  * Description: Blocks wp-perf-analytics traffic-hijacking malware and all renamed variants. Includes real-time activation blocking, scheduled scanning, and one-click remediation.
- * Version: 1.4.155
+ * Version: 1.4.156
  * Author: MENJ
  * Author URI: https://github.com/menj
  * License: GPL-2.0+
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WPS_VERSION', '1.4.155' );
+define( 'WPS_VERSION', '1.4.156' );
 define( 'WPS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPS_URL', plugin_dir_url( __FILE__ ) );
 define( 'WPS_LOG_DIR', WPS_DIR . 'logs' );
@@ -64,6 +64,16 @@ function wps_safe_mode(): bool {
 	}
 	// An upgrade is the normal remedy, so a version change lifts safe mode.
 	if ( (string) ( $rec['version'] ?? '' ) !== WPS_VERSION ) {
+		if ( function_exists( 'delete_option' ) ) {
+			delete_option( WPS_FATAL_OPTION );
+		}
+		return $safe = false;
+	}
+	// 1.4.156: `Class "WPS_X" not found` is the signature of a half-uploaded plugin, and the cause
+	// is gone once every file is present. The record is cleared rather than left for the operator,
+	// who would otherwise find the plugin standing down after an upload that completed normally.
+	// PHP 7 quotes the class name with single quotes, PHP 8 with double.
+	if ( preg_match( '/Class ["\']?WPS_\w+["\']? not found/', (string) ( $rec['message'] ?? '' ) ) && [] === wps_missing_files() ) {
 		if ( function_exists( 'delete_option' ) ) {
 			delete_option( WPS_FATAL_OPTION );
 		}
@@ -157,9 +167,14 @@ function wps_boot( string $label, callable $step ): void {
  * quietly changed what the plugin does. Autoloading cannot, because a class is
  * loaded exactly when something references it.
  */
-spl_autoload_register(
-	static function ( string $class ): void {
-		static $map = [
+/**
+ * Every class the plugin ships and the file that defines it, relative to the plugin folder.
+ * The autoloader reads it; so does the completeness check below (1.4.156).
+ *
+ * @return array<string, string>
+ */
+function wps_class_map(): array {
+	return [
 			// core runtime
 			'WPS_Utils'                  => 'includes/class-wps-utils.php',
 			'WPS_Indicators'             => 'includes/class-wps-indicators.php',
@@ -203,7 +218,43 @@ spl_autoload_register(
 			'WPS_Signature_Engine'       => 'includes/class-signature-engine.php',
 			// vendored
 			'WPS_Parsedown'              => 'includes/vendor/class-wps-parsedown.php',
-		];
+	];
+}
+
+/**
+ * The files from the class map that are not on disk, relative to the plugin folder (1.4.156).
+ *
+ * A plugin uploaded over FTP arrives one file at a time. On one site the main file was in place
+ * while `includes/` was still arriving, and for seven minutes every request that reached `init`
+ * died with `Class "WPS_Guard" not found`, which then put the plugin into safe mode until someone
+ * cleared it. A missing file is now found before anything runs: the plugin stays idle, the admin
+ * notice names the files, and safe mode lifts itself once they are all present. About forty
+ * `is_readable()` calls per request, answered from the operating system's cache.
+ *
+ * @return string[]
+ */
+function wps_missing_files(): array {
+	static $missing = null;
+	if ( null !== $missing ) {
+		return $missing;
+	}
+	$missing = [];
+	foreach ( wps_class_map() as $rel ) {
+		if ( ! is_readable( WPS_DIR . $rel ) ) {
+			$missing[] = $rel;
+		}
+	}
+	return $missing;
+}
+
+/** Does the plugin stand down on this request: safe mode, or files still missing? */
+function wps_inert(): bool {
+	return wps_safe_mode() || [] !== wps_missing_files();
+}
+
+spl_autoload_register(
+	static function ( string $class ): void {
+		$map = wps_class_map();
 		if ( ! isset( $map[ $class ] ) ) {
 			return;
 		}
@@ -222,6 +273,10 @@ spl_autoload_register(
 //  Activation
 
 register_activation_hook( __FILE__, function (): void {
+	// 1.4.156: activating while the upload is still arriving must not be a fatal either.
+	if ( [] !== wps_missing_files() ) {
+		return;
+	}
 	// Scrub any currently-active blocked plugins from the DB
 	WPS_Blocker::scrub_active_list();
 
@@ -238,10 +293,28 @@ register_activation_hook( __FILE__, function (): void {
 	WPS_Guard::purge();
 
 	// 1.4.154: the development test suite has no business on a production site.
-	if ( class_exists( 'WPS_Utils' ) && method_exists( 'WPS_Utils', 'remove_dev_files' ) ) {
+	wps_tidy_install();
+} );
+
+/**
+ * Remove repository material from the installed copy (1.4.154), and refuse web access to a git
+ * repository uploaded with it (1.4.156). One site's FTP log showed the operator's client sending
+ * `.git/` (460 files) and `tests/` along with the plugin, which made the plugin's whole source
+ * history downloadable from `/.git/` on a server that serves dot-folders; the same month's access
+ * log had probes for exactly that path. The folder is not deleted, since a developer's checkout
+ * is a legitimate way to run the plugin, but it is denied on Apache and reported until removed.
+ */
+function wps_tidy_install(): void {
+	if ( ! class_exists( 'WPS_Utils' ) ) {
+		return;
+	}
+	if ( method_exists( 'WPS_Utils', 'remove_dev_files' ) ) {
 		WPS_Utils::remove_dev_files( WPS_DIR );
 	}
-} );
+	if ( method_exists( 'WPS_Utils', 'protect_repo_dir' ) && '' !== WPS_Utils::protect_repo_dir( WPS_DIR ) && class_exists( 'WPS_Logger' ) ) {
+		WPS_Logger::log_event( 'repo_dir_in_plugin', 'a git repository (.git) was uploaded inside the plugin folder; web access to it is refused on Apache, and it should be removed' );
+	}
+}
 
 // 1.4.154: an update uploaded over the old files brings tests/ back. Remove it on the first
 // admin request of any kind after the version changes, not only on this plugin's own screen.
@@ -249,10 +322,12 @@ add_action( 'admin_init', function (): void {
 	if ( get_option( 'wps_dev_files_cleaned', '' ) === WPS_VERSION ) {
 		return;
 	}
-	update_option( 'wps_dev_files_cleaned', WPS_VERSION ); // autoloaded: read on every admin request
-	if ( class_exists( 'WPS_Utils' ) && method_exists( 'WPS_Utils', 'remove_dev_files' ) ) {
-		WPS_Utils::remove_dev_files( WPS_DIR );
+	// 1.4.156: not while a file is missing, or the marker would be written and the cleanup never run.
+	if ( [] !== wps_missing_files() ) {
+		return;
 	}
+	update_option( 'wps_dev_files_cleaned', WPS_VERSION ); // autoloaded: read on every admin request
+	wps_tidy_install();
 } );
 
 //  Deactivation
@@ -318,7 +393,9 @@ function wps_uninstall(): void {
 	delete_transient( 'wps_ak_usage' );
 	// 1.4.23: range counters are transients and expire on their own, but a
 	// removal should not leave them behind either.
-	wps_delete_transients_like( 'wps_lfn_' );       // 1.4.20: cached Akismet usage figure        // 1.4.18: login guard activity record    // 1.4.17: protected administrator addresses  // 1.4.13: unsigned-state throttle
+	wps_delete_transients_like( 'wps_lfn_' );
+	wps_delete_transients_like( 'wps_bs_' );        // 1.4.148: surface-refusal log throttle
+	wps_delete_transients_like( 'wps_ue_' );        // 1.4.156: enumeration-refusal log throttle       // 1.4.20: cached Akismet usage figure        // 1.4.18: login guard activity record    // 1.4.17: protected administrator addresses  // 1.4.13: unsigned-state throttle
 	delete_option( 'wps_last_fatal' );          // 1.4.12: safe-mode record
 	delete_option( 'wps_first_party_baseline' ); // 1.4.11: first-party plugin fingerprints
 	delete_option( 'wps_registration_baseline' ); // 1.4.10: registration/default-role baseline
@@ -371,7 +448,8 @@ add_action( 'init', function (): void {
 // 1.4.12: everything from here is skipped while safe mode is on. The passive
 // core - the autoloader, the fatal recorder, and the admin notice - stays, so
 // the site runs and the operator is told why the plugin is standing down.
-if ( ! wps_safe_mode() ) {
+// 1.4.156: the same while any file from the class map is missing.
+if ( ! wps_inert() ) {
 
 add_action( 'init', [ 'WPS_Dropin_Guard', 'watch' ] );
 
@@ -409,7 +487,9 @@ add_action( 'init', function (): void {
 	// 1.4.15: the must-use tamper guard is withdrawn. All that remains is a
 	// one-time cleanup, which is cheap after the first run - a single option
 	// read - and version-keyed so a downgrade-then-upgrade still tidies up.
-	WPS_Guard::maybe_purge();
+	if ( class_exists( 'WPS_Guard' ) ) {
+		WPS_Guard::maybe_purge();
+	}
 }, 5 );
 
 
@@ -446,7 +526,7 @@ wps_boot( 'outbound-guard', static function (): void {
 // is_admin() as true. Loading them on front-end requests bought nothing and
 // cost 93 KB.
 if ( is_admin() ) {
-	if ( wps_safe_mode() ) {
+	if ( wps_inert() ) {
 		// Admin screens are the most likely place for a crash, so in safe mode
 		// they are not registered at all. The notice below is the entire admin
 		// surface until the operator clears it.
@@ -454,6 +534,14 @@ if ( is_admin() ) {
 			'admin_notices',
 			static function (): void {
 				if ( ! current_user_can( 'activate_plugins' ) ) {
+					return;
+				}
+				$missing = wps_missing_files();
+				if ( [] !== $missing ) {
+					echo '<div class="notice notice-error"><p><strong>WP Perf Shield is not complete and is doing nothing.</strong> ';
+					echo count( $missing ) . ' of its files ' . ( 1 === count( $missing ) ? 'is' : 'are' ) . ' missing from <code>' . esc_html( basename( WPS_DIR ) ) . '</code>, which happens while an upload is still running or when one stopped part-way. ';
+					echo 'Upload the whole plugin folder again; this notice goes away on its own once every file is present.</p>';
+					echo '<p><code>' . esc_html( implode( '</code>, <code>', array_slice( $missing, 0, 8 ) ) ) . '</code>' . ( count( $missing ) > 8 ? ' and ' . ( count( $missing ) - 8 ) . ' more' : '' ) . '</p></div>';
 					return;
 				}
 				$rec = get_option( WPS_FATAL_OPTION, [] );

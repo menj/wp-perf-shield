@@ -59,6 +59,22 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.156
+
+**Built from one site's October server logs.** Four log files from a production site (web access, TLS access, FTP and the PHP error log) were read end to end, and the plugin changed where they showed it short.
+
+**Uploading the plugin.** If you upload the plugin folder with an FTP client, the files arrive one at a time, and for a few minutes the main file is there while `includes/` is not. On the logged site that crashed every request for seven minutes and left the plugin in safe mode. Now the plugin does nothing until every one of its files is present, the admin notice lists the ones still missing, and safe mode lifts itself once the upload is complete. Nothing to do; upload as before.
+
+**Do not upload `.git` or `tests`.** The same FTP log showed the client sending the repository folder (`.git/`, 460 files) and the test suite with the plugin. On a server that serves dot-folders, `.git/` lets anyone download the plugin's source history, and the access log had probes for exactly that path. After this update: `tests/` is removed from the installed copy even when `.git/` is beside it; `.git/` is refused on Apache by an `.htaccess` written inside it, an event is recorded, and a warning stays on every admin page until you delete the folder with your FTP client or file manager. Delete `wp-content/plugins/wp-perf-shield/.git` on your site. Next time, upload only the plugin's own files: `wp-perf-shield.php`, `readme.txt`, `includes/`, `assets/`, `doc/`, `tools/` and `logs/`.
+
+**XML-RPC password guessing dressed as Jetpack.** Three quarters of the month's XML-RPC traffic was failed sign-ins whose user agent claimed to be Jetpack or WordPress.com, from 166 addresses, none of them Automattic's. The real service connects only from 192.0.64.0/18 and never signs in with a password, so a failed XML-RPC sign-in with that user agent from anywhere else now blocks the address for good on the first attempt. New toggle "Forged Jetpack" under sign-in protection, on by default. If you use the Jetpack app or the WordPress mobile app, nothing changes: they send their own user agent and sign in from your phone. A temporarily blocked address is also refused on `xmlrpc.php` now, with a 403, rather than being answered by the full sign-in machinery.
+
+**Account names.** The two busiest attackers read `/wp-json/wp/v2/users` to collect account names before guessing passwords. A signed-out visitor no longer gets that list, a user by id, the `?author=1` redirect that reveals a name, the user sitemap, or the author in an embed answer. New toggle "Account names" under REST API, on by default. Switch it off only if a headless front end reads authors through REST while signed out; everything else (signed-in editors, every other REST route, author archive pages by name) is unaffected.
+
+**Password resets and the readme.** An address under any block can no longer trigger password-reset mail; the form shows the block instead. If "hide the WordPress version" is on under XML-RPC & exposure, `readme.html` and `license.txt` now answer 404.
+
+**Events to expect.** `user_enumeration_refused` when a signed-out request for the user list or `?author=N` is refused (one per address and route every ten minutes), `repo_dir_in_plugin` if a `.git` folder is found in the plugin folder, and permanent blocks whose reason reads "failed XML-RPC sign-in claiming to be Jetpack ...".
+
 ## 1.4.155
 
 **Editor saves.** When the account-takeover guard judged a save suspicious (seconds after a sign-in, from a browser that has never published on the account), it let the save happen, then moved the post to the trash, so the editor could say "Post updated" for a post that was gone. It now refuses the save before it is written, and the editor shows the reason in red: "WP Perf Shield refused this save ... If this was you, wait a minute and save again."

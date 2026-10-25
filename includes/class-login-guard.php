@@ -243,13 +243,74 @@ final class WPS_Login_Guard {
 			add_action( 'init', [ __CLASS__, 'refuse_blocked_surfaces' ], 0 );
 			add_filter( 'rest_authentication_errors', [ __CLASS__, 'refuse_blocked_rest' ], 1 );
 			add_filter( 'wp_handle_upload_prefilter', [ __CLASS__, 'refuse_blocked_upload' ], 1 );
+			// 1.4.156: a blocked address may not trigger password-reset mail either. One address read the
+			// account name from REST, then posted the lost-password form twice, then went back to guessing.
+			add_action( 'lostpassword_post', [ __CLASS__, 'refuse_lost_password' ], 10, 2 );
 		}
+	}
+
+	/**
+	 * `lostpassword_post`: adding an error to $errors stops WordPress sending the reset mail.
+	 *
+	 * @param mixed $errors WP_Error
+	 * @param mixed $user_data
+	 */
+	public static function refuse_lost_password( $errors, $user_data = null ): void {
+		unset( $user_data );
+		if ( ! is_object( $errors ) || ! method_exists( $errors, 'add' ) ) {
+			return;
+		}
+		$reason = self::surface_refusal( 'lostpassword' );
+		if ( '' === $reason ) {
+			return;
+		}
+		self::note_refused( 'lostpassword', $reason );
+		$errors->add( 'wps_address_blocked', '<strong>Error:</strong> ' . $reason );
 	}
 
 	/** On by default: a permanent block is an explicit decision about an address. */
 	public static function surface_block_enabled(): bool {
 		$s = get_option( WPS_OPTION, [] );
 		return ! is_array( $s ) || ( $s['login_block_surfaces'] ?? '1' ) !== '0';
+	}
+
+	/**
+	 * The address ranges WordPress.com and Jetpack connect from, published by Automattic for
+	 * firewall allowlists. A request claiming to be either service from anywhere else is not it.
+	 */
+	const AUTOMATTIC_RANGES = [ '192.0.64.0/18' ];
+
+	/** On by default (1.4.156): a forged vendor agent on a failed XML-RPC sign-in is a permanent block. */
+	public static function forged_agent_block_enabled(): bool {
+		$s = get_option( WPS_OPTION, [] );
+		return ! is_array( $s ) || ( $s['login_forged_agent_block'] ?? '1' ) !== '0';
+	}
+
+	/**
+	 * The vendor a user agent claims to be when the address could not be that vendor: 'Jetpack',
+	 * 'WordPress.com', or '' for an agent that claims neither or an address inside Automattic's
+	 * network. Pure of side effects, so it can be tested.
+	 */
+	public static function forged_vendor_agent( string $ua, string $ip ): string {
+		$ua = trim( $ua );
+		if ( '' === $ua ) {
+			return '';
+		}
+		$vendor = '';
+		if ( preg_match( '/\bJetpack\b/i', $ua ) ) {
+			$vendor = 'Jetpack';
+		} elseif ( preg_match( '/\bWordPress\.com\b/i', $ua ) ) {
+			$vendor = 'WordPress.com';
+		}
+		if ( '' === $vendor ) {
+			return '';
+		}
+		foreach ( self::AUTOMATTIC_RANGES as $cidr ) {
+			if ( self::ip_in_cidr( $ip, $cidr ) ) {
+				return '';
+			}
+		}
+		return $vendor; // Automattic publishes IPv4 ranges only, so an IPv6 address cannot be inside them
 	}
 
 	/**
@@ -273,6 +334,9 @@ final class WPS_Login_Guard {
 			return 'xmlrpc';
 		}
 		$script = basename( (string) ( $_SERVER['SCRIPT_NAME'] ?? '' ) );
+		if ( 'xmlrpc.php' === $script ) {
+			return 'xmlrpc'; // 1.4.156: the script name is the same evidence as the constant it defines
+		}
 		if ( 'async-upload.php' === $script ) {
 			return 'upload';
 		}
@@ -282,11 +346,12 @@ final class WPS_Login_Guard {
 		return '';
 	}
 
-	private static function note_refused( string $surface ): void {
+	private static function note_refused( string $surface, string $reason = '' ): void {
 		$ip   = self::ip();
 		$tkey = 'wps_bs_' . md5( $ip . $surface );
 		if ( class_exists( 'WPS_Logger' ) && ! ( function_exists( 'get_transient' ) && get_transient( $tkey ) ) ) {
-			WPS_Logger::log_event( 'blocked_surface_refused', $surface . ' request refused: this address is permanently blocked', $ip );
+			// 1.4.156: the reason is the refusal's own text, so a temporary block is not logged as permanent.
+			WPS_Logger::log_event( 'blocked_surface_refused', $surface . ' request refused: ' . ( '' !== $reason ? rtrim( $reason, '.' ) : 'this address is permanently blocked' ), $ip );
 			if ( function_exists( 'set_transient' ) ) {
 				set_transient( $tkey, 1, 600 );
 			}
@@ -295,14 +360,49 @@ final class WPS_Login_Guard {
 
 	public static function refuse_blocked_surfaces(): void {
 		$surface = self::blocked_surface();
-		if ( '' === $surface || ! self::from_blocked_address() ) {
+		if ( '' === $surface ) {
 			return;
 		}
-		self::note_refused( $surface );
+		$reason = self::surface_refusal( $surface );
+		if ( '' === $reason ) {
+			return;
+		}
+		self::note_refused( $surface, $reason );
 		if ( function_exists( 'status_header' ) ) {
 			status_header( 403 );
 		}
-		exit( 'This address is blocked.' );
+		exit( $reason );
+	}
+
+	/**
+	 * Why this request on $surface is refused, or '' when it is not. Pure of side effects.
+	 *
+	 * A permanent block refuses every surface. 1.4.156: a temporary block (the address's own, or its
+	 * range's) refuses XML-RPC as well. One October's logs held 14,079 XML-RPC sign-in failures that
+	 * each loaded WordPress and answered a 200 with the same "incorrect username or password" fault,
+	 * blocked address or not, because core turns every `authenticate` error into that one fault. A
+	 * blocked address now gets a 403 before WordPress does any of that work, which is also what the
+	 * attacker's tooling reads as "stop".
+	 */
+	public static function surface_refusal( string $surface ): string {
+		if ( self::from_blocked_address() ) {
+			return 'This address is blocked.';
+		}
+		if ( ! in_array( $surface, [ 'xmlrpc', 'lostpassword' ], true ) ) {
+			return '';
+		}
+		$ip = self::ip();
+		if ( '' === $ip || self::admin_ip_known( $ip ) ) {
+			return '';
+		}
+		$until = self::blocked_until( $ip );
+		if ( $until <= 0 && self::network_guard_enabled() ) {
+			$until = self::network_blocked_until( $ip );
+		}
+		if ( $until <= 0 ) {
+			return '';
+		}
+		return sprintf( 'Too many failed sign-in attempts. This address is blocked for another %d minute(s).', max( 1, (int) ceil( ( $until - time() ) / 60 ) ) );
 	}
 
 	/** REST: a blocked address may read what is public, and may not write. @param mixed $result */
@@ -493,6 +593,25 @@ final class WPS_Login_Guard {
 			// path rather than silently doing nothing.
 			self::block( $ip, $reason, $username );
 			return;
+		}
+
+		// 1.4.156: a failed XML-RPC sign-in that claims to be Jetpack or WordPress.com, from an address
+		// outside Automattic's network, is a forgery. One site's October logs held 13,125 of them from
+		// 166 addresses, four user-agent strings between them, and not one request from the ranges
+		// the real service uses. Real Jetpack does not sign in with a password at all, so there is no
+		// legitimate failure to mistake this for. Permanent on the first attempt, like a bot username.
+		if ( self::forged_agent_block_enabled() && 'xmlrpc' === self::blocked_surface() && ! self::ip_looks_like_infrastructure( $ip ) ) {
+			$vendor = self::forged_vendor_agent( (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ), $ip );
+			if ( '' !== $vendor ) {
+				self::note( 'attempts' );
+				$reason = 'failed XML-RPC sign-in claiming to be ' . $vendor . ' from an address outside its network';
+				if ( self::block_permanently( $ip, $reason, $username ) ) {
+					self::maybe_report_spam( $ip, $username, self::distinct_bad_usernames( $ip ), 1 );
+					return;
+				}
+				self::block( $ip, $reason, $username );
+				return;
+			}
 		}
 
 		self::note( 'attempts' );
