@@ -31,7 +31,7 @@
 - Two sign-ins to one account at the same instant could overwrite each other's login record, because the records were one list on the user and each sign-in rewrote it; the device that lost had no record and its writes were never judged. Each device's record is now its own user-meta row (`_wps_login_fp_<device>`), written without reading the others, so no sign-in can erase another's. A record written by a release before 1.4.152 is still read. The cap of twenty devices per account removes the oldest rows only when exceeded. Uninstall removes the rows. Taken on the operator's decision, given application passwords in active use against the site.
 
 ### Tests
-- New: `test-removal-pipeline.php` (36 cases; the real policy, quarantine, scanner, blocker and overview renderer loaded together, which no suite did before), `test-account-guard.php` (23), `test-scan-lock.php` (10), `test-edr-integrity.php` (10). Extended: `test-surface-block.php` (the administrator-session case), `test-docs-sync.php` (uninstall coverage).
+- New: `test-removal-pipeline.php` (36 cases; the real policy, quarantine, scanner, blocker and overview renderer loaded together, which no suite did before), `test-account-guard.php` (22), `test-scan-lock.php` (10), `test-edr-integrity.php` (10). Extended: `test-surface-block.php` (the administrator-session case), `test-docs-sync.php` (uninstall coverage).
 
 ### Not changed
 - Two races CodeAnt raised, on the login-guard transient counters and the account guard's user meta, are read-modify-write windows of a few milliseconds on counters whose worst outcome is an undercount by one. Locking them would cost a database round trip on every login attempt for no change in what the operator sees. Recorded here so they are not re-raised as unknown.

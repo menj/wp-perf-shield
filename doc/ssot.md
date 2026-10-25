@@ -184,7 +184,7 @@ tests/test-surface-block.php              a permanent block refuses XML-RPC, RES
 tests/test-incident-response.php          snippet stores, registration role flip, hidden link blocks, plugin folder names, injector markers, scan rotation, withheld-removal notice
 tests/test-official-suppression.php       a self-concealing finding is dropped for a file identical to its official release
 tests/test-removal-pipeline.php           the quarantine's policy gate with the real policy, operator removals, policy-ban tiers, the findings screen's forms (36 cases)
-tests/test-account-guard.php              login fingerprint per device, acting session judged, role on the query string, device expiry, one login row per device, first-contact sign-in for XML-RPC and application passwords (23 cases)
+tests/test-account-guard.php              login fingerprint per device, acting session judged, role on the query string, device expiry, one login row per device, first-contact sign-in for XML-RPC and application passwords (22 cases)
 tests/test-scan-lock.php                  the stale-lock release is conditional on the value read (10 cases)
 tests/test-edr-integrity.php              upgrader attribution on install only; integrity verdicts with the plugins directory outside ABSPATH, foreign-file slug (10 cases)
 ```
