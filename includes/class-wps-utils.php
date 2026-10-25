@@ -273,7 +273,7 @@ class WPS_Utils {
 	 * The comment-stripped, literal-rejoined form of a file, computed once.
 	 */
 	public static function normalised( string $path, string $raw ): string {
-		$key = 'n:' . md5( $raw );
+		$key = 'n:' . hash( 'sha256', $raw ); // 1.4.153: sha256, so two files engineered to share an MD5 cannot share a cache entry
 		if ( isset( self::$normal_cache[ $key ] ) ) {
 			return self::$normal_cache[ $key ];
 		}
@@ -295,7 +295,7 @@ class WPS_Utils {
 	 * rejoined. Shares the same ceiling, since it is the expensive half.
 	 */
 	public static function stripped( string $path, string $raw ): string {
-		$key = 's:' . md5( $raw );
+		$key = 's:' . hash( 'sha256', $raw );
 		if ( isset( self::$normal_cache[ $key ] ) ) {
 			return self::$normal_cache[ $key ];
 		}
@@ -314,7 +314,10 @@ class WPS_Utils {
 		self::$normal_bytes = 0;
 	}
 
-	public static function strip_php_comments( string $content, int $max_bytes = 2097152 ): string {
+	/** The largest file the scanner's checks read (1.4.153: the stripper's ceiling matches it). */
+	public const MAX_CHECKED_FILE_BYTES = 4194304;
+
+	public static function strip_php_comments( string $content, int $max_bytes = self::MAX_CHECKED_FILE_BYTES ): string {
 		if ( '' === $content || strlen( $content ) > $max_bytes ) {
 			return $content;
 		}

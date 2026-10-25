@@ -182,7 +182,36 @@ final class WPS_Spam_Content_Guard {
 		$data['post_title']   = self::strip( (string) ( $data['post_title'] ?? '' ) );
 		$data['post_content'] = self::strip( (string) ( $data['post_content'] ?? '' ) );
 		$data['post_excerpt'] = self::strip( (string) ( $data['post_excerpt'] ?? '' ) );
+
+		// 1.4.153: the strip patterns know English links and hidden blocks; the multilingual and
+		// regulatory-evasion rules match prose they cannot cut out. Ask again. If the content still
+		// matches, it is not cleaned, so it is not published: it is held as pending for review.
+		$still = self::match( ( $data['post_title'] ?? '' ) . "\n" . ( $data['post_content'] ?? '' ) . "\n" . ( $data['post_excerpt'] ?? '' ) );
+		if ( $still && in_array( (string) ( $data['post_status'] ?? '' ), [ 'publish', 'future' ], true ) ) {
+			$data['post_status'] = 'pending';
+			if ( class_exists( 'WPS_EDR' ) && method_exists( 'WPS_EDR', 'record' ) ) {
+				WPS_EDR::record( 'spam_content_held', [
+					'object_type' => 'post',
+					'object_name' => $post_id > 0 ? ( 'post #' . $post_id ) : $type,
+					'severity'    => 'warning',
+					'notes'       => 'Content still matched the ' . $still . ' spam-content rule after the known markup was stripped, so it was held as pending instead of published. Review it under Posts.',
+				] );
+			}
+		}
 		return $data;
+	}
+
+	/** Option holding the sweep's position: the lowest post ID the last run reached (1.4.153). */
+	const SWEEP_CURSOR_OPTION = 'wps_spam_sweep_cursor';
+
+	/** WHERE clause for the sweep's cursor: only posts below the ID the last run reached. */
+	public static function sweep_where( string $where, $query ): string {
+		global $wpdb;
+		$below = is_object( $query ) && method_exists( $query, 'get' ) ? (int) $query->get( 'wps_id_below' ) : 0;
+		if ( $below > 0 && isset( $wpdb ) && is_object( $wpdb ) ) {
+			$where .= $wpdb->prepare( " AND {$wpdb->posts}.ID < %d", $below );
+		}
+		return $where;
 	}
 
 	/**
@@ -195,14 +224,32 @@ final class WPS_Spam_Content_Guard {
 	 * @return int Number of posts quarantined.
 	 */
 	public static function sweep_existing( int $batch_size = 200 ): int {
-		$ids = get_posts( [
+		// 1.4.153: walk the whole site, one batch a day, from newest to oldest. Each run continues
+		// below the ID the last one reached and starts over from the top once it runs out; before
+		// this every run re-read the same newest batch and older spam was never reached.
+		$cursor = (int) get_option( self::SWEEP_CURSOR_OPTION, 0 );
+		$args   = [
 			'post_type'      => self::post_types(),
 			'post_status'    => 'any',
 			'posts_per_page' => $batch_size,
 			'fields'         => 'ids',
 			'orderby'        => 'ID',
 			'order'          => 'DESC',
-		] );
+		];
+		if ( $cursor > 0 ) {
+			$args['wps_id_below'] = $cursor;
+			add_filter( 'posts_where', [ __CLASS__, 'sweep_where' ], 10, 2 );
+		}
+		$ids = get_posts( $args );
+		if ( $cursor > 0 ) {
+			remove_filter( 'posts_where', [ __CLASS__, 'sweep_where' ], 10 );
+		}
+		$ids = array_map( 'intval', (array) $ids );
+		if ( count( $ids ) < $batch_size ) {
+			update_option( self::SWEEP_CURSOR_OPTION, 0, false ); // the end: next run starts from the newest again
+		} else {
+			update_option( self::SWEEP_CURSOR_OPTION, min( $ids ), false );
+		}
 
 		$count = 0;
 		foreach ( $ids as $id ) {

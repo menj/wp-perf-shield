@@ -73,7 +73,10 @@ final class WPS_Spam_Signatures {
 			return $none;
 		}
 		if ( strlen( $text ) > self::MAX_LEN ) {
-			$text = substr( $text, 0, self::MAX_LEN );
+			// 1.4.153: the head and the tail, not the head alone. Injected spam sits at the end of a long
+			// genuine post as often as at the start, and a head-only cut never saw it.
+			$half = (int) ( self::MAX_LEN / 2 );
+			$text = substr( $text, 0, $half ) . "\n" . substr( $text, -$half );
 		}
 		$hay = strtolower( $text );
 
@@ -160,6 +163,26 @@ final class WPS_Spam_Signatures {
 
 	/** The SQL LIKE fragments to pre-filter candidate rows before the matcher confirms them. */
 	public static function like_prefilter_terms(): array {
-		return [ 'gacor', 'togel', 'judi', 'casino', 'maxwin', 'sbobet', 'slot', 'rtp live', 'bocoran', 'free spins', 'オンラインカジノ' ];
+		// 1.4.153: every diagnostic term, because one diagnostic hit alone is a verdict and a row the
+		// prefilter skips is never judged. The short generic stems stay for the two-signal rules.
+		$terms = [ 'gacor', 'togel', 'judi', 'casino', 'maxwin', 'sbobet', 'slot', 'rtp live', 'bocoran', 'free spins', 'オンラインカジノ' ];
+		foreach ( self::DIAGNOSTIC as $term ) {
+			$covered = false;
+			foreach ( $terms as $t ) {
+				if ( false !== strpos( $term, $t ) ) {
+					$covered = true;
+					break;
+				}
+			}
+			if ( ! $covered ) {
+				$terms[] = $term;
+			}
+		}
+		return array_values( array_unique( $terms ) );
+	}
+
+	/** The diagnostic terms, for tests and the prefilter check. @return string[] */
+	public static function diagnostic_terms(): array {
+		return self::DIAGNOSTIC;
 	}
 }

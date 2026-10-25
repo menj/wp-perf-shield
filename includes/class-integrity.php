@@ -133,7 +133,27 @@ final class WPS_Integrity {
 	 * seven days, negative-caches a definitive 404 and deliberately does not
 	 * cache a transport failure.
 	 */
+	/** Manifests already resolved this process, by slug (1.4.153). */
+	private static $manifests = [];
+
+	/** Forget the per-process memos, verdicts and manifests alike (a scan calls this when it finishes). */
+	public static function reset(): void {
+		self::$manifests = [];
+		self::$memo      = [];
+	}
+
 	private static function manifest( string $slug ): ?array {
+		if ( isset( self::$manifests[ $slug ] ) ) {
+			return self::$manifests[ $slug ];
+		}
+		$m = self::resolve_manifest( $slug );
+		if ( is_array( $m ) ) {
+			self::$manifests[ $slug ] = $m; // a failed fetch is not remembered, so the next file retries it
+		}
+		return $m;
+	}
+
+	private static function resolve_manifest( string $slug ): ?array {
 		if ( ! class_exists( 'WPS_Scanner' ) ) {
 			return null;
 		}

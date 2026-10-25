@@ -31,7 +31,9 @@ $GLOBALS['opts']  = [];
 $GLOBALS['trans'] = [];
 function get_option( $k, $d = false ) { return $GLOBALS['opts'][ $k ] ?? $d; }
 function update_option( $k, $v, $a = null ) { $GLOBALS['opts'][ $k ] = $v; return true; }
-function get_transient( $k ) { return $GLOBALS['trans'][ $k ] ?? false; }
+function get_transient( $k ) { $GLOBALS['treads'][ $k ] = ( $GLOBALS['treads'][ $k ] ?? 0 ) + 1; return $GLOBALS['trans'][ $k ] ?? false; }
+function get_post_meta( $id, $k, $single = false ) { return $GLOBALS['pmeta'][ $id ][ $k ] ?? ''; }
+function update_post_meta( $id, $k, $v ) { $GLOBALS['pmeta'][ $id ][ $k ] = $v; return true; }
 function set_transient( $k, $v, $t = 0 ) { $GLOBALS['trans'][ $k ] = $v; return true; }
 function delete_transient( $k ) { unset( $GLOBALS['trans'][ $k ] ); return true; }
 function apply_filters( $t, $v ) { return $v; }
@@ -51,15 +53,17 @@ class WPS_Logger {
 }
 class WPS_Event_Log {
 	public static $rows = [];
+	public static $fail = false; // simulate a store that cannot write
 	public static function available(): bool { return false; }
 	public static function table(): string { return 'wp_wps_events'; }
-	public static function record( array $f ): ?int { self::$rows[] = $f; return count( self::$rows ); }
+	public static function record( array $f ): ?int { if ( self::$fail ) { return null; } self::$rows[] = $f; return count( self::$rows ); }
 }
 
 require dirname( __DIR__ ) . '/includes/class-wps-utils.php';
 require dirname( __DIR__ ) . '/includes/class-scanner.php';
 require dirname( __DIR__ ) . '/includes/class-edr.php';
 require dirname( __DIR__ ) . '/includes/class-integrity.php';
+require dirname( __DIR__ ) . '/includes/class-spam-signatures.php';
 
 $fail = 0;
 function check( string $name, bool $ok, string $detail = '' ): void {
@@ -98,6 +102,28 @@ check( 'a listed file whose bytes differ is MODIFIED', WPS_Integrity::MODIFIED =
 check( 'a file the manifest never mentions is FOREIGN', WPS_Integrity::FOREIGN === WPS_Integrity::verify( $P . '/akismet/wp-vcd.php' ), WPS_Integrity::verify( $P . '/akismet/wp-vcd.php' ) );
 check( 'a path outside the plugins directory is UNKNOWN', WPS_Integrity::UNKNOWN === WPS_Integrity::verify( ABSPATH . 'wp-load.php' ) );
 check( 'is_official() agrees', WPS_Integrity::is_official( $P . '/akismet/akismet.php' ) && ! WPS_Integrity::is_official( $P . '/akismet/wp-vcd.php' ) );
+
+// ---- 2b. the manifest is resolved once per plugin per scan, not once per file (1.4.153).
+WPS_Integrity::reset();
+$GLOBALS['treads'] = [];
+WPS_Integrity::verify( $P . '/akismet/akismet.php' );
+WPS_Integrity::verify( $P . '/akismet/class.akismet.php' );
+WPS_Integrity::verify( $P . '/akismet/wp-vcd.php' );
+$reads = (int) ( $GLOBALS['treads'][ 'wps_pcs_' . md5( 'akismet|5.3' ) ] ?? 0 );
+check( 'three files of one plugin read the checksum cache once', 1 === $reads, $reads . ' reads' );
+
+// ---- 2c. the once-per-post spam marker is written only after the event is stored (1.4.153).
+$GLOBALS['pmeta'] = [];
+$spam = (object) [ 'ID' => 77, 'post_type' => 'post', 'post_status' => 'publish', 'post_title' => 'slot gacor maxwin', 'post_content' => '<p>situs judi online terpercaya</p>' ];
+WPS_Event_Log::$fail = true;
+WPS_Event_Log::$rows = [];
+WPS_EDR::on_save_post( 77, $spam, true );
+check( 'when the store cannot write, the post is not marked as already alerted', empty( $GLOBALS['pmeta'][77]['_wps_spam_flagged'] ), json_encode( $GLOBALS['pmeta'] ) );
+WPS_Event_Log::$fail = false;
+WPS_EDR::on_save_post( 77, $spam, true );
+check( 'the next save records the alert and marks the post', 1 === count( array_filter( WPS_Event_Log::$rows, static fn( $r ) => 'spam_post_injection_detected' === $r['event_type'] ) ) && ! empty( $GLOBALS['pmeta'][77]['_wps_spam_flagged'] ), json_encode( [ WPS_Event_Log::$rows, $GLOBALS['pmeta'] ] ) );
+WPS_EDR::on_save_post( 77, $spam, true );
+check( 'and a further save does not alert again', 1 === count( array_filter( WPS_Event_Log::$rows, static fn( $r ) => 'spam_post_injection_detected' === $r['event_type'] ) ) );
 
 // ---- 3. the foreign-file check names the plugin by its folder below the plugins directory.
 put( $P . '/stray.php', "<?php\n" ); // directly in the plugins directory: no plugin, no manifest

@@ -462,7 +462,10 @@ final class WPS_Login_Guard {
 		// A bot favourite that is not a real account here. Unambiguous on the
 		// first attempt: no human tries "root" on a WordPress site, and the
 		// username_exists() gate above means no real account can land here.
-		if ( self::is_bot_username( $username ) ) {
+		// 1.4.153: not from an address that looks like shared infrastructure (a CDN edge, a proxy, a
+		// private range). One "root" from a NAT would otherwise lock every real user behind it out
+		// of signing in until an operator removed the block; those addresses get ordinary counting.
+		if ( self::is_bot_username( $username ) && ! self::ip_looks_like_infrastructure( $ip ) ) {
 			self::note( 'attempts' );
 			$reason = 'automated sign-in attempt on non-existent account "' . self::safe( $username ) . '"';
 
@@ -753,6 +756,14 @@ final class WPS_Login_Guard {
 		if ( is_array( $s ) && ( $s['akismet_enrichment'] ?? '1' ) === '0' ) {
 			return false;
 		}
+		return self::akismet_configured();
+	}
+
+	/**
+	 * Akismet is installed with a key, regardless of the enrichment setting (1.4.153). Reporting
+	 * has its own setting (`login_report_spam`) and must not be switched off by the enrichment one.
+	 */
+	public static function akismet_configured(): bool {
 		if ( ! class_exists( 'Akismet' ) || ! method_exists( 'Akismet', 'comment_check' ) ) {
 			return false;
 		}
@@ -1041,7 +1052,7 @@ final class WPS_Login_Guard {
 	 * and skips the infrastructure guard.
 	 */
 	private static function report_single_attacker( string $ip, string $username, string $note ): void {
-		if ( ! self::akismet_available() ) {
+		if ( ! self::akismet_configured() ) {
 			return;
 		}
 		if ( self::ip_looks_like_infrastructure( $ip ) ) {
@@ -1058,9 +1069,13 @@ final class WPS_Login_Guard {
 		if ( get_transient( $seen ) ) {
 			return;
 		}
-		set_transient( $seen, 1, self::OFFENDER_TTL );
 
 		$ok = self::submit_spam( $ip, $username, $note );
+		if ( $ok ) {
+			// 1.4.153: remembered only when the submission went through. Marked before, a failed call
+			// kept the address from being reported for fourteen days.
+			set_transient( $seen, 1, self::OFFENDER_TTL );
+		}
 		self::note( 'spam_reports' );
 		if ( class_exists( 'WPS_Logger' ) ) {
 			WPS_Logger::log_event(
@@ -1665,8 +1680,11 @@ final class WPS_Login_Guard {
 		$offence  = self::register_network_offence( $net );
 		$rotation = ( 'rotation' === $scope );
 		$base     = $rotation ? self::NET_BLOCK_ROTATION : self::NET_BLOCK;
-		$rung     = max( 0, min( $offence - 1, count( self::NET_LADDER ) - 1 ) );
-		$duration = max( $base, self::NET_LADDER[ $rung ] );
+		// 1.4.153: the first offence is the base alone (30 minutes for a burst, 6 hours for a
+		// rotation); each return climbs the ladder from its first rung. Taking the ladder on the
+		// first offence held a first burst block for six hours, twelve times what NET_BLOCK says.
+		$steps    = array_values( array_filter( self::NET_LADDER, static fn( int $d ): bool => $d > $base ) ); // the rungs above the base
+		$duration = ( $offence <= 1 || ! $steps ) ? $base : $steps[ min( $offence - 2, count( $steps ) - 1 ) ];
 
 		$window_min = (int) ( ( $rotation ? self::NET_ROTATION_WINDOW : self::NET_WINDOW ) / 60 );
 		$reason     = $rotation

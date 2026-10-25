@@ -339,8 +339,16 @@ class WPS_Quarantine {
 			$meta
 		);
 		@file_put_contents( $dest . '/manifest.json', wp_json_encode( $manifest ) );
+		self::$option_snapshots[ $id ] = $serialized;
 		self::log( 'option_quarantined', $name . ' -> ' . $id );
 		return $id;
+	}
+
+	/** Serialized values of the option snapshots taken this process, by id (1.4.153). */
+	private static $option_snapshots = [];
+
+	private static function last_option_serialized( string $id ): string {
+		return self::$option_snapshots[ $id ] ?? '';
 	}
 
 	/** Best-effort autoload flag for an option; defaults to 'yes' when unknown. */
@@ -360,6 +368,18 @@ class WPS_Quarantine {
 		$id = self::quarantine_option( $name, $meta );
 		if ( null === $id ) {
 			return null;
+		}
+		// 1.4.153: the value removed must be the value snapshotted. If something rewrote the option
+		// between the two, snapshot again (once) so the restorable copy is what was actually deleted.
+		if ( function_exists( 'get_option' ) ) {
+			$now = get_option( $name, null );
+			if ( null !== $now && serialize( $now ) !== self::last_option_serialized( $id ) ) {
+				$again = self::quarantine_option( $name, $meta + [ 'supersedes' => $id ] );
+				if ( null === $again ) {
+					return null;
+				}
+				$id = $again;
+			}
 		}
 		if ( function_exists( 'delete_option' ) ) {
 			delete_option( $name );

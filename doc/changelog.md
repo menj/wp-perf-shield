@@ -1,5 +1,42 @@
 # WP Perf Shield changelog
 
+## 1.4.153
+
+**The rest of the whole-code-base review** (PR 28, the review-only diff): the detection-quality and diagnostics findings, verified against the code before anything was changed. Each fix has a test that fails on 1.4.152.
+
+### Spam content
+- The save-boundary strip knows English gambling links and hidden blocks, but the multilingual and regulatory-evasion rules match prose it cannot cut; the save was logged as "stripped" while the spam stayed. After stripping, `scan_save_boundary()` asks `match()` again; content that still matches is saved as pending instead of published and logged as `spam_content_held` with the rule.
+- `sweep_existing()` selected the newest batch every run and never reached older posts. It now keeps a cursor (`wps_spam_sweep_cursor`, the lowest ID reached), continues below it through a `posts_where` filter, and starts over from the top once a run comes up short. Uninstall deletes the option.
+- `like_prefilter_terms()` listed eleven terms while `DIAGNOSTIC` held ten more (`pragmatic play` among them); a row holding only one of those was never read by the database scan. The prefilter now covers every diagnostic term; `diagnostic_terms()` exposes the list and the test asserts the coverage.
+- `evaluate()` truncated to the first 200,000 bytes; a marker injected after a long genuine post was never seen. It now judges the first and last 100,000 bytes.
+
+### Scanner
+- `WPS_Signature_Engine::scan_data()` built a per-gram "seen" set while walking the subject; the candidate merge is idempotent, so the set did nothing but take about 70 MB on a 1 MiB high-entropy file. Removed; the test asserts under 16 MB.
+- `WPS_Integrity` fetched the manifest once per file; it is now memoised per slug for the scan and `reset()` at the scan's end (verdict memo included). A failed fetch is not memoised.
+- `WPS_Utils::strip_php_comments()` returned files over 2 MiB unchanged while the checks read up to 4 MiB, so comment-obfuscated code in that range was never stripped; the ceiling is now `MAX_CHECKED_FILE_BYTES`. The normalisation cache keys on SHA-256 rather than MD5.
+- `WPS_EDR::on_save_post()` set the once-per-post spam marker before recording the event, so a store failure silenced the alert for good; `WPS_EDR::record()` now returns whether the event was stored and the marker follows it.
+- `WPS_Quarantine::quarantine_and_remove_option()` re-reads the option after the snapshot and snapshots again if it changed, so the restorable copy is the value removed.
+
+### Sign-in guard
+- A bot username from an address `ip_looks_like_infrastructure()` recognises (private ranges, known proxies) gets ordinary counting instead of a permanent block.
+- `akismet_configured()` (plugin and key) is split from `akismet_available()` (that plus the enrichment setting); reporting uses the former, so switching enrichment off no longer disables `login_report_spam`. The reported-address transient is set only when `submit_spam()` succeeded.
+- `block_network()` took the ladder's first rung on a first offence, so a first burst block held six hours against a 30-minute `NET_BLOCK`. The first offence is the base; repeats take the rungs above the base in order.
+- The Diagnostics "blocks by rule" line subtracted only range blocks from the total; it now subtracts the many-usernames and non-existent-account counts too.
+
+### Event store and self-test
+- `acquire_append_lock()` fell through to the `FOR UPDATE` path when `GET_LOCK` timed out, running beside the holder (which takes no row lock) and forking the chain. A timeout is now retried once; if the lock is still held the append is refused, returns null, and is written to the file log. The row-lock path is used only where the database has no advisory locks.
+- `begin_selftest()` drops a scratch table an interrupted run left behind. `WPS_Chain_Selftest` uses a namespace of its own per run (`p` plus fifteen hex characters) instead of the shared `probe`; its isolation check allows the real table to grow while the test runs and fails only on a count that fell or an anchor that changed with no new row; and only a failure to open the second connection is a skip, an exception inside the checks is a failure.
+
+### Documentation
+- `doc/readme.md` lists the seven Settings sub-tabs; `doc/remediation-roadmap.md` says four fixed, one partial, fifteen open, as its ledger does; `doc/variants.md` indexes families 13 to 15.
+
+### Not changed, with reasons
+- The policy-ban sweep runs on `init`, after WordPress has loaded active plugins, so a banned plugin written straight into `active_plugins` runs once before the sweep removes it. Running earlier needs a must-use plugin, which 1.4.15 withdrew for the reasons recorded in `doc/upgrading.md`; the activation guard refuses the ordinary route, and the sweep tombstones the folder on that first request.
+- The range-offence transient (`wps_lfn_*`) is read, appended and written without a lock, so two failures in the same instant can lose one event and keep a rotating range below its trigger by one. A lock on every failed sign-in is not worth one lost event.
+
+### Tests
+- New: `test-spam-content-guard.php` (15), `test-login-guard.php` (10), `test-event-log.php` (10). Extended: `test-edr-integrity.php` (14), `test-removal-pipeline.php` (38), `test-signature-engine.php` (83). All twenty suites pass.
+
 ## 1.4.152
 
 **Findings from a review of the whole code base.** CodeAnt reviews only the diff of a pull request, so after 1.4.151 the entire plugin was opened as one diff against an empty branch and every finding was checked against the code before anything was changed. This release carries the valid findings about the removal pipeline and the guards; the detection-quality and diagnostics findings follow in 1.4.153. Each fix has a test that fails on 1.4.151.

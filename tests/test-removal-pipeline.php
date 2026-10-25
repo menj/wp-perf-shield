@@ -32,7 +32,14 @@ define( 'DAY_IN_SECONDS', 86400 );
 $GLOBALS['opts']   = [];
 $GLOBALS['trans']  = [];
 $GLOBALS['events'] = [];
-function get_option( $k, $d = false ) { return array_key_exists( $k, $GLOBALS['opts'] ) ? $GLOBALS['opts'][ $k ] : $d; }
+function get_option( $k, $d = false ) {
+	$v = array_key_exists( $k, $GLOBALS['opts'] ) ? $GLOBALS['opts'][ $k ] : $d;
+	// A stand-in for another request rewriting the option between a read and a delete.
+	if ( isset( $GLOBALS['mutate'] ) && $GLOBALS['mutate']['name'] === $k && --$GLOBALS['mutate']['after'] === 0 ) {
+		$GLOBALS['opts'][ $k ] = $GLOBALS['mutate']['to'];
+	}
+	return $v;
+}
 function update_option( $k, $v, $a = null ) { $GLOBALS['opts'][ $k ] = $v; return true; }
 function delete_option( $k ) { unset( $GLOBALS['opts'][ $k ] ); return true; }
 function get_transient( $k ) { return array_key_exists( $k, $GLOBALS['trans'] ) ? $GLOBALS['trans'][ $k ] : false; }
@@ -147,6 +154,18 @@ $id = WPS_Quarantine::quarantine( $P . '/kept/kept.php', [ 'type' => 'operator_b
 check( 'the bulk channel carrying a detector type is refused on a Safe target without tripping the breaker', null === $id && is_file( $P . '/kept/kept.php' ) && ! WPS_Remediation_Policy::breaker_tripped() && false !== strpos( WPS_Quarantine::last_denial(), 'operator_safe' ), WPS_Quarantine::last_denial() );
 
 check( 'a refusal is this call\'s: a later call on a path that is gone reports no stale policy denial', null === WPS_Quarantine::quarantine( $P . '/no-such-file.php', [ 'type' => 'manual removal' ] ) && '' === WPS_Quarantine::last_denial(), WPS_Quarantine::last_denial() );
+
+// ---- 5c. an option snapshot is of the value actually removed (1.4.153).
+$GLOBALS['opts']['evil_state'] = [ 'v' => 1 ];
+$GLOBALS['mutate'] = [ 'name' => 'evil_state', 'after' => 1, 'to' => [ 'v' => 2 ] ]; // rewritten right after the first read
+$qid = WPS_Quarantine::quarantine_and_remove_option( 'evil_state', [ 'type' => 'db_option', 'reason' => 'x' ] );
+unset( $GLOBALS['mutate'] );
+$man = null !== $qid ? json_decode( (string) @file_get_contents( WPS_Quarantine::store_dir() . '/' . $qid . '/manifest.json' ), true ) : null;
+check( 'the option is removed and the restorable snapshot holds the value that was removed, not the one first read', null !== $qid && ! array_key_exists( 'evil_state', $GLOBALS['opts'] ) && is_array( $man ) && serialize( [ 'v' => 2 ] ) === base64_decode( (string) $man['option_value_b64'] ) && ! empty( $man['supersedes'] ), json_encode( [ $qid, $man ] ) );
+$GLOBALS['opts']['calm_state'] = 'x';
+$qid = WPS_Quarantine::quarantine_and_remove_option( 'calm_state', [ 'type' => 'db_option', 'reason' => 'x' ] );
+$man = null !== $qid ? json_decode( (string) @file_get_contents( WPS_Quarantine::store_dir() . '/' . $qid . '/manifest.json' ), true ) : null;
+check( 'an option nobody rewrote is snapshotted once', null !== $qid && is_array( $man ) && empty( $man['supersedes'] ) );
 
 // ---- 6. the on-disk policy ban: both tiers go through the policy.
 $GLOBALS['opts']['wps_opts'] = [ 'policy_ban_enabled' => '1' ];

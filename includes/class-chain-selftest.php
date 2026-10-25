@@ -37,8 +37,16 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class WPS_Chain_Selftest {
 
-	/** Scratch namespace tag (matches WPS_Event_Log's [a-z0-9]{1,16} rule). */
-	const NS = 'probe';
+	/** Scratch namespace prefix (the whole tag matches WPS_Event_Log's [a-z0-9]{1,16} rule). */
+	const NS = 'p';
+
+	/**
+	 * A namespace of this run's own, so two diagnostics runs at once cannot drop or reset each
+	 * other's scratch table (1.4.153). 'p' plus 15 hex characters.
+	 */
+	private static function namespace_for_run(): string {
+		return self::NS . substr( bin2hex( random_bytes( 8 ) ), 0, 15 );
+	}
 
 	/** Sequential appends for the integrity check. Small: this is a proof, not a benchmark. */
 	const BATCH = 120;
@@ -80,7 +88,7 @@ class WPS_Chain_Selftest {
 		$count  = -1;
 
 		try {
-			if ( ! WPS_Event_Log::begin_selftest( self::NS ) ) {
+			if ( ! WPS_Event_Log::begin_selftest( self::namespace_for_run() ) ) {
 				return [
 					'id' => 'integrity', 'label' => 'Real append path yields a clean chain',
 					'status' => 'fail', 'detail' => 'Could not create the isolated scratch table.',
@@ -103,10 +111,14 @@ class WPS_Chain_Selftest {
 			WPS_Event_Log::end_selftest();
 		}
 
-		// Isolation: the real chain must be byte-for-byte untouched.
+		// Isolation: the real chain must not have been written by the probe. The site keeps logging
+		// while the test runs, so the real table may legitimately GROW (1.4.153); what would prove
+		// a leak is a count that fell (a prune of the real table) or an anchor that changed with no
+		// new real row to explain it.
 		$real_anchor_after = get_option( 'wps_event_chain', null );
 		$real_rows_after   = (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . $real_table ); // phpcs:ignore
-		$isolated          = ( $real_rows_after === $real_rows_before ) && ( $real_anchor_after === $real_anchor_before );
+		$isolated          = $real_rows_after >= $real_rows_before
+			&& ( $real_anchor_after === $real_anchor_before || $real_rows_after > $real_rows_before );
 
 		$status_ok = is_array( $verify ) && ( $verify['status'] ?? '' ) === 'ok'
 			&& $count === self::BATCH && $dupes === 0 && $isolated;
@@ -142,9 +154,20 @@ class WPS_Chain_Selftest {
 
 		$second = null;
 		try {
-			$second = new wpdb( DB_USER, DB_PASSWORD, DB_NAME, DB_HOST );
-			if ( method_exists( $second, 'suppress_errors' ) ) {
-				$second->suppress_errors( true );
+			// 1.4.153: only a failure to OPEN the second connection is a skip. A failure inside the
+			// checks is a failure of the checks and is reported as one, not folded into "skipped".
+			try {
+				$second = new wpdb( DB_USER, DB_PASSWORD, DB_NAME, DB_HOST );
+				if ( method_exists( $second, 'suppress_errors' ) ) {
+					$second->suppress_errors( true );
+				}
+			} catch ( \Throwable $e ) {
+				return [ 'id' => 'exclusion', 'label' => $label, 'status' => 'skip',
+					'detail' => 'Could not open a second database connection to test the lock.' ];
+			}
+			if ( ! empty( $second->error ) || ( isset( $second->dbh ) && ! $second->dbh ) ) {
+				return [ 'id' => 'exclusion', 'label' => $label, 'status' => 'skip',
+					'detail' => 'Could not open a second database connection to test the lock.' ];
 			}
 
 			$held = $second->get_var( $second->prepare( 'SELECT GET_LOCK(%s, %d)', $name, 0 ) );
@@ -184,8 +207,8 @@ class WPS_Chain_Selftest {
 				),
 			];
 		} catch ( \Throwable $e ) {
-			return [ 'id' => 'exclusion', 'label' => $label, 'status' => 'skip',
-				'detail' => 'Could not open a second database connection to test the lock.' ];
+			return [ 'id' => 'exclusion', 'label' => $label, 'status' => 'fail',
+				'detail' => 'The lock test threw before it finished: ' . substr( $e->getMessage(), 0, 160 ) . '. Lock exclusion was not verified.' ];
 		} finally {
 			if ( is_object( $second ) && method_exists( $second, 'query' ) ) {
 				// Closing the connection releases any held lock; be explicit anyway.

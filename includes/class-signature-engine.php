@@ -944,14 +944,11 @@ final class WPS_Signature_Engine {
 				if ( ! $index ) {
 					continue;
 				}
-				$seen = [];
-				$len  = strlen( $text ) - 2;
+				// 1.4.153: no per-gram "seen" set. `+=` on the candidate map is already idempotent, and
+				// the set grew to one entry per distinct gram: about 70 MB on a 1 MiB high-entropy file.
+				$len = strlen( $text ) - 2;
 				for ( $i = 0; $i < $len; $i++ ) {
 					$g = substr( $text, $i, 3 );
-					if ( isset( $seen[ $g ] ) ) {
-						continue;
-					}
-					$seen[ $g ] = true;
 					if ( isset( $index[ $g ] ) ) {
 						$cand += $index[ $g ];
 					}

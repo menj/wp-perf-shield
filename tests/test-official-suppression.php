@@ -52,6 +52,9 @@ function run(): array {
 	$p = new ReflectionProperty( 'WPS_Integrity', 'memo' );
 	$p->setAccessible( true );
 	$p->setValue( null, [] );
+	if ( class_exists( 'WPS_Integrity' ) && method_exists( 'WPS_Integrity', 'reset' ) ) {
+		WPS_Integrity::reset(); // each run() is a new scan: the manifest memo is scan-scoped (1.4.153)
+	}
 	$m = new ReflectionMethod( 'WPS_Scanner', 'check_self_hiding_plugins' );
 	$m->setAccessible( true );
 	return $m->invoke( null );
