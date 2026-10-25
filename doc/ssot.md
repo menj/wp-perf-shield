@@ -188,7 +188,7 @@ tests/test-account-guard.php              login fingerprint per device, acting s
 tests/test-scan-lock.php                  the stale-lock release is conditional on the value read (10 cases)
 tests/test-edr-integrity.php              upgrader attribution on install only; integrity verdicts with the plugins directory outside ABSPATH, foreign-file slug, manifest memo, spam marker after the event (14 cases)
 tests/test-spam-content-guard.php         content held when the strip cannot clean it, the sweep cursor, prefilter coverage, head-and-tail matching (15 cases)
-tests/test-login-guard.php                bot username from shared infrastructure, Akismet reporting with enrichment off, failed report retried, range-block ladder (10 cases)
+tests/test-login-guard.php                bot username from shared infrastructure, Akismet reporting with enrichment off, failed report retried, manual report with enrichment off, range-block ladder (12 cases)
 tests/test-event-log.php                  append refused on a held lock, row lock only without GET_LOCK, scratch table dropped before a self-test, namespace per run (10 cases)
 ```
 

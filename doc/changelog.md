@@ -20,6 +20,7 @@
 ### Sign-in guard
 - A bot username from an address `ip_looks_like_infrastructure()` recognises (private ranges, known proxies) gets ordinary counting instead of a permanent block.
 - `akismet_configured()` (plugin and key) is split from `akismet_available()` (that plus the enrichment setting); reporting uses the former, so switching enrichment off no longer disables `login_report_spam`. The reported-address transient is set only when `submit_spam()` succeeded.
+- The operator's manual report (`report_ip_manually()`) and the settings status line also use `akismet_configured()`; with enrichment off and a key present the button returned "no-key" and the line said the key was missing (CodeAnt on the pull request).
 - `block_network()` took the ladder's first rung on a first offence, so a first burst block held six hours against a 30-minute `NET_BLOCK`. The first offence is the base; repeats take the rungs above the base in order.
 - The Diagnostics "blocks by rule" line subtracted only range blocks from the total; it now subtracts the many-usernames and non-existent-account counts too.
 
@@ -35,7 +36,7 @@
 - The range-offence transient (`wps_lfn_*`) is read, appended and written without a lock, so two failures in the same instant can lose one event and keep a rotating range below its trigger by one. A lock on every failed sign-in is not worth one lost event.
 
 ### Tests
-- New: `test-spam-content-guard.php` (15), `test-login-guard.php` (10), `test-event-log.php` (10). Extended: `test-edr-integrity.php` (14), `test-removal-pipeline.php` (38), `test-signature-engine.php` (83). All twenty suites pass.
+- New: `test-spam-content-guard.php` (15), `test-login-guard.php` (12), `test-event-log.php` (10). Extended: `test-edr-integrity.php` (14), `test-removal-pipeline.php` (38), `test-signature-engine.php` (83). All twenty suites pass.
 
 ## 1.4.152
 

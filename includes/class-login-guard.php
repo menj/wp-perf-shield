@@ -784,8 +784,11 @@ final class WPS_Login_Guard {
 		if ( ! class_exists( 'Akismet' ) ) {
 			return 'not detected - blocks use the default duration';
 		}
-		if ( ! self::akismet_available() ) {
+		if ( ! self::akismet_configured() ) {
 			return 'detected but no API key - blocks use the default duration';
+		}
+		if ( ! self::akismet_available() ) {
+			return 'detected; reputation enrichment switched off - blocks use the default duration, reporting still works';
 		}
 		return 'detected - block duration adjusted by reputation';
 	}
@@ -1238,7 +1241,7 @@ final class WPS_Login_Guard {
 		if ( '' === $ip || false === filter_var( $ip, FILTER_VALIDATE_IP ) ) {
 			return 'failed';
 		}
-		if ( ! self::akismet_available() ) {
+		if ( ! self::akismet_configured() ) { // 1.4.153: the operator's own report needs a key, not enrichment
 			return 'no-key';
 		}
 		$seen = 'wps_reported_' . md5( $ip );

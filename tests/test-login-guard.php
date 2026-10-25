@@ -86,9 +86,11 @@ Akismet::$posts = 0;
 WPS_Login_Guard::report_attacker_ip( '203.0.113.50', 'account-takeover post-write pattern' );
 check( 'with enrichment off and reporting on, the address is still reported', 1 === Akismet::$posts && 2 === events( 'akismet_spam_reported' ), json_encode( [ Akismet::$posts, WPS_Logger::$events ] ) );
 check( 'enrichment itself is off', ! WPS_Login_Guard::akismet_available() && WPS_Login_Guard::akismet_configured() );
+check( 'the operator\'s manual report is sent with enrichment off', 'reported' === WPS_Login_Guard::report_ip_manually( '203.0.113.52' ) && 2 === Akismet::$posts, (string) Akismet::$posts );
+check( 'the settings line says enrichment is off, not that the key is missing', false !== strpos( WPS_Login_Guard::akismet_status(), 'enrichment switched off' ), WPS_Login_Guard::akismet_status() );
 $GLOBALS['opts']['wps_opts'] = [ 'akismet_enrichment' => '0', 'login_report_spam' => '0' ];
 WPS_Login_Guard::report_attacker_ip( '203.0.113.51', 'x' );
-check( 'with reporting off nothing is sent', 1 === Akismet::$posts );
+check( 'with reporting off nothing is sent', 2 === Akismet::$posts );
 
 // ---- 3. a failed submission is not remembered as sent.
 $GLOBALS['opts']['wps_opts'] = [ 'login_report_spam' => '1' ];
