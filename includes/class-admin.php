@@ -604,10 +604,6 @@ class WPS_Admin {
 		if ( $stored_version !== WPS_VERSION ) {
 			delete_option( 'wps_forensics_report' );
 			update_option( 'wps_version', WPS_VERSION );
-			// 1.4.154: an update uploaded over the old files brings tests/ back; remove it again.
-			if ( method_exists( 'WPS_Utils', 'remove_dev_files' ) ) {
-				WPS_Utils::remove_dev_files( WPS_DIR );
-			}
 		}
 
 		$context = self::build_context();

@@ -914,4 +914,42 @@ class WPS_Utils {
 		}
 		return @rmdir( $dir );
 	}
+
+	/** Parsed installed.json manifests, by path (1.4.154). */
+	private static $composer_installed = [];
+
+	/**
+	 * The Composer package a path belongs to, as "vendor/name", or '' when it is not inside one.
+	 *
+	 * A path is inside a package when it sits under `<root>/vendor/<v>/<p>/`, that folder carries a
+	 * `composer.json`, and `<root>/vendor/composer/installed.json` lists "<v>/<p>". Composer writes
+	 * installed.json itself when it installs the tree, so a folder dropped into vendor/ by hand is
+	 * not a package by this rule even if it brings a composer.json along.
+	 */
+	public static function composer_package_of( string $path ): string {
+		$norm = str_replace( '\\', '/', $path );
+		if ( ! preg_match( '#^(.*)/vendor/([^/]+)/([^/]+)(?:/|$)#', $norm, $m ) ) {
+			return '';
+		}
+		$root = $m[1];
+		$name = $m[2] . '/' . $m[3];
+		if ( 'composer' === $m[2] || ! is_file( $root . '/vendor/' . $name . '/composer.json' ) ) {
+			return '';
+		}
+		$installed = $root . '/vendor/composer/installed.json';
+		if ( ! isset( self::$composer_installed[ $installed ] ) ) {
+			$names = [];
+			if ( is_file( $installed ) && filesize( $installed ) < 4194304 ) {
+				$data = json_decode( (string) @file_get_contents( $installed ), true );
+				$list = is_array( $data ) ? ( $data['packages'] ?? $data ) : [];
+				foreach ( (array) $list as $pkg ) {
+					if ( is_array( $pkg ) && isset( $pkg['name'] ) && is_string( $pkg['name'] ) ) {
+						$names[ strtolower( $pkg['name'] ) ] = true;
+					}
+				}
+			}
+			self::$composer_installed[ $installed ] = $names;
+		}
+		return isset( self::$composer_installed[ $installed ][ strtolower( $name ) ] ) ? $name : '';
+	}
 }

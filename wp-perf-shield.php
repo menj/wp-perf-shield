@@ -243,6 +243,18 @@ register_activation_hook( __FILE__, function (): void {
 	}
 } );
 
+// 1.4.154: an update uploaded over the old files brings tests/ back. Remove it on the first
+// admin request of any kind after the version changes, not only on this plugin's own screen.
+add_action( 'admin_init', function (): void {
+	if ( get_option( 'wps_dev_files_cleaned', '' ) === WPS_VERSION ) {
+		return;
+	}
+	update_option( 'wps_dev_files_cleaned', WPS_VERSION, false );
+	if ( class_exists( 'WPS_Utils' ) && method_exists( 'WPS_Utils', 'remove_dev_files' ) ) {
+		WPS_Utils::remove_dev_files( WPS_DIR );
+	}
+} );
+
 //  Deactivation
 
 register_deactivation_hook( __FILE__, function (): void {
@@ -318,7 +330,7 @@ function wps_uninstall(): void {
 		'wps_safe_targets', 'wps_remediation_breaker', 'wps_ban_redrops', 'wps_blocked_c2_hosts', 'wps_scan_carryover',
 		'wps_self_baseline', 'wps_wpconfig_alerted', 'wps_php_inventory_baseline', 'wps_plugin_roster', 'wps_doorway_kit_history',
 		'wps_remediation_withheld', 'wps_events_schema', 'wps_event_hmac_key', 'wps_event_key_suffix', 'wps_event_chain',
-		'wps_events_migrated', 'wps_scan_lock', 'wps_login_net_offenders', 'wps_spam_sweep_cursor',
+		'wps_events_migrated', 'wps_scan_lock', 'wps_login_net_offenders', 'wps_spam_sweep_cursor', 'wps_dev_files_cleaned',
 	] as $wps_opt ) {
 		delete_option( $wps_opt );
 	}

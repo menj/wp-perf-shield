@@ -3530,6 +3530,9 @@ class WPS_Scanner {
 					if ( $is_vendor_path && in_array( $basename_lower, $vendor_safe_dirs, true ) ) {
 						continue; // Composer-vendored CI config, not malware
 					}
+					if ( $is_vendor_path && '' !== WPS_Utils::composer_package_of( $path ) ) {
+						continue; // 1.4.154: inside a Composer package the plugin installed (Rank Math's .helpers)
+					}
 					// wp-file-manager plugin's own runtime directory
 					if ( $basename_lower === '.trash' && ( strpos( $path_lower, '/wp-file-manager/' ) !== false || strpos( $path_lower, '\\wp-file-manager\\' ) !== false ) ) {
 						continue; // plugin's own functional dir; the plugin is flagged separately
@@ -8047,9 +8050,16 @@ class WPS_Scanner {
 	 *
 	 * From the October 2026 incident review: `.helpers` inside a vendor folder of a real plugin,
 	 * flagged on all five sites. A leading dot hides a folder from a directory listing and from
-	 * most file managers, and no plugin ships code in one. Folders that tooling leaves behind
+	 * most file managers, and plugins do not ship code in one. Folders that tooling leaves behind
 	 * (`.git`, `.github`, `.wordpress-org` and the like) are left alone, and so is one that holds
 	 * no code. Report only: the folder sits inside someone else's plugin.
+	 *
+	 * 1.4.154: that `.helpers` was not malware. It is `donatj/phpuseragentparser`'s documentation
+	 * helper, which Rank Math SEO ships inside its Composer vendor tree, and it was on all five
+	 * sites because Rank Math was. A hidden folder inside a Composer package (a `composer.json`
+	 * of its own and an entry in `vendor/composer/installed.json`, which only Composer writes) is
+	 * part of that package and is left alone, as is one whose code matches its plugin's published
+	 * release.
 	 *
 	 * @return array<int, array<string, mixed>>
 	 */
@@ -8094,6 +8104,21 @@ class WPS_Scanner {
 				}
 				if ( ! $code ) {
 					continue;
+				}
+				if ( '' !== WPS_Utils::composer_package_of( $real ) ) {
+					continue; // 1.4.154: part of a Composer package the plugin installed (Rank Math's .helpers)
+				}
+				if ( class_exists( 'WPS_Integrity' ) ) {
+					$verified = true;
+					foreach ( $code as $e ) {
+						if ( WPS_Integrity::VERIFIED !== WPS_Integrity::verify( $dir . '/' . $e ) ) {
+							$verified = false;
+							break;
+						}
+					}
+					if ( $verified ) {
+						continue; // every file matches the plugin's published release
+					}
 				}
 				$found[] = [
 					'severity' => 'high',

@@ -126,7 +126,7 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 == Changelog ==
 
 = 1.4.154 =
-The development test suite (tests/) is removed from the installed plugin on activation and on the first dashboard load after an update. A git checkout keeps it.
+Rank Math SEO's Composer libraries are no longer reported as hidden code folders. The development test suite (tests/) is removed from the installed plugin on activation and on the first admin page load after an update. A git checkout keeps it.
 
 = 1.4.153 =
 The rest of the whole-code-base review. Spam content the save-boundary strip cannot clean is held as pending instead of being published; the daily spam sweep now walks the whole site instead of re-reading the newest batch; every diagnostic spam term reaches the database prefilter and long posts are judged by their tail; the event store refuses an append rather than fork the chain when its lock is held; the chain self-test gets its own scratch namespace, drops leftovers and reports its own errors; plugin manifests are fetched once per plugin per scan; the signature engine no longer builds a per-gram set (about 70 MB on a 1 MiB file); a bot username from a shared-infrastructure address no longer blocks it permanently; Akismet reporting works with enrichment off and a failed report is retried; a first range block holds for its base duration; and four documentation slips are corrected.
@@ -700,7 +700,7 @@ UI and structure release driven by the workspace design preferences. Complete de
 == Upgrade Notice ==
 
 = 1.4.154 =
-The tests folder is removed from the site after this update. Nothing to configure.
+The Rank Math .helpers finding was a false positive and no longer appears; the tests folder is removed from the site after this update. Nothing to configure.
 
 = 1.4.153 =
 Review follow-ups: spam that cannot be stripped is held for review, the spam sweep reaches old posts, scans use less memory, and range blocks start at 30 minutes. Nothing to configure.

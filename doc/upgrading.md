@@ -61,7 +61,9 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 ## 1.4.154
 
-**The tests folder leaves the site.** The plugin's development test suite (`tests/`, twenty files that only ever run from the command line) is now removed from the installed copy when the plugin is activated and on the first dashboard load after an update, so an upload of the repository no longer leaves development material on the site. A copy that is a git checkout keeps the folder. Nothing to configure.
+**Rank Math SEO.** If a scan reported "Hidden folder holding code inside the plugins folder" or "Hidden directory under wp-content/" for `seo-by-rank-math/vendor/donatj/phpuseragentparser/.helpers`, that was a library Rank Math installs, not malware; the finding no longer appears. Nothing else in Rank Math trips any check.
+
+**The tests folder leaves the site.** The plugin's development test suite (`tests/`, twenty files that only ever run from the command line) is now removed from the installed copy when the plugin is activated and on the first admin page load after an update, so an upload of the repository no longer leaves development material on the site. A copy that is a git checkout keeps the folder. Nothing to configure.
 
 ## 1.4.153
 
