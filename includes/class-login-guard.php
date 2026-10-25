@@ -472,7 +472,6 @@ final class WPS_Login_Guard {
 			// 1.4.31: permanent rather than a cool-off. Recorded in its own
 			// store so it cannot be evicted by the rotating block cache.
 			if ( self::block_permanently( $ip, $reason, $username ) ) {
-				self::note( 'blocks' );
 				// Still reported to Akismet - a bot username is conclusive
 				// evidence and always was.
 				self::maybe_report_spam( $ip, $username, self::distinct_bad_usernames( $ip ), 1 );
@@ -1351,6 +1350,7 @@ final class WPS_Login_Guard {
 		}
 
 		update_option( self::PERMANENT_OPTION, $list, false );
+		self::note( 'blocks' ); // 1.4.153: a permanent block counts in the total, manual or automatic
 		self::note( 'permanent_blocks' );
 
 		if ( class_exists( 'WPS_Logger' ) ) {
@@ -1423,6 +1423,7 @@ final class WPS_Login_Guard {
 			$list = array_slice( $list, -self::PERMANENT_MAX, null, true );
 		}
 		update_option( self::PERMANENT_OPTION, $list, false );
+		self::note( 'blocks' ); // 1.4.153: a permanent block counts in the total, manual or automatic
 		self::note( 'permanent_blocks' );
 
 		if ( class_exists( 'WPS_Logger' ) ) {

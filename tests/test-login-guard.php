@@ -80,6 +80,13 @@ $_SERVER['REMOTE_ADDR'] = '198.51.100.7';
 WPS_Login_Guard::on_failed( 'root' );
 check( '"root" from a public address still blocks it permanently on the first attempt', WPS_Login_Guard::is_permanently_blocked( '198.51.100.7' ), json_encode( WPS_Login_Guard::permanent_blocks() ) );
 
+$before = (int) WPS_Login_Guard::stats()['today_blocks'];
+WPS_Login_Guard::block_permanently( '203.0.113.99', 'operator ban' );
+WPS_Login_Guard::block_permanently_cidr( '203.0.114.0/24', 'operator range ban' );
+$after = WPS_Login_Guard::stats();
+check( 'manual permanent blocks count in the total as well as the permanent counter', (int) $after['today_blocks'] === $before + 2 && (int) $after['today_permanent_blocks'] >= 3, json_encode( [ $before, $after['today_blocks'] ?? null, $after['today_permanent_blocks'] ?? null ] ) );
+check( 'the automatic permanent block earlier was counted once, not twice', 1 === $before, (string) $before );
+
 // ---- 2. reporting is governed by its own setting, not by enrichment.
 $GLOBALS['opts']['wps_opts'] = [ 'akismet_enrichment' => '0', 'login_report_spam' => '1' ];
 Akismet::$posts = 0;

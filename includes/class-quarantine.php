@@ -304,6 +304,12 @@ class WPS_Quarantine {
 	 * writing the value back with update_option().
 	 */
 	public static function quarantine_option( string $name, array $meta = [] ): ?string {
+		$snap = self::snapshot_option( $name, $meta );
+		return null === $snap ? null : $snap[0];
+	}
+
+	/** @return array{0:string,1:string}|null The snapshot id and the value as the options table stores it. */
+	private static function snapshot_option( string $name, array $meta = [] ): ?array {
 		if ( $name === '' || ! function_exists( 'get_option' ) ) {
 			return null;
 		}
@@ -339,16 +345,8 @@ class WPS_Quarantine {
 			$meta
 		);
 		@file_put_contents( $dest . '/manifest.json', wp_json_encode( $manifest ) );
-		self::$option_snapshots[ $id ] = $serialized;
 		self::log( 'option_quarantined', $name . ' -> ' . $id );
-		return $id;
-	}
-
-	/** Serialized values of the option snapshots taken this process, by id (1.4.153). */
-	private static $option_snapshots = [];
-
-	private static function last_option_serialized( string $id ): string {
-		return self::$option_snapshots[ $id ] ?? '';
+		return [ $id, self::as_stored( $value ) ];
 	}
 
 	/** Best-effort autoload flag for an option; defaults to 'yes' when unknown. */
@@ -365,30 +363,63 @@ class WPS_Quarantine {
 	 * @return string|null the quarantine id, or null when nothing was removed
 	 */
 	public static function quarantine_and_remove_option( string $name, array $meta = [] ): ?string {
-		$id = self::quarantine_option( $name, $meta );
-		if ( null === $id ) {
-			return null;
-		}
-		// 1.4.153: the value removed must be the value snapshotted. If something rewrote the option
-		// between the two, snapshot again (once) so the restorable copy is what was actually deleted.
-		if ( function_exists( 'get_option' ) ) {
-			$now = get_option( $name, null );
-			if ( null !== $now && serialize( $now ) !== self::last_option_serialized( $id ) ) {
-				$again = self::quarantine_option( $name, $meta + [ 'supersedes' => $id ] );
-				if ( null === $again ) {
-					return null;
+		// 1.4.153: the row is deleted only if it still holds the value that was snapshotted (a
+		// conditional DELETE, as the scan lock does). A value rewritten in between is snapshotted
+		// again, so the restorable copy is always what was actually removed.
+		$id = null;
+		for ( $try = 0; $try < 3; $try++ ) {
+			$snap = self::snapshot_option( $name, null === $id ? $meta : $meta + [ 'supersedes' => $id ] );
+			if ( null === $snap ) {
+				if ( null !== $id && function_exists( 'get_option' ) && null === get_option( $name, null ) ) {
+					return $id; // removed by someone else between two attempts; the snapshot stands
 				}
-				$id = $again;
+				return null;
+			}
+			[ $id, $stored ] = $snap;
+			if ( self::delete_option_if_unchanged( $name, $stored ) ) {
+				return $id;
 			}
 		}
-		if ( function_exists( 'delete_option' ) ) {
+		self::log( 'option_remove_failed', $name . ' kept changing while being removed; snapshot ' . (string) $id . ' written, option left in place' );
+		return null;
+	}
+
+	/**
+	 * Delete the option only if its stored value is still $stored (the value as the options table
+	 * holds it). True when the row is gone afterwards, whether this call or another removed it.
+	 */
+	private static function delete_option_if_unchanged( string $name, string $stored ): bool {
+		$db = ( isset( $GLOBALS['wpdb'] ) && is_object( $GLOBALS['wpdb'] ) ) ? $GLOBALS['wpdb'] : null;
+		if ( $db && method_exists( $db, 'query' ) && method_exists( $db, 'prepare' ) && isset( $db->options ) ) {
+			$rows = $db->query( $db->prepare( "DELETE FROM {$db->options} WHERE option_name = %s AND option_value = %s", $name, $stored ) );
+			if ( function_exists( 'wp_cache_delete' ) ) {
+				wp_cache_delete( $name, 'options' );
+				wp_cache_delete( 'alloptions', 'options' );
+				wp_cache_delete( 'notoptions', 'options' );
+			}
+			if ( $rows ) {
+				return true;
+			}
+			return function_exists( 'get_option' ) && null === get_option( $name, null );
+		}
+		// No database handle (never in WordPress; only in the tests): compare, then delete.
+		if ( function_exists( 'get_option' ) && function_exists( 'delete_option' ) ) {
+			$now = get_option( $name, null );
+			if ( null === $now ) {
+				return true;
+			}
+			if ( self::as_stored( $now ) !== $stored ) {
+				return false;
+			}
 			delete_option( $name );
+			return null === get_option( $name, null );
 		}
-		if ( function_exists( 'get_option' ) && null !== get_option( $name, null ) ) {
-			self::log( 'option_remove_failed', $name . ' snapshot ' . $id . ' written but the option is still present' );
-			return null;
-		}
-		return $id;
+		return false;
+	}
+
+	/** A value the way the options table stores it: serialized when structured, a string otherwise. */
+	private static function as_stored( $value ): string {
+		return ( is_array( $value ) || is_object( $value ) ) ? serialize( $value ) : (string) $value;
 	}
 
 	private static function option_autoload( string $name ): string {

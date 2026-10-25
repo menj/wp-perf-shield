@@ -31,14 +31,33 @@ function __( $s, $d = '' ) { return $s; }
 function absint( $n ) { return abs( (int) $n ); }
 function get_post( $id ) { return $GLOBALS['posts'][ $id ] ?? null; }
 function wp_trash_post( $id ) { $GLOBALS['trashed'][] = $id; $GLOBALS['posts'][ $id ]->post_status = 'trash'; return true; }
-/** A stand-in for get_posts() that honours the sweep's cursor argument the way the posts_where filter does in WordPress. */
+class FakeDB {
+	public $posts = 'wp_posts';
+	public function prepare( $sql, ...$a ) { foreach ( $a as $x ) { $sql = preg_replace( '/%[sd]/', is_int( $x ) ? (string) $x : "'" . addslashes( (string) $x ) . "'", $sql, 1 ); } return $sql; }
+}
+$wpdb = new FakeDB();
+class FakeQuery {
+	public function __construct( private array $vars ) {}
+	public function get( $k ) { return $this->vars[ $k ] ?? ''; }
+}
+/**
+ * A stand-in for get_posts() with the behaviour that matters: query filters run only when
+ * suppress_filters is false (get_posts() suppresses them by default), and the only way to narrow
+ * the ID range is the SQL the hooked posts_where callback adds.
+ */
 function get_posts( $args ) {
 	$ids = array_keys( $GLOBALS['posts'] );
 	rsort( $ids );
-	if ( ! empty( $args['wps_id_below'] ) ) {
-		$ids = array_values( array_filter( $ids, static fn( $i ) => $i < (int) $args['wps_id_below'] ) );
+	$where = '1=1';
+	$ran   = false;
+	if ( isset( $args['suppress_filters'] ) && false === $args['suppress_filters'] && isset( $GLOBALS['filters']['posts_where'] ) ) {
+		$where = call_user_func( $GLOBALS['filters']['posts_where'], $where, new FakeQuery( $args ) );
+		$ran   = true;
 	}
-	$GLOBALS['sweep_calls'][] = [ 'below' => (int) ( $args['wps_id_below'] ?? 0 ), 'filter_hooked' => isset( $GLOBALS['filters']['posts_where'] ) ];
+	if ( preg_match( '/wp_posts\.ID < (\d+)/', $where, $m ) ) {
+		$ids = array_values( array_filter( $ids, static fn( $i ) => $i < (int) $m[1] ) );
+	}
+	$GLOBALS['sweep_calls'][] = [ 'below' => (int) ( $args['wps_id_below'] ?? 0 ), 'filter_hooked' => isset( $GLOBALS['filters']['posts_where'] ), 'filter_ran' => $ran, 'where' => $where ];
 	return array_slice( $ids, 0, (int) $args['posts_per_page'] );
 }
 class WPS_EDR {
@@ -101,7 +120,7 @@ $GLOBALS['sweep_calls'] = [];
 $n1 = WPS_Spam_Content_Guard::sweep_existing( 200 );
 check( 'the first run reads the newest batch and records where it stopped', 0 === $n1 && 251 === (int) get_option( 'wps_spam_sweep_cursor' ), json_encode( [ $n1, get_option( 'wps_spam_sweep_cursor' ), $GLOBALS['sweep_calls'] ] ) );
 $n2 = WPS_Spam_Content_Guard::sweep_existing( 200 );
-check( 'the second run continues below the cursor with the WHERE filter hooked', 0 === $n2 && 51 === (int) get_option( 'wps_spam_sweep_cursor' ) && 251 === $GLOBALS['sweep_calls'][1]['below'] && $GLOBALS['sweep_calls'][1]['filter_hooked'], json_encode( $GLOBALS['sweep_calls'] ) );
+check( 'the second run continues below the cursor: filters not suppressed, the hook ran and added the ID condition', 0 === $n2 && 51 === (int) get_option( 'wps_spam_sweep_cursor' ) && 251 === $GLOBALS['sweep_calls'][1]['below'] && $GLOBALS['sweep_calls'][1]['filter_ran'] && false !== strpos( $GLOBALS['sweep_calls'][1]['where'], 'wp_posts.ID < 251' ), json_encode( $GLOBALS['sweep_calls'] ) );
 check( 'the WHERE filter is unhooked after the query', ! isset( $GLOBALS['filters']['posts_where'] ) );
 $n3 = WPS_Spam_Content_Guard::sweep_existing( 200 );
 check( 'the third run reaches the oldest posts and quarantines the spam at ID 10', 1 === $n3 && [ 10 ] === $GLOBALS['trashed'], json_encode( [ $n3, $GLOBALS['trashed'] ] ) );
@@ -121,10 +140,14 @@ check( 'every diagnostic term is a substring of some prefilter term (pragmatic p
 check( 'the prefilter list carries no duplicates', count( $pre ) === count( array_unique( $pre ) ) );
 
 // ---- 4. a long post is judged by its tail too.
-$long = str_repeat( "A perfectly ordinary sentence about gardening and weather.\n", 5000 ) . "\n<p>situs slot gacor maxwin hari ini</p>";
-check( 'the fixture is longer than the matcher\'s ceiling', strlen( $long ) > 200000 );
+$filler = "A perfectly ordinary sentence about gardening and weather.\n"; // 59 bytes
+$long   = str_repeat( $filler, 6000 ) . "\n<p>situs slot gacor maxwin hari ini</p>"; // about 354,000 bytes
+check( 'the fixture is longer than head and tail together', strlen( $long ) > 300000 );
 $eval = WPS_Spam_Signatures::evaluate( $long );
-check( 'a spam marker after the first 200,000 bytes is still found', ! empty( $eval['spam'] ), json_encode( $eval ) );
+check( 'a spam marker at the very end is found', ! empty( $eval['spam'] ), json_encode( $eval ) );
+$mid  = str_repeat( $filler, 2500 ) . "<p>situs slot gacor maxwin</p>" . str_repeat( $filler, 3500 ); // marker near byte 147,000: inside the 200,000-byte head
+$eval = WPS_Spam_Signatures::evaluate( $mid );
+check( 'a marker at 147,000 bytes is still inside the head window (the head was not halved)', ! empty( $eval['spam'] ), json_encode( $eval ) );
 $eval = WPS_Spam_Signatures::evaluate( "slot gacor\n" . str_repeat( "benign text here.\n", 20000 ) );
 check( 'and one at the head still is', ! empty( $eval['spam'] ) );
 

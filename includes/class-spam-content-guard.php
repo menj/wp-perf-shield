@@ -237,7 +237,8 @@ final class WPS_Spam_Content_Guard {
 			'order'          => 'DESC',
 		];
 		if ( $cursor > 0 ) {
-			$args['wps_id_below'] = $cursor;
+			$args['wps_id_below']     = $cursor;
+			$args['suppress_filters'] = false; // get_posts() suppresses query filters by default; the cursor is one
 			add_filter( 'posts_where', [ __CLASS__, 'sweep_where' ], 10, 2 );
 		}
 		$ids = get_posts( $args );

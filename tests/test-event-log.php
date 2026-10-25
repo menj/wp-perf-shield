@@ -28,6 +28,7 @@ class FakeDB {
 	public $insert_id = 0;
 	public $queries   = [];
 	public $lock      = '1'; // what GET_LOCK answers: '1' granted, '0' timed out, null unsupported
+	public $last_error = '';
 	public $rows      = 0;
 	public function prepare( $sql, ...$a ) { foreach ( $a as $x ) { $sql = preg_replace( '/%[sd]/', is_int( $x ) ? (string) $x : "'" . addslashes( (string) $x ) . "'", $sql, 1 ); } return $sql; }
 	public function get_var( $sql ) {
@@ -72,6 +73,14 @@ $wpdb->queries = [];
 $wpdb->lock    = null;
 $id = WPS_Event_Log::record( [ 'event_type' => 'probe', 'severity' => 'info' ] );
 check( 'a database without GET_LOCK uses the row-lock transaction and appends', null !== $id && 1 === q( 'FOR UPDATE' ) && 1 === q( 'INSERT INTO' ) && 1 === q( 'COMMIT' ), json_encode( $wpdb->queries ) );
+
+// ---- 3b. NULL that came with a query error is not "unsupported": refuse, do not fork.
+$wpdb->queries    = [];
+$wpdb->lock       = null;
+$wpdb->last_error = 'Lock wait timeout exceeded';
+$id = WPS_Event_Log::record( [ 'event_type' => 'probe', 'severity' => 'info' ] );
+check( 'a failed GET_LOCK query refuses the append rather than taking the row lock', null === $id && 0 === q( 'FOR UPDATE' ) && 0 === q( 'INSERT INTO' ), json_encode( $wpdb->queries ) );
+$wpdb->last_error = '';
 
 // ---- 4. the self-test drops a leftover scratch table before creating its own, and ends cleanly.
 $wpdb->queries = [];

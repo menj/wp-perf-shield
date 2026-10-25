@@ -30,7 +30,8 @@ defined( 'ABSPATH' ) || exit;
 final class WPS_Spam_Signatures {
 
 	/** Cap the text examined per item, so a pathologically large body cannot stall a scan. */
-	private const MAX_LEN = 200000;
+	private const MAX_LEN  = 200000;
+	private const TAIL_LEN = 100000; // 1.4.153: the end of a long post is judged as well as its start
 
 	/** SEO-spam tokens that do not appear in prose in any language. One is conclusive. */
 	private const DIAGNOSTIC = [
@@ -72,11 +73,11 @@ final class WPS_Spam_Signatures {
 		if ( '' === $text ) {
 			return $none;
 		}
-		if ( strlen( $text ) > self::MAX_LEN ) {
+		if ( strlen( $text ) > self::MAX_LEN + self::TAIL_LEN ) {
 			// 1.4.153: the head and the tail, not the head alone. Injected spam sits at the end of a long
-			// genuine post as often as at the start, and a head-only cut never saw it.
-			$half = (int) ( self::MAX_LEN / 2 );
-			$text = substr( $text, 0, $half ) . "\n" . substr( $text, -$half );
+			// genuine post as often as at the start, and a head-only cut never saw it. The head keeps
+			// its full 200,000 bytes; the last 100,000 are appended.
+			$text = substr( $text, 0, self::MAX_LEN ) . "\n" . substr( $text, -self::TAIL_LEN );
 		}
 		$hay = strtolower( $text );
 

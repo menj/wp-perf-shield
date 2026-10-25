@@ -457,8 +457,13 @@ class WPS_Event_Log {
 		if ( (string) $got === '0' ) {
 			return [ 'type' => 'refused', 'reason' => 'append lock held for ' . ( 2 * self::LOCK_TIMEOUT ) . 's' ];
 		}
+		if ( null === $got && isset( $db->last_error ) && '' !== (string) $db->last_error ) {
+			// The query failed; the database may well have advisory locks and another writer may hold
+			// one. Refuse rather than append beside it under a row lock it does not take.
+			return [ 'type' => 'refused', 'reason' => 'GET_LOCK failed: ' . substr( (string) $db->last_error, 0, 120 ) ];
+		}
 
-		// NULL: this database has no advisory locks. The row lock is the only serialisation there is.
+		// NULL with no error: this database has no advisory locks. The row lock is the only serialisation there is.
 		if ( method_exists( $db, 'query' ) ) {
 			$db->query( 'START TRANSACTION' );
 			// Lock the current tail row so a second appender blocks here until

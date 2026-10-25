@@ -28,6 +28,15 @@
 - `acquire_append_lock()` fell through to the `FOR UPDATE` path when `GET_LOCK` timed out, running beside the holder (which takes no row lock) and forking the chain. A timeout is now retried once; if the lock is still held the append is refused, returns null, and is written to the file log. The row-lock path is used only where the database has no advisory locks.
 - `begin_selftest()` drops a scratch table an interrupted run left behind. `WPS_Chain_Selftest` uses a namespace of its own per run (`p` plus fifteen hex characters) instead of the shared `probe`; its isolation check allows the real table to grow while the test runs and fails only on a count that fell or an anchor that changed with no new row; and only a failure to open the second connection is a skip, an exception inside the checks is a failure.
 
+### Review of this release (CodeAnt on the pull request)
+- The sweep's `posts_where` cursor never ran: `get_posts()` suppresses query filters by default, so every run still read the newest batch. `suppress_filters` is now false for the cursor query, and the test's stand-in applies the hook only when filters are not suppressed, taking its ID range from the SQL the hook adds.
+- The signature engine's "seen" set is back, bounded: it records only grams the index knows, so its size follows the database rather than the file, while a common indexed gram still merges its bucket once.
+- The head window for long posts stays at 200,000 bytes; the 100,000-byte tail is added to it rather than carved out of it.
+- A `GET_LOCK` that returned NULL together with a query error is treated as a held lock and refused, not as "no advisory locks".
+- `quarantine_and_remove_option()` removes the row with a conditional `DELETE ... AND option_value = <snapshot>` (as the scan lock does) and snapshots again if the row was rewritten, up to three times; the per-process map of snapshot values is gone with it.
+- A manual permanent block (address or range) now counts in the blocks total as well as its own counter, so the Diagnostics "blocks by rule" line no longer goes negative; the automatic path no longer counts it twice.
+- Not changed: uninstall still deletes `wps_scan_lock`; uninstall runs only when the plugin is being deleted, at which point a scan in flight is already losing the files it runs from.
+
 ### Documentation
 - `doc/readme.md` lists the seven Settings sub-tabs; `doc/remediation-roadmap.md` says four fixed, one partial, fifteen open, as its ledger does; `doc/variants.md` indexes families 13 to 15.
 
@@ -36,7 +45,7 @@
 - The range-offence transient (`wps_lfn_*`) is read, appended and written without a lock, so two failures in the same instant can lose one event and keep a rotating range below its trigger by one. A lock on every failed sign-in is not worth one lost event.
 
 ### Tests
-- New: `test-spam-content-guard.php` (15), `test-login-guard.php` (12), `test-event-log.php` (10). Extended: `test-edr-integrity.php` (14), `test-removal-pipeline.php` (38), `test-signature-engine.php` (83). All twenty suites pass.
+- New: `test-spam-content-guard.php` (16), `test-login-guard.php` (14), `test-event-log.php` (11). Extended: `test-edr-integrity.php` (14), `test-removal-pipeline.php` (39), `test-signature-engine.php` (83). All twenty suites pass.
 
 ## 1.4.152
 

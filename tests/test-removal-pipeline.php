@@ -64,6 +64,27 @@ function get_theme_root() { return ABSPATH . 'wp-content/themes'; }
 function wp_normalize_path( $p ) { return str_replace( '\\', '/', $p ); }
 
 class WP_Error { public $code; public $message; public $data; public function __construct( $c = '', $m = '', $d = [] ) { $this->code = $c; $this->message = $m; $this->data = $d; } }
+/** The options table as the quarantine's conditional DELETE sees it (values stored the WordPress way). */
+class FakeDB {
+	public $options = 'wp_options';
+	public $deletes = [];
+	public function prepare( $sql, ...$a ) { foreach ( $a as $x ) { $sql = preg_replace( '/%[sd]/', is_int( $x ) ? (string) $x : "'" . addslashes( (string) $x ) . "'", $sql, 1 ); } return $sql; }
+	public function get_var( $sql ) { return 'yes'; }
+	public function query( $sql ) {
+		$this->deletes[] = $sql;
+		if ( preg_match( "/^DELETE FROM wp_options WHERE option_name = '([^']+)' AND option_value = '((?:[^'\\\\]|\\\\.)*)'/", $sql, $m ) ) {
+			$name = $m[1];
+			if ( ! array_key_exists( $name, $GLOBALS['opts'] ) ) { return 0; }
+			$v      = $GLOBALS['opts'][ $name ];
+			$stored = ( is_array( $v ) || is_object( $v ) ) ? serialize( $v ) : (string) $v;
+			if ( $stored !== stripslashes( $m[2] ) ) { return 0; }
+			unset( $GLOBALS['opts'][ $name ] );
+			return 1;
+		}
+		return 0;
+	}
+}
+$wpdb = new FakeDB();
 class WPS_Logger {
 	public static function log_event( $t, $s, $ip = '' ) { $GLOBALS['events'][] = [ $t, $s ]; }
 	public static function write( $m ) {}
@@ -166,6 +187,7 @@ $GLOBALS['opts']['calm_state'] = 'x';
 $qid = WPS_Quarantine::quarantine_and_remove_option( 'calm_state', [ 'type' => 'db_option', 'reason' => 'x' ] );
 $man = null !== $qid ? json_decode( (string) @file_get_contents( WPS_Quarantine::store_dir() . '/' . $qid . '/manifest.json' ), true ) : null;
 check( 'an option nobody rewrote is snapshotted once', null !== $qid && is_array( $man ) && empty( $man['supersedes'] ) );
+check( 'the removal is a conditional DELETE on the snapshotted value, not a blind delete_option()', 3 === count( array_filter( $wpdb->deletes, static fn( $q ) => false !== strpos( $q, 'AND option_value =' ) ) ), json_encode( $wpdb->deletes ) );
 
 // ---- 6. the on-disk policy ban: both tiers go through the policy.
 $GLOBALS['opts']['wps_opts'] = [ 'policy_ban_enabled' => '1' ];
