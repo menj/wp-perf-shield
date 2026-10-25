@@ -1014,7 +1014,7 @@ class WPS_Remediation_Controller {
 		if ( ! class_exists( 'WP_Application_Passwords' ) ) {
 			wp_send_json_error( [ 'error' => 'Application passwords are not available on this WordPress version.' ] );
 		}
-		$ids = get_users( [ 'role__in' => [ 'administrator' ], 'fields' => 'ID', 'number' => 500 ] );
+		$ids = get_users( [ 'role__in' => [ 'administrator' ], 'fields' => 'ID', 'number' => -1 ] ); // 1.4.152: all of them, not the first 500
 		$pw  = 0;
 		$who = 0;
 		foreach ( (array) $ids as $id ) {

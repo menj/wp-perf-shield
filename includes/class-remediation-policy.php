@@ -596,6 +596,24 @@ final class WPS_Remediation_Policy {
 		}
 
 		/*
+		 * 1.4.152: an operator's own removal is a decision too.
+		 *
+		 * "Delete this path" and the bulk action reach the quarantine with these two types. Before this
+		 * release they reached it with no type at all, the policy classed them as heuristic, and refused
+		 * every removal under plugins and themes while the screen blamed the quarantine store. The Safe
+		 * veto and WordPress core protection above still apply: an operator who wants to remove a Safe
+		 * target revokes the Safe decision first, and nothing removes core.
+		 */
+		if ( self::is_operator_type( $type ) && false === stripos( $type, 'banned by site policy' ) ) {
+			return [
+				'allowed' => true,
+				'reason'  => 'the operator asked for this removal',
+				'rule'    => 'operator_removal',
+				'trust'   => 'operator',
+			];
+		}
+
+		/*
 		 * 1.4.104: an operator ban is a decision, not a guess.
 		 *
 		 * The site-policy denylist exists because the operator named a plugin
@@ -843,6 +861,16 @@ final class WPS_Remediation_Policy {
 	 * Safe decision made while a long scan was running is still honoured, and a
 	 * caller that somehow skipped decide() cannot get past this.
 	 */
+	/**
+	 * Types that describe an operator's explicit action rather than a detector's finding. The
+	 * quarantine consults decide() directly for these, because assert_may_remove() treats a Safe
+	 * denial as a scanner defect and trips the circuit breaker, which an operator's click is not.
+	 */
+	public static function is_operator_type( string $type ): bool {
+		return in_array( $type, [ 'manual removal by operator', 'operator bulk removal' ], true )
+			|| false !== stripos( $type, 'banned by site policy' );
+	}
+
 	public static function assert_may_remove( string $target, string $type = '' ): bool {
 		$decision = self::decide( [ 'delete_path' => $target, 'type' => $type ] );
 		if ( $decision['allowed'] ) {

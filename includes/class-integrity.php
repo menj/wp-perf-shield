@@ -80,13 +80,19 @@ final class WPS_Integrity {
 	}
 
 	private static function determine( string $real ): string {
-		$rel = self::relative( $real );
-		if ( '' === $rel ) {
+		// 1.4.152: relative to the plugins directory itself. The path used to be taken relative to
+		// ABSPATH and matched against a literal 'wp-content/plugins/', so a renamed content directory,
+		// or one kept outside the install, made every verdict UNKNOWN and the foreign-file detector inert.
+		$plug = defined( 'WP_PLUGIN_DIR' ) ? realpath( WP_PLUGIN_DIR ) : false;
+		$plug = is_string( $plug ) ? str_replace( '\\', '/', rtrim( $plug, '/\\' ) ) : '';
+		$path = str_replace( '\\', '/', $real );
+		if ( '' === $plug || 0 !== strpos( $path, $plug . '/' ) ) {
 			return self::UNKNOWN;
 		}
+		$rel = substr( $path, strlen( $plug ) + 1 );
 		// Only directory plugins can be verified this way. Core has its own
 		// check, and core is never auto-removed regardless.
-		if ( ! preg_match( '#^wp-content/plugins/([^/]+)/(.+)$#', $rel, $m ) ) {
+		if ( ! preg_match( '#^([^/]+)/(.+)$#', $rel, $m ) ) {
 			return self::UNKNOWN;
 		}
 		$slug     = $m[1];
@@ -162,19 +168,5 @@ final class WPS_Integrity {
 		$m = new ReflectionMethod( 'WPS_Scanner', $method );
 		$m->setAccessible( true );
 		return $m->invokeArgs( null, $args );
-	}
-
-	/** Site-relative, forward-slashed path, or '' when outside the install. */
-	private static function relative( string $real ): string {
-		$root = defined( 'ABSPATH' ) ? str_replace( '\\', '/', rtrim( ABSPATH, '/\\' ) ) : '';
-		if ( '' === $root ) {
-			return '';
-		}
-		$rroot = realpath( $root );
-		if ( is_string( $rroot ) && '' !== $rroot ) {
-			$root = str_replace( '\\', '/', rtrim( $rroot, '/' ) );
-		}
-		$p = str_replace( '\\', '/', $real );
-		return 0 === strpos( $p, $root . '/' ) ? substr( $p, strlen( $root ) + 1 ) : '';
 	}
 }

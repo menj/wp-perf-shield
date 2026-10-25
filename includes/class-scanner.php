@@ -16782,10 +16782,13 @@ class WPS_Scanner {
 	 * (reversible, evidence kept), clears the options the target's own files
 	 * identify, deactivates a plugin that was removed, and records the redrop
 	 * baseline. Two things differ from auto_remediate() on purpose: the
-	 * remediation policy is NOT consulted, because this is the control offered
-	 * for findings the policy declined to remove and the operator has just
-	 * confirmed the deletion; and if quarantine is enabled but fails, nothing is
-	 * deleted, for the reason given in CRIT-002 there.
+	 * removal goes to the policy as an operator action (1.4.152: type
+	 * 'manual removal by operator', allowed everywhere except a Safe target and
+	 * WordPress core), because this is the control offered for findings the
+	 * policy declined to remove and the operator has just confirmed the deletion;
+	 * and if quarantine is enabled but fails, nothing is deleted, for the reason
+	 * given in CRIT-002 there. A policy refusal is reported as such, not as a
+	 * broken quarantine store.
 	 *
 	 * The caller has already applied its own path-safety checks. $permanent skips
 	 * quarantine: the policy-ban sweep uses it once a folder keeps coming back, so
@@ -16793,7 +16796,7 @@ class WPS_Scanner {
 	 *
 	 * @return array{ok:bool,message:string,quarantined:?string,options:string[]}
 	 */
-	public static function remediate_manually( string $target, bool $permanent = false ): array {
+	public static function remediate_manually( string $target, bool $permanent = false, string $finding_type = 'manual removal by operator' ): array {
 		$real = realpath( $target );
 		if ( ! $real ) {
 			return [ 'ok' => true, 'message' => 'Already gone.', 'quarantined' => null, 'options' => [] ];
@@ -16807,13 +16810,23 @@ class WPS_Scanner {
 			$quarantined_id = WPS_Quarantine::quarantine(
 				$real,
 				[
-					'type'     => 'manual removal',
-					'severity' => 'high',
-					'subject'  => self::display_path( $real ),
-					'reason'   => 'operator removed this from the findings list',
+					'type'         => 'manual removal',
+					'finding_type' => $finding_type,
+					'severity'     => 'high',
+					'subject'      => self::display_path( $real ),
+					'reason'       => 'operator removed this from the findings list',
 				]
 			);
 			if ( null === $quarantined_id ) {
+				$why = method_exists( 'WPS_Quarantine', 'last_denial' ) ? WPS_Quarantine::last_denial() : '';
+				if ( '' !== $why ) {
+					return [
+						'ok'          => false,
+						'message'     => 'Removal refused by the removal policy: ' . $why . '. Nothing was deleted. If a Safe decision is blocking it, revoke it under Diagnostics first; if the circuit breaker is tripped, reset it there.',
+						'quarantined' => null,
+						'options'     => [],
+					];
+				}
 				return [
 					'ok'          => false,
 					'message'     => 'Quarantine failed, so nothing was deleted. Check that the quarantine store (' . self::display_path( WPS_Quarantine::store_dir() ) . ') exists, is writable and has free space, then try again.',
@@ -17062,10 +17075,11 @@ class WPS_Scanner {
 				$quarantined_id = WPS_Quarantine::quarantine(
 					(string) $target,
 					[
-						'type'     => (string) ( $f['type'] ?? '' ),
-						'severity' => (string) ( $f['severity'] ?? '' ),
-						'subject'  => (string) ( $f['subject'] ?? '' ),
-						'reason'   => 'auto-remediation: ' . (string) ( $f['type'] ?? 'confirmed threat' ),
+						'type'         => (string) ( $f['type'] ?? '' ),
+						'finding_type' => (string) ( $f['type'] ?? '' ),
+						'severity'     => (string) ( $f['severity'] ?? '' ),
+						'subject'      => (string) ( $f['subject'] ?? '' ),
+						'reason'       => 'auto-remediation: ' . (string) ( $f['type'] ?? 'confirmed threat' ),
 					]
 				);
 				if ( $quarantined_id !== null ) {
@@ -17079,12 +17093,15 @@ class WPS_Scanner {
 				$f['remediated']          = false;
 				$f['remediation_failed']  = true;
 				$f['quarantine_failed']   = true;
+				$why = method_exists( 'WPS_Quarantine', 'last_denial' ) ? WPS_Quarantine::last_denial() : '';
 				$f['action'] = ( $f['action'] ?? '' )
-					. ' AUTOMATIC REMEDIATION DID NOT RUN. Quarantine was attempted and failed, so WP Perf Shield '
-					. 'left this file exactly as it is rather than deleting it - a quarantine failure means the '
-					. 'machine is not behaving, not that destroying the file is safe. The threat is still live. '
-					. 'Check that the quarantine store (' . self::display_path( WPS_Quarantine::store_dir() ) . ') exists, is writable and has free space, '
-					. 'then remediate manually or re-run the scan.';
+					. ' AUTOMATIC REMEDIATION DID NOT RUN. '
+					. ( '' !== $why
+						? 'The quarantine\'s own policy gate refused the removal: ' . $why . '. The threat is still live. Review the finding and remove it by hand, or revoke the Safe decision or reset the circuit breaker under Diagnostics if one of those is what refused it.'
+						: 'Quarantine was attempted and failed, so WP Perf Shield left this file exactly as it is rather than deleting it - a quarantine failure means the '
+						. 'machine is not behaving, not that destroying the file is safe. The threat is still live. '
+						. 'Check that the quarantine store (' . self::display_path( WPS_Quarantine::store_dir() ) . ') exists, is writable and has free space, '
+						. 'then remediate manually or re-run the scan.' );
 				WPS_Logger::log_event(
 					'auto_remediation_withheld',
 					self::format_auto_delete_log_subject( $f, $target, 'quarantine_failed_no_delete' )

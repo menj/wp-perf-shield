@@ -67,5 +67,22 @@ foreach ( glob( $root . '/doc/*.md' ) as $f ) {
 }
 check( 'doc/ssot.md names every document in doc/', [] === $unl, implode( ',', $unl ) );
 
+// 5. 1.4.152: wps_uninstall() deletes every option the code writes. The review found fifteen it
+// missed, among them the Safe list and the circuit breaker, which kept automatic removal halted
+// across a reinstall.
+$written = [];
+foreach ( array_merge( glob( $root . '/includes/*.php' ), [ $root . '/wp-perf-shield.php' ] ) as $f ) {
+	$src = (string) file_get_contents( $f );
+	preg_match_all( "/(?:update_option|add_option)\\(\\s*'(wps_[a-z0-9_]+)'/", $src, $lm );
+	preg_match_all( "/const\\s+[A-Z_]*OPTION[A-Z_]*\\s*=\\s*'(wps_[a-z0-9_]+)'/", $src, $cm );
+	$written = array_merge( $written, $lm[1], $cm[1] );
+}
+$written = array_unique( $written );
+preg_match( '/function wps_uninstall\\(\\): void \\{(.*?)\\n\\}/s', $main, $um );
+$un      = (string) ( $um[1] ?? '' );
+$left    = array_values( array_filter( $written, static fn( string $o ): bool => false === strpos( $un, "'" . $o . "'" ) ) );
+check( 'wps_uninstall() deletes every option the plugin writes (' . count( $written ) . ' found)', '' !== $un && [] === $left, implode( ',', $left ) );
+check( 'wps_uninstall() drops the event tables', false !== strpos( $un, 'DROP TABLE' ) && false !== strpos( $un, 'wps_events' ) );
+
 echo $fail ? "\n$fail FAILED\n" : "\nAll passed\n";
 exit( $fail ? 1 : 0 );
