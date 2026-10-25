@@ -60,7 +60,8 @@ function delete_option( $k ) { unset( $GLOBALS['opts'][ $k ] ); return true; }
 $GLOBALS['actions'] = [];
 function add_action( $t, $cb, $p = 10, $a = 1 ) { $GLOBALS['actions'][ $t ][] = $cb; }
 function add_filter( $t, $cb, $p = 10, $a = 1 ) { $GLOBALS['actions'][ $t ][] = $cb; }
-function register_activation_hook() {}
+$GLOBALS['activation'] = null;
+function register_activation_hook( $f, $cb ) { $GLOBALS['activation'] = $cb; }
 function register_deactivation_hook() {}
 function register_uninstall_hook() {}
 function is_admin() { return false; }
@@ -80,11 +81,32 @@ try {
 } catch ( Throwable $t ) {
 	$err = get_class( $t ) . ': ' . $t->getMessage();
 }
+$act = null;
+try {
+	if ( $GLOBALS['activation'] instanceof Closure ) {
+		( $GLOBALS['activation'] )();
+	}
+} catch ( Throwable $t ) {
+	$act = get_class( $t ) . ': ' . $t->getMessage();
+}
+$adm = null;
+try {
+	foreach ( $GLOBALS['actions']['admin_init'] ?? [] as $cb ) {
+		if ( $cb instanceof Closure ) {
+			$cb();
+		}
+	}
+} catch ( Throwable $t ) {
+	$adm = get_class( $t ) . ': ' . $t->getMessage();
+}
 echo json_encode( [
-	'missing'    => function_exists( 'wps_missing_files' ) ? wps_missing_files() : null,
-	'safe'       => wps_safe_mode(),
-	'init_error' => $err,
-	'fatal'      => $GLOBALS['opts']['wps_last_fatal'] ?? null,
+	'missing'          => function_exists( 'wps_missing_files' ) ? wps_missing_files() : null,
+	'safe'             => wps_safe_mode(),
+	'init_error'       => $err,
+	'activation_error' => $act,
+	'admin_init_error' => $adm,
+	'cleaned_marker'   => $GLOBALS['opts']['wps_dev_files_cleaned'] ?? null,
+	'fatal'            => $GLOBALS['opts']['wps_last_fatal'] ?? null,
 ] );
 PHP
 );
@@ -106,11 +128,17 @@ $r = run( $base . '/partial/wp-perf-shield.php' );
 check( 'the missing class file is named', [ 'includes/class-guard.php' ] === ( $r['missing'] ?? null ), (string) ( $r['raw'] ?? '' ) );
 check( 'init runs without the fatal the incident recorded', array_key_exists( 'init_error', $r ) && null === $r['init_error'], (string) ( $r['init_error'] ?? $r['raw'] ?? '' ) );
 check( 'no fatal is recorded, so nothing is left for the operator to clear', empty( $r['fatal'] ), json_encode( $r['fatal'] ?? null ) );
+check( 'activating during the upload is not a fatal either', array_key_exists( 'activation_error', $r ) && null === $r['activation_error'], (string) ( $r['activation_error'] ?? $r['raw'] ?? '' ) );
+check( 'the admin cleanup marker is not written while a file is missing, so the cleanup still runs later', array_key_exists( 'cleaned_marker', $r ) && null === $r['cleaned_marker'] && null === $r['admin_init_error'], json_encode( [ $r['cleaned_marker'] ?? null, $r['admin_init_error'] ?? null ] ) );
+$r = run( $base . '/complete/wp-perf-shield.php' );
+check( 'on a complete copy the cleanup runs and the marker is written', ( $r['cleaned_marker'] ?? null ) === $version && array_key_exists( 'admin_init_error', $r ) && null === $r['admin_init_error'], json_encode( [ $r['cleaned_marker'] ?? null, $r['admin_init_error'] ?? null ] ) );
 
 // ---- safe mode lifts itself once the upload is complete
 $fatal = [ 'version' => $version, 'file' => 'wp-perf-shield.php', 'line' => 370, 'message' => 'Uncaught Error: Class "WPS_Guard" not found in /x/wp-perf-shield.php:370', 'when' => '2026-10-20 05:52:11 UTC', 'context' => 'front-end' ];
 $r = run( $base . '/complete/wp-perf-shield.php', [ 'wps_last_fatal' => $fatal ] );
 check( 'a "class not found" fatal is cleared once every file is present', isset( $r['safe'] ) && false === $r['safe'] && empty( $r['fatal'] ), json_encode( [ $r['safe'] ?? null, $r['fatal'] ?? null ] ) );
+$r = run( $base . '/complete/wp-perf-shield.php', [ 'wps_last_fatal' => [ 'message' => "Uncaught Error: Class 'WPS_Guard' not found in /x/wp-perf-shield.php:370" ] + $fatal ] );
+check( 'the single-quoted form PHP 7 writes is cleared too', isset( $r['safe'] ) && false === $r['safe'] && empty( $r['fatal'] ), json_encode( [ $r['safe'] ?? null, $r['fatal'] ?? null ] ) );
 $r = run( $base . '/partial/wp-perf-shield.php', [ 'wps_last_fatal' => $fatal ] );
 check( 'the same record keeps safe mode while a file is still missing', isset( $r['safe'] ) && true === $r['safe'] && ! empty( $r['fatal'] ), json_encode( [ $r['safe'] ?? null, $r['fatal'] ?? null ] ) );
 $other = [ 'message' => 'Uncaught TypeError: something else' ] + $fatal;

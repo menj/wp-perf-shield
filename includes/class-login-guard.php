@@ -264,7 +264,7 @@ final class WPS_Login_Guard {
 		if ( '' === $reason ) {
 			return;
 		}
-		self::note_refused( 'lostpassword' );
+		self::note_refused( 'lostpassword', $reason );
 		$errors->add( 'wps_address_blocked', '<strong>Error:</strong> ' . $reason );
 	}
 
@@ -346,11 +346,12 @@ final class WPS_Login_Guard {
 		return '';
 	}
 
-	private static function note_refused( string $surface ): void {
+	private static function note_refused( string $surface, string $reason = '' ): void {
 		$ip   = self::ip();
 		$tkey = 'wps_bs_' . md5( $ip . $surface );
 		if ( class_exists( 'WPS_Logger' ) && ! ( function_exists( 'get_transient' ) && get_transient( $tkey ) ) ) {
-			WPS_Logger::log_event( 'blocked_surface_refused', $surface . ' request refused: this address is permanently blocked', $ip );
+			// 1.4.156: the reason is the refusal's own text, so a temporary block is not logged as permanent.
+			WPS_Logger::log_event( 'blocked_surface_refused', $surface . ' request refused: ' . ( '' !== $reason ? rtrim( $reason, '.' ) : 'this address is permanently blocked' ), $ip );
 			if ( function_exists( 'set_transient' ) ) {
 				set_transient( $tkey, 1, 600 );
 			}
@@ -366,7 +367,7 @@ final class WPS_Login_Guard {
 		if ( '' === $reason ) {
 			return;
 		}
-		self::note_refused( $surface );
+		self::note_refused( $surface, $reason );
 		if ( function_exists( 'status_header' ) ) {
 			status_header( 403 );
 		}

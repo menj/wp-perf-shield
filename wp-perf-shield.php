@@ -72,7 +72,8 @@ function wps_safe_mode(): bool {
 	// 1.4.156: `Class "WPS_X" not found` is the signature of a half-uploaded plugin, and the cause
 	// is gone once every file is present. The record is cleared rather than left for the operator,
 	// who would otherwise find the plugin standing down after an upload that completed normally.
-	if ( preg_match( '/Class "?WPS_\w+"? not found/', (string) ( $rec['message'] ?? '' ) ) && [] === wps_missing_files() ) {
+	// PHP 7 quotes the class name with single quotes, PHP 8 with double.
+	if ( preg_match( '/Class ["\']?WPS_\w+["\']? not found/', (string) ( $rec['message'] ?? '' ) ) && [] === wps_missing_files() ) {
 		if ( function_exists( 'delete_option' ) ) {
 			delete_option( WPS_FATAL_OPTION );
 		}
@@ -272,6 +273,10 @@ spl_autoload_register(
 //  Activation
 
 register_activation_hook( __FILE__, function (): void {
+	// 1.4.156: activating while the upload is still arriving must not be a fatal either.
+	if ( [] !== wps_missing_files() ) {
+		return;
+	}
 	// Scrub any currently-active blocked plugins from the DB
 	WPS_Blocker::scrub_active_list();
 
@@ -315,6 +320,10 @@ function wps_tidy_install(): void {
 // admin request of any kind after the version changes, not only on this plugin's own screen.
 add_action( 'admin_init', function (): void {
 	if ( get_option( 'wps_dev_files_cleaned', '' ) === WPS_VERSION ) {
+		return;
+	}
+	// 1.4.156: not while a file is missing, or the marker would be written and the cleanup never run.
+	if ( [] !== wps_missing_files() ) {
 		return;
 	}
 	update_option( 'wps_dev_files_cleaned', WPS_VERSION ); // autoloaded: read on every admin request

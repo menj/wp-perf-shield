@@ -63,6 +63,13 @@ check( 'a second call leaves files that are already right alone', $mtime - 100 =
 file_put_contents( $git . '/.git/.htaccess', 'tampered' );
 WPS_Utils::protect_repo_dir( $git );
 check( 'a changed .htaccess is rewritten', false !== strpos( (string) file_get_contents( $git . '/.git/.htaccess' ), 'Require all denied' ) );
+$linked = plugin_copy( true );
+$target = sys_get_temp_dir() . '/wps-dev-target-' . bin2hex( random_bytes( 4 ) );
+file_put_contents( $target, 'precious' );
+symlink( $target, $linked . '/.git/.htaccess' );
+WPS_Utils::protect_repo_dir( $linked );
+check( 'a link where the .htaccess should be is not written through', 'precious' === file_get_contents( $target ) && is_link( $linked . '/.git/.htaccess' ) );
+check( 'the other protection file is still written beside it', is_file( $linked . '/.git/index.php' ) );
 $gitfile = plugin_copy( false );
 file_put_contents( $gitfile . '/.git', "gitdir: ../elsewhere/.git\n" );
 check( 'a .git file (a worktree pointer) is not a repository folder and is left alone', '' === WPS_Utils::protect_repo_dir( $gitfile ) && "gitdir: ../elsewhere/.git\n" === file_get_contents( $gitfile . '/.git' ) );
@@ -77,7 +84,7 @@ WPS_Utils::remove_dev_files( $dir2 );
 check( 'a link inside tests/ is removed without touching what it points to', ! is_dir( $dir2 . '/tests' ) && is_file( $outside . '/keep.txt' ) );
 check( 'a missing or bogus directory is a no-op', [] === WPS_Utils::remove_dev_files( $dir . '/nope' ) && [] === WPS_Utils::remove_dev_files( '' ) );
 
-foreach ( [ $dir, $git, $dir2, $outside, $gitfile ] as $d ) {
+foreach ( [ $dir, $git, $dir2, $outside, $gitfile, $linked, $target ] as $d ) {
 	exec( 'rm -rf ' . escapeshellarg( $d ) );
 }
 echo $fail ? "\n$fail FAILED\n" : "\nAll passed\n";

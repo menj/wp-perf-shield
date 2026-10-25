@@ -129,6 +129,11 @@ check( 'an unblocked address is not refused', '' === WPS_Login_Guard::surface_re
 $GLOBALS['blocked']['198.51.100.20'] = [ 'expires' => time() + 600, 'reason' => 'five failures' ];
 $r = WPS_Login_Guard::surface_refusal( 'xmlrpc' );
 check( 'a temporarily blocked address is refused on xmlrpc.php, with the minutes left', false !== strpos( $r, 'blocked for another 10 minute' ), $r );
+$m = new ReflectionMethod( 'WPS_Login_Guard', 'note_refused' );
+$m->setAccessible( true );
+WPS_Logger::$events = [];
+$m->invoke( null, 'xmlrpc', $r );
+check( 'the event records the temporary block as temporary, not as permanent', 1 === count( WPS_Logger::$events ) && false !== strpos( WPS_Logger::$events[0][1], 'blocked for another' ) && false === strpos( WPS_Logger::$events[0][1], 'permanently' ), json_encode( WPS_Logger::$events ) );
 check( 'the same temporary block does not refuse an upload', '' === WPS_Login_Guard::surface_refusal( 'upload' ) );
 $GLOBALS['blocked']['198.51.100.20']['expires'] = time() - 5;
 check( 'an expired block refuses nothing', '' === WPS_Login_Guard::surface_refusal( 'xmlrpc' ) );

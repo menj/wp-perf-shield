@@ -14,8 +14,15 @@
 
 Also checked and left alone: the 509 sign-in form POSTs were handled (236 refused with a 403, the rest answered by the form); every `/wp-json/batch/v1` POST was refused; `system.multicall` has been stripped by default since 1.4.66; no request reached the plugin folder, the Application Password pages or the quarantine store. The uninstall routine now also removes the `wps_bs_` and `wps_ue_` log-throttle transients.
 
+### Review of this release (CodeAnt on PR 34)
+- PHP 7 writes `Class 'WPS_X' not found` with single quotes; the self-clearing safe-mode rule matched only PHP 8's double quotes. Both now.
+- Activation during a partial upload called two classes directly; it now returns while a file is missing. The admin cleanup wrote its version marker before running, so a missing utility class would have skipped the cleanup for good; it now waits until every file is present.
+- The `.git` protection files are not written through a symbolic link.
+- The surface-refusal event said "permanently blocked" for a temporary block; it now carries the refusal's own text.
+- Not changed: the forged-agent rule judges the connecting address, like the bot-username rule since 1.4.31; shared infrastructure addresses and the allowlist are exempt, and an operator behind an unlisted proxy lists it.
+
 ### Tests
-- New: `test-bootstrap-integrity.php` (8), `test-xmlrpc-forgery.php` (29). Extended: `test-exposure-guard.php` (96, account-name refusal and its default), `test-dev-files.php` (14, repository protection, `tests/` removed from a checkout).
+- New: `test-bootstrap-integrity.php` (12), `test-xmlrpc-forgery.php` (30). Extended: `test-exposure-guard.php` (96, account-name refusal and its default), `test-dev-files.php` (16, repository protection, `tests/` removed from a checkout).
 
 ## 1.4.155
 

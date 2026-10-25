@@ -943,6 +943,9 @@ class WPS_Utils {
 		];
 		foreach ( $files as $name => $body ) {
 			$path = $git . '/' . $name;
+			if ( is_link( $path ) ) {
+				continue; // a link would be followed to wherever it points; never written through
+			}
 			if ( is_file( $path ) && @file_get_contents( $path ) === $body ) {
 				continue;
 			}
