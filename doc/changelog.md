@@ -1,5 +1,9 @@
 # WP Perf Shield changelog
 
+## 1.4.154
+
+**The development test suite is removed from installed copies.** `tests/` is repository material: every file exits unless run from the command line, the folder denies web access, and nothing in the plugin loads it. It still has no business on a production site that was installed by uploading the repository. `WPS_Utils::remove_dev_files()` deletes it on activation and, through the version-change check on the dashboard, on the first load after an update; a copy that is a git checkout keeps it, because deleting tracked files there would break the developer's next pull. Links inside the folder are unlinked, never followed. `tests/test-dev-files.php` (6 cases).
+
 ## 1.4.153
 
 **The rest of the whole-code-base review** (PR 28, the review-only diff): the detection-quality and diagnostics findings, verified against the code before anything was changed. Each fix has a test that fails on 1.4.152.

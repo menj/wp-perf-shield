@@ -31,7 +31,7 @@ doc/signatures.md
 
 `doc/variants.md` is the malware catalogue (families, samples, hashes, which check finds each). `doc/remediation-roadmap.md` is the handover document for the remediation programme and is current as of 1.4.61 except for its 1.4.125 addendum. `doc/wappalyzer-submission.md` is the draft technology-fingerprint submission. `tools/verify-package.ps1` requires only the first four.
 
-Development tests live in `tests/` at the repository root. They are not part of the release ZIP (see Tooling and ZIP Packaging).
+Development tests live in `tests/` at the repository root. They are not part of the release ZIP (see Tooling and ZIP Packaging), and since 1.4.154 `WPS_Utils::remove_dev_files()` deletes the folder from an installed copy on activation and after an update, unless the copy is a git checkout.
 
 The operator-facing manual smoke-test checklist lives in `doc/upgrading.md` under the "Manual Smoke-Test Checklist" heading. Run it on staging before publishing each release.
 
@@ -190,6 +190,7 @@ tests/test-edr-integrity.php              upgrader attribution on install only; 
 tests/test-spam-content-guard.php         content held when the strip cannot clean it, the sweep cursor, prefilter coverage, head-and-tail matching (16 cases)
 tests/test-login-guard.php                bot username from shared infrastructure, Akismet reporting with enrichment off, failed report retried, manual report with enrichment off, range-block ladder, manual bans in the total (14 cases)
 tests/test-event-log.php                  append refused on a held lock, row lock only without GET_LOCK, scratch table dropped before a self-test, namespace per run, a failed GET_LOCK refused (11 cases)
+tests/test-dev-files.php                 tests/ removed from an installed copy, kept in a git checkout, links not followed (6 cases)
 ```
 
 Each runs from the command line with `php tests/<file>` and exits non-zero on failure. All but `test-docs-sync.php` (which only reads the repository's own files and compares text), `test-account-guard.php`, `test-scan-lock.php`, `test-spam-content-guard.php`, `test-login-guard.php` and `test-event-log.php` (which use in-memory stand-ins alone) build synthetic fixtures in a temporary directory (random bytes stand in for payloads, so no real malware is stored) and run the real plugin code against small in-memory stand-ins for WordPress. They do not need the rebuilt harness described in `doc/remediation-roadmap.md`. `tests/` carries an `index.php` and an `.htaccess` that denies access, like `tools/`, and every test file exits unless run from the command line.

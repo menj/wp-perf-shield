@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.154
+
+**The tests folder leaves the site.** The plugin's development test suite (`tests/`, twenty files that only ever run from the command line) is now removed from the installed copy when the plugin is activated and on the first dashboard load after an update, so an upload of the repository no longer leaves development material on the site. A copy that is a git checkout keeps the folder. Nothing to configure.
+
 ## 1.4.153
 
 **The remaining review findings.** With the spam-content guard on, a post the strip cannot clean (the multilingual and regulatory-evasion matches, "siti non AAMS" and the like) is now saved as **pending** instead of published, with an event saying which rule held it; look under Posts for anything held. The daily spam sweep now works through the whole site, one batch of 200 a day from newest to oldest, then starts over; before, it re-read the newest 200 every day and never reached older spam. Long posts are judged by their last 100,000 bytes as well as their first.

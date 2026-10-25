@@ -865,4 +865,53 @@ class WPS_Utils {
 
 		return true;
 	}
+
+	/**
+	 * Remove the development test suite from an installed copy of the plugin (1.4.154).
+	 *
+	 * `tests/` is repository material: every file in it exits unless run from the command line,
+	 * the folder denies web access, and nothing in the plugin loads it. It still has no business
+	 * on a production site, so activation and the first load after an update remove it. A folder
+	 * that is a git checkout (a developer's working copy) keeps it, because deleting tracked files
+	 * there would break the next pull.
+	 *
+	 * @return string[] The folders removed, relative to $plugin_dir.
+	 */
+	public static function remove_dev_files( string $plugin_dir ): array {
+		$root = rtrim( str_replace( '\\', '/', $plugin_dir ), '/' );
+		if ( '' === $root || ! is_dir( $root ) || is_dir( $root . '/.git' ) || is_file( $root . '/.git' ) ) {
+			return [];
+		}
+		$removed = [];
+		foreach ( [ 'tests' ] as $name ) {
+			$dir = $root . '/' . $name;
+			if ( ! is_dir( $dir ) || is_link( $dir ) ) {
+				continue;
+			}
+			if ( self::remove_tree( $dir ) ) {
+				$removed[] = $name;
+			}
+		}
+		return $removed;
+	}
+
+	/** Delete a directory tree. Symbolic links are unlinked, never followed. */
+	private static function remove_tree( string $dir ): bool {
+		$items = @scandir( $dir );
+		if ( ! is_array( $items ) ) {
+			return false;
+		}
+		foreach ( $items as $item ) {
+			if ( '.' === $item || '..' === $item ) {
+				continue;
+			}
+			$path = $dir . '/' . $item;
+			if ( is_link( $path ) || is_file( $path ) ) {
+				@unlink( $path );
+			} elseif ( is_dir( $path ) ) {
+				self::remove_tree( $path );
+			}
+		}
+		return @rmdir( $dir );
+	}
 }
