@@ -865,4 +865,91 @@ class WPS_Utils {
 
 		return true;
 	}
+
+	/**
+	 * Remove the development test suite from an installed copy of the plugin (1.4.154).
+	 *
+	 * `tests/` is repository material: every file in it exits unless run from the command line,
+	 * the folder denies web access, and nothing in the plugin loads it. It still has no business
+	 * on a production site, so activation and the first load after an update remove it. A folder
+	 * that is a git checkout (a developer's working copy) keeps it, because deleting tracked files
+	 * there would break the next pull.
+	 *
+	 * @return string[] The folders removed, relative to $plugin_dir.
+	 */
+	public static function remove_dev_files( string $plugin_dir ): array {
+		$root = rtrim( str_replace( '\\', '/', $plugin_dir ), '/' );
+		if ( '' === $root || ! is_dir( $root ) || is_dir( $root . '/.git' ) || is_file( $root . '/.git' ) ) {
+			return [];
+		}
+		$removed = [];
+		foreach ( [ 'tests' ] as $name ) {
+			$dir = $root . '/' . $name;
+			if ( ! is_dir( $dir ) || is_link( $dir ) ) {
+				continue;
+			}
+			if ( self::remove_tree( $dir ) ) {
+				$removed[] = $name;
+			}
+		}
+		return $removed;
+	}
+
+	/** Delete a directory tree. Symbolic links are unlinked, never followed. */
+	private static function remove_tree( string $dir ): bool {
+		$items = @scandir( $dir );
+		if ( ! is_array( $items ) ) {
+			return false;
+		}
+		foreach ( $items as $item ) {
+			if ( '.' === $item || '..' === $item ) {
+				continue;
+			}
+			$path = $dir . '/' . $item;
+			if ( is_link( $path ) || is_file( $path ) ) {
+				@unlink( $path );
+			} elseif ( is_dir( $path ) ) {
+				self::remove_tree( $path );
+			}
+		}
+		return @rmdir( $dir );
+	}
+
+	/** Parsed installed.json manifests, by path (1.4.154). */
+	private static $composer_installed = [];
+
+	/**
+	 * The Composer package a path belongs to, as "vendor/name", or '' when it is not inside one.
+	 *
+	 * A path is inside a package when it sits under `<root>/vendor/<v>/<p>/`, that folder carries a
+	 * `composer.json`, and `<root>/vendor/composer/installed.json` lists "<v>/<p>". Composer writes
+	 * installed.json itself when it installs the tree, so a folder dropped into vendor/ by hand is
+	 * not a package by this rule even if it brings a composer.json along.
+	 */
+	public static function composer_package_of( string $path ): string {
+		$norm = str_replace( '\\', '/', $path );
+		if ( ! preg_match( '#^(.*)/vendor/([^/]+)/([^/]+)(?:/|$)#', $norm, $m ) ) {
+			return '';
+		}
+		$root = $m[1];
+		$name = $m[2] . '/' . $m[3];
+		if ( 'composer' === $m[2] || ! is_file( $root . '/vendor/' . $name . '/composer.json' ) ) {
+			return '';
+		}
+		$installed = $root . '/vendor/composer/installed.json';
+		if ( ! isset( self::$composer_installed[ $installed ] ) ) {
+			$names = [];
+			if ( is_file( $installed ) && filesize( $installed ) < 4194304 ) {
+				$data = json_decode( (string) @file_get_contents( $installed ), true );
+				$list = is_array( $data ) ? ( $data['packages'] ?? $data ) : [];
+				foreach ( (array) $list as $pkg ) {
+					if ( is_array( $pkg ) && isset( $pkg['name'] ) && is_string( $pkg['name'] ) ) {
+						$names[ strtolower( $pkg['name'] ) ] = true;
+					}
+				}
+			}
+			self::$composer_installed[ $installed ] = $names;
+		}
+		return isset( self::$composer_installed[ $installed ][ strtolower( $name ) ] ) ? $name : '';
+	}
 }

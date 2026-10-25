@@ -260,7 +260,7 @@ Each exits non-zero on failure. They do not replace running the plugin on a stag
 
 ## Version
 
-Current plugin version: `1.4.153`
+Current plugin version: `1.4.154`
 
 Author: [MENJ](https://github.com/menj)
 

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP Perf Shield
  * Description: Blocks wp-perf-analytics traffic-hijacking malware and all renamed variants. Includes real-time activation blocking, scheduled scanning, and one-click remediation.
- * Version: 1.4.153
+ * Version: 1.4.154
  * Author: MENJ
  * Author URI: https://github.com/menj
  * License: GPL-2.0+
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WPS_VERSION', '1.4.153' );
+define( 'WPS_VERSION', '1.4.154' );
 define( 'WPS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPS_URL', plugin_dir_url( __FILE__ ) );
 define( 'WPS_LOG_DIR', WPS_DIR . 'logs' );
@@ -236,6 +236,23 @@ register_activation_hook( __FILE__, function (): void {
 	// 1.4.15: the must-use tamper guard is withdrawn. Activation removes any
 	// leftovers rather than installing anything.
 	WPS_Guard::purge();
+
+	// 1.4.154: the development test suite has no business on a production site.
+	if ( class_exists( 'WPS_Utils' ) && method_exists( 'WPS_Utils', 'remove_dev_files' ) ) {
+		WPS_Utils::remove_dev_files( WPS_DIR );
+	}
+} );
+
+// 1.4.154: an update uploaded over the old files brings tests/ back. Remove it on the first
+// admin request of any kind after the version changes, not only on this plugin's own screen.
+add_action( 'admin_init', function (): void {
+	if ( get_option( 'wps_dev_files_cleaned', '' ) === WPS_VERSION ) {
+		return;
+	}
+	update_option( 'wps_dev_files_cleaned', WPS_VERSION ); // autoloaded: read on every admin request
+	if ( class_exists( 'WPS_Utils' ) && method_exists( 'WPS_Utils', 'remove_dev_files' ) ) {
+		WPS_Utils::remove_dev_files( WPS_DIR );
+	}
 } );
 
 //  Deactivation
@@ -313,7 +330,7 @@ function wps_uninstall(): void {
 		'wps_safe_targets', 'wps_remediation_breaker', 'wps_ban_redrops', 'wps_blocked_c2_hosts', 'wps_scan_carryover',
 		'wps_self_baseline', 'wps_wpconfig_alerted', 'wps_php_inventory_baseline', 'wps_plugin_roster', 'wps_doorway_kit_history',
 		'wps_remediation_withheld', 'wps_events_schema', 'wps_event_hmac_key', 'wps_event_key_suffix', 'wps_event_chain',
-		'wps_events_migrated', 'wps_scan_lock', 'wps_login_net_offenders', 'wps_spam_sweep_cursor',
+		'wps_events_migrated', 'wps_scan_lock', 'wps_login_net_offenders', 'wps_spam_sweep_cursor', 'wps_dev_files_cleaned',
 	] as $wps_opt ) {
 		delete_option( $wps_opt );
 	}
