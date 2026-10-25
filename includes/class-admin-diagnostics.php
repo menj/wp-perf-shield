@@ -264,9 +264,11 @@ class WPS_Admin_Diagnostics {
 					// because each one covers a whole /24; the single-address
 					// rule accounts for the rest of the total, and showing it
 					// stops the panel reading as idle when it is not.
+					// 1.4.153: the total counts every rule, so the single-address figure is what is left
+					// after all three others, not after the range blocks alone (the categories overlapped).
 					$wps_lg_week_blocks   = (int) ( $wps_lg_stats['week_blocks'] ?? 0 );
 					$wps_lg_week_network  = (int) ( $wps_lg_stats['week_network_blocks'] ?? 0 );
-					$wps_lg_week_single   = max( 0, $wps_lg_week_blocks - $wps_lg_week_network );
+					$wps_lg_week_single   = max( 0, $wps_lg_week_blocks - $wps_lg_week_network - (int) ( $wps_lg_stats['week_multiuser_blocks'] ?? 0 ) - (int) ( $wps_lg_stats['week_permanent_blocks'] ?? 0 ) );
 					if ( $wps_lg_week_blocks > 0 ) :
 						?>
 					<tr>

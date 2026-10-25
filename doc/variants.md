@@ -56,6 +56,9 @@ A family marked *detect only* is found by scanning after it is already installed
 | 10 | [EtherHiding loaders](#10-etherhiding-loaders) | Blockchain-hosted payload delivery | Detect |
 | 11 | [Persistence implants](#11-persistence-implants) | Survival across cleanup | Detect |
 | 12 | [Other tracked slugs](#12-other-tracked-slugs) | Assorted fake plugins | Activation, upload, detect |
+| 13 | [TDS drive-by injector](#13-tds-drive-by-injector) | Front-end JavaScript injection through a traffic-distribution chain | Detect |
+| 14 | [User-hiding filter installer](#14-user-hiding-filter-installer) | Visibility suppression for hidden administrators | Hash, detect |
+| 15 | [Credential exfiltration staging file](#15-credential-exfiltration-staging-file) | Harvested credentials awaiting collection | Detect |
 | 16 | [Staged payload folders](#16-staged-payload-folders) | Opaque data with no loader, under changing names | Activation, hash, detect |
 | 17 | [Payload chunks disguised as images](#17-payload-chunks-disguised-as-images) | Base64 text named `.png`/`.gif` | Detect |
 | 18 | [Token-gated mu-plugin installer](#18-token-gated-mu-plugin-installer) | Remote code installation on request | Detect |

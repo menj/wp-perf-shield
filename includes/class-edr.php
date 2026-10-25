@@ -227,9 +227,9 @@ class WPS_EDR {
 	 * incident. Thin on purpose - storage, hashing, and user context are all
 	 * WPS_Event_Log's job, and this must not duplicate them.
 	 */
-	public static function record( string $event_type, array $ctx = [] ): void {
+	public static function record( string $event_type, array $ctx = [] ): bool {
 		if ( ! class_exists( 'WPS_Event_Log' ) ) {
-			return;
+			return false;
 		}
 		$user_id = isset( $ctx['user_id'] ) ? (int) $ctx['user_id'] : null;
 		if ( ! $user_id && function_exists( 'get_current_user_id' ) ) {
@@ -266,7 +266,7 @@ class WPS_EDR {
 		if ( isset( $ctx['user_role'] ) ) {
 			$fields['user_role'] = $ctx['user_role'];
 		}
-		WPS_Event_Log::record( $fields );
+		return null !== WPS_Event_Log::record( $fields );
 	}
 
 	/** The application password that authenticated this request, when one did. */
@@ -474,11 +474,10 @@ class WPS_EDR {
 		if ( function_exists( 'get_post_meta' ) && get_post_meta( $post_id, '_wps_spam_flagged', true ) ) {
 			return;
 		}
-		if ( function_exists( 'update_post_meta' ) ) {
-			update_post_meta( $post_id, '_wps_spam_flagged', time() );
-		}
 
-		self::record(
+		// 1.4.153: the once-per-post marker is written only after the event is stored. Set first, a
+		// failed store left the marker behind and every later save of the post skipped the alert.
+		$recorded = self::record(
 			'spam_post_injection_detected',
 			[
 				'object_type' => 'post',
@@ -488,6 +487,9 @@ class WPS_EDR {
 					. 'If you did not write this, treat it as an injection: find the entry point (rogue admin, mu-plugins, PHP in uploads, modified functions.php) BEFORE deleting the post, or it will be republished.',
 			]
 		);
+		if ( $recorded && function_exists( 'update_post_meta' ) ) {
+			update_post_meta( $post_id, '_wps_spam_flagged', time() );
+		}
 	}
 
 	public static function on_role_change( $user_id, $role, $old_roles = [] ): void {

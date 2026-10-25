@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.152
+Stable tag: 1.4.153
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.153 =
+The rest of the whole-code-base review. Spam content the save-boundary strip cannot clean is held as pending instead of being published; the daily spam sweep now walks the whole site instead of re-reading the newest batch; every diagnostic spam term reaches the database prefilter and long posts are judged by their tail; the event store refuses an append rather than fork the chain when its lock is held; the chain self-test gets its own scratch namespace, drops leftovers and reports its own errors; plugin manifests are fetched once per plugin per scan; the signature engine no longer builds a per-gram set (about 70 MB on a 1 MiB file); a bot username from a shared-infrastructure address no longer blocks it permanently; Akismet reporting works with enrichment off and a failed report is retried; a first range block holds for its base duration; and four documentation slips are corrected.
 
 = 1.4.152 =
 Fixes from a review of the whole code base. Removals the operator asks for (Delete this path, the bulk action, the policy ban) were refused inside plugin and theme folders because the quarantine's own gate never received the finding type; the findings screen's bulk buttons submitted the wrong form; a signed-in administrator session on a blocked address passed the surface refusals; the account-takeover guard judged the post author rather than the acting session, kept one login record per account, missed a role sent on the query string, and could not stop an XML-RPC write; the scan lock, upgrader attribution, plugin integrity path and uninstall cleanup are corrected.
@@ -692,6 +695,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.153 =
+Review follow-ups: spam that cannot be stripped is held for review, the spam sweep reaches old posts, scans use less memory, and range blocks start at 30 minutes. Nothing to configure.
 
 = 1.4.152 =
 If "Delete this path", the bulk Quarantine button or the policy ban reported a quarantine failure inside a plugin folder, update and try again: the removal now goes through. Nothing to configure.

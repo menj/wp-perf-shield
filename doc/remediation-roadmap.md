@@ -54,7 +54,7 @@ Then reconstruct a WordPress stub. The harness pattern used throughout this prog
 
 ## 3. Status ledger
 
-Twenty findings. Three fixed, one partial, sixteen open.
+Twenty findings. Four fixed, one partial, fifteen open.
 
 | ID | Finding | Status |
 | --- | --- | --- |

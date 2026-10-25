@@ -189,7 +189,7 @@ Tabs follow the incident-response workflow, grouped into an action band, an obse
 - **Diagnostics**: attack attempts, hostile IPs, clearance actions, scan outcomes, daily activity, Source Trace, and operational status; the permanent sign-in denylist with a field to permanently block an address or range by hand; and the Event-chain self-test.
 - **Events**: incident summaries with cumulative risk and severity band, above the structured security event history.
 - **Logs**: read-only inspection of server access and error logs, with campaign-indicator and automated-login scans.
-- **Settings**: custom blocked slugs, the site-policy banned-plugins list, custom MD5/SHA-256 hashes, sign-in protection including XML-RPC and Akismet reporting controls, appearance, and behaviour toggles. Grouped into six sub-tabs (Detection, Sign-in, Posting & accounts, Response, Banned plugins, Appearance) inside one form with a single Save button.
+- **Settings**: custom blocked slugs, the site-policy banned-plugins list, custom MD5/SHA-256 hashes, sign-in protection including XML-RPC and Akismet reporting controls, appearance, and behaviour toggles. Grouped into seven sub-tabs (Detection, Sign-in, XML-RPC & exposure, Posting & accounts, Response, Banned plugins, Appearance) inside one form with a single Save button.
 - **Docs**: the plugin's own documentation rendered inside wp-admin, so this reference, the changelog and the upgrade notes are readable without leaving the site.
 
 ## Logging
@@ -260,7 +260,7 @@ Each exits non-zero on failure. They do not replace running the plugin on a stag
 
 ## Version
 
-Current plugin version: `1.4.152`
+Current plugin version: `1.4.153`
 
 Author: [MENJ](https://github.com/menj)
 

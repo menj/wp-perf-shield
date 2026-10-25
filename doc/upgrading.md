@@ -59,6 +59,18 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.153
+
+**The remaining review findings.** With the spam-content guard on, a post the strip cannot clean (the multilingual and regulatory-evasion matches, "siti non AAMS" and the like) is now saved as **pending** instead of published, with an event saying which rule held it; look under Posts for anything held. The daily spam sweep now works through the whole site, one batch of 200 a day from newest to oldest, then starts over; before, it re-read the newest 200 every day and never reached older spam. Long posts are judged by their last 100,000 bytes as well as their first.
+
+**Scans.** The signature engine no longer builds a per-gram set while scanning a file; a 1 MiB high-entropy file took about 70 MB of memory, now under 16 MB. Plugin manifests are fetched once per plugin per scan rather than once per file. The comment stripper handles files up to the 4 MiB the checks read.
+
+**Sign-in guard.** A bot username ("root", "admin") from an address in a private or known proxy range is counted like any other failure instead of permanently blocking the address, since one such attempt through a shared NAT locked every real user behind it out. Akismet reporting now follows its own setting and works with enrichment switched off, and a report that failed to send is retried rather than remembered as sent for fourteen days. A first range block holds for its base duration (30 minutes for a burst, 6 hours for a rotation); repeats climb the ladder from there. Previously a first burst block held for six hours.
+
+**Event store.** When the append lock is held by another writer for ten seconds, the append is refused and written to the file log rather than taken under a row lock the holder does not share, which forked the chain and read later as tampering. The chain self-test now uses a namespace of its own per run, drops a scratch table an interrupted run left behind, tolerates the site logging while it runs, and reports an error inside the lock test as a failure rather than a skip.
+
+Nothing to configure. Four suites added or extended; each new assertion fails on 1.4.152.
+
 ## 1.4.152
 
 **Removals you ask for now happen.** On every release since 1.4.88, "Delete this path", the bulk "Quarantine selected" button and the on-disk policy ban were refused for anything inside `wp-content/plugins` or `wp-content/themes`, and the screen blamed the quarantine store ("Quarantine failed, so nothing was deleted" or "AUTOMATIC REMEDIATION DID NOT RUN ... check that the quarantine store exists, is writable"). The store was fine. The quarantine's last policy gate never received the finding's type, judged every removal as an untyped heuristic, and refused. If you saw that message, update and repeat the removal; it goes through, and a refusal now says which policy rule refused it (a Safe decision or the circuit breaker, both under Diagnostics). A Safe target and WordPress core are still never removed, by anyone.

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP Perf Shield
  * Description: Blocks wp-perf-analytics traffic-hijacking malware and all renamed variants. Includes real-time activation blocking, scheduled scanning, and one-click remediation.
- * Version: 1.4.152
+ * Version: 1.4.153
  * Author: MENJ
  * Author URI: https://github.com/menj
  * License: GPL-2.0+
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WPS_VERSION', '1.4.152' );
+define( 'WPS_VERSION', '1.4.153' );
 define( 'WPS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPS_URL', plugin_dir_url( __FILE__ ) );
 define( 'WPS_LOG_DIR', WPS_DIR . 'logs' );
@@ -313,7 +313,7 @@ function wps_uninstall(): void {
 		'wps_safe_targets', 'wps_remediation_breaker', 'wps_ban_redrops', 'wps_blocked_c2_hosts', 'wps_scan_carryover',
 		'wps_self_baseline', 'wps_wpconfig_alerted', 'wps_php_inventory_baseline', 'wps_plugin_roster', 'wps_doorway_kit_history',
 		'wps_remediation_withheld', 'wps_events_schema', 'wps_event_hmac_key', 'wps_event_key_suffix', 'wps_event_chain',
-		'wps_events_migrated', 'wps_scan_lock', 'wps_login_net_offenders',
+		'wps_events_migrated', 'wps_scan_lock', 'wps_login_net_offenders', 'wps_spam_sweep_cursor',
 	] as $wps_opt ) {
 		delete_option( $wps_opt );
 	}

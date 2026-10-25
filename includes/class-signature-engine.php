@@ -944,16 +944,16 @@ final class WPS_Signature_Engine {
 				if ( ! $index ) {
 					continue;
 				}
+				// 1.4.153: the "seen" set holds only grams the index knows, so it is bounded by the
+				// database rather than the file (one entry per distinct gram of a 1 MiB high-entropy
+				// file took about 70 MB), while a common indexed gram still merges its bucket once.
 				$seen = [];
 				$len  = strlen( $text ) - 2;
 				for ( $i = 0; $i < $len; $i++ ) {
 					$g = substr( $text, $i, 3 );
-					if ( isset( $seen[ $g ] ) ) {
-						continue;
-					}
-					$seen[ $g ] = true;
-					if ( isset( $index[ $g ] ) ) {
-						$cand += $index[ $g ];
+					if ( isset( $index[ $g ] ) && ! isset( $seen[ $g ] ) ) {
+						$seen[ $g ] = true;
+						$cand      += $index[ $g ];
 					}
 				}
 			}

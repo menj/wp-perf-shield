@@ -30,7 +30,8 @@ defined( 'ABSPATH' ) || exit;
 final class WPS_Spam_Signatures {
 
 	/** Cap the text examined per item, so a pathologically large body cannot stall a scan. */
-	private const MAX_LEN = 200000;
+	private const MAX_LEN  = 200000;
+	private const TAIL_LEN = 100000; // 1.4.153: the end of a long post is judged as well as its start
 
 	/** SEO-spam tokens that do not appear in prose in any language. One is conclusive. */
 	private const DIAGNOSTIC = [
@@ -72,8 +73,11 @@ final class WPS_Spam_Signatures {
 		if ( '' === $text ) {
 			return $none;
 		}
-		if ( strlen( $text ) > self::MAX_LEN ) {
-			$text = substr( $text, 0, self::MAX_LEN );
+		if ( strlen( $text ) > self::MAX_LEN + self::TAIL_LEN ) {
+			// 1.4.153: the head and the tail, not the head alone. Injected spam sits at the end of a long
+			// genuine post as often as at the start, and a head-only cut never saw it. The head keeps
+			// its full 200,000 bytes; the last 100,000 are appended.
+			$text = substr( $text, 0, self::MAX_LEN ) . "\n" . substr( $text, -self::TAIL_LEN );
 		}
 		$hay = strtolower( $text );
 
@@ -160,6 +164,26 @@ final class WPS_Spam_Signatures {
 
 	/** The SQL LIKE fragments to pre-filter candidate rows before the matcher confirms them. */
 	public static function like_prefilter_terms(): array {
-		return [ 'gacor', 'togel', 'judi', 'casino', 'maxwin', 'sbobet', 'slot', 'rtp live', 'bocoran', 'free spins', 'オンラインカジノ' ];
+		// 1.4.153: every diagnostic term, because one diagnostic hit alone is a verdict and a row the
+		// prefilter skips is never judged. The short generic stems stay for the two-signal rules.
+		$terms = [ 'gacor', 'togel', 'judi', 'casino', 'maxwin', 'sbobet', 'slot', 'rtp live', 'bocoran', 'free spins', 'オンラインカジノ' ];
+		foreach ( self::DIAGNOSTIC as $term ) {
+			$covered = false;
+			foreach ( $terms as $t ) {
+				if ( false !== strpos( $term, $t ) ) {
+					$covered = true;
+					break;
+				}
+			}
+			if ( ! $covered ) {
+				$terms[] = $term;
+			}
+		}
+		return array_values( array_unique( $terms ) );
+	}
+
+	/** The diagnostic terms, for tests and the prefilter check. @return string[] */
+	public static function diagnostic_terms(): array {
+		return self::DIAGNOSTIC;
 	}
 }

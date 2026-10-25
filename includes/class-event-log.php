@@ -278,6 +278,13 @@ class WPS_Event_Log {
 		if ( function_exists( 'delete_option' ) ) {
 			delete_option( self::chain_option() ); // start from a clean genesis
 		}
+		// 1.4.153: a run interrupted before end_selftest() leaves its scratch table behind, and the
+		// next run would inherit its rows and fail the clean-chain check. Drop it first.
+		$db    = self::db();
+		$table = self::table();
+		if ( $db && method_exists( $db, 'query' ) && strpos( $table, 'wps_events_st_' ) !== false ) {
+			$db->query( 'DROP TABLE IF EXISTS ' . $table );
+		}
 		return self::ensure_table();
 	}
 
@@ -332,6 +339,12 @@ class WPS_Event_Log {
 		 * likely source of an unexplained tamper report on a busy site.
 		 */
 		$lock      = self::acquire_append_lock();
+		if ( ( $lock['type'] ?? '' ) === 'refused' ) {
+			if ( class_exists( 'WPS_Logger' ) && method_exists( 'WPS_Logger', 'write' ) ) {
+				WPS_Logger::write( 'event store: append refused rather than fork the chain (' . (string) ( $lock['reason'] ?? '' ) . '): ' . (string) ( $row['event_type'] ?? '' ) );
+			}
+			return null; // the file-log shim keeps its copy; a forked chain would read as tampering
+		}
 		$id        = null;
 		$committed = false;
 
@@ -431,11 +444,26 @@ class WPS_Event_Log {
 		$got  = null;
 		if ( method_exists( $db, 'prepare' ) ) {
 			$got = $db->get_var( $db->prepare( 'SELECT GET_LOCK(%s, %d)', $name, self::LOCK_TIMEOUT ) );
+			if ( (string) $got === '0' ) {
+				// 1.4.153: a timeout means another appender HOLDS the advisory lock. Falling through to
+				// the row-lock path here ran beside that holder, which takes no row lock, and the two
+				// forked the chain. Wait once more; if the lock is still held, refuse this append.
+				$got = $db->get_var( $db->prepare( 'SELECT GET_LOCK(%s, %d)', $name, self::LOCK_TIMEOUT ) );
+			}
 		}
 		if ( (string) $got === '1' ) {
 			return [ 'type' => 'get_lock', 'name' => $name ];
 		}
+		if ( (string) $got === '0' ) {
+			return [ 'type' => 'refused', 'reason' => 'append lock held for ' . ( 2 * self::LOCK_TIMEOUT ) . 's' ];
+		}
+		if ( null === $got && isset( $db->last_error ) && '' !== (string) $db->last_error ) {
+			// The query failed; the database may well have advisory locks and another writer may hold
+			// one. Refuse rather than append beside it under a row lock it does not take.
+			return [ 'type' => 'refused', 'reason' => 'GET_LOCK failed: ' . substr( (string) $db->last_error, 0, 120 ) ];
+		}
 
+		// NULL with no error: this database has no advisory locks. The row lock is the only serialisation there is.
 		if ( method_exists( $db, 'query' ) ) {
 			$db->query( 'START TRANSACTION' );
 			// Lock the current tail row so a second appender blocks here until

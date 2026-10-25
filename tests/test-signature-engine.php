@@ -324,5 +324,15 @@ $GLOBALS['opts'] = [];
 check( 'the check is registered', false !== strpos( (string) file_get_contents( dirname( __DIR__ ) . '/includes/class-scanner.php' ), "'check_signature_database' => [ __CLASS__" ) );
 
 exec( 'rm -rf ' . escapeshellarg( $tmp ) );
+// ---- 1.4.153: a high-entropy 1 MiB file must not build a per-gram set the size of the file.
+$big_db = db( [ 'x.ndb' => [ 'Big.Needle:0:*:' . hx( 'needle-that-is-not-there' ) ] ] );
+$random = random_bytes( 1048576 );
+gc_collect_cycles();
+$before = memory_get_usage();
+$peak0  = memory_get_peak_usage();
+hit( $big_db, $random );
+$grew = memory_get_peak_usage() - max( $peak0, $before );
+check( 'scanning 1 MiB of random bytes grows peak memory by under 16 MB (the old gram set took about 70 MB)', $grew < 16 * 1048576, round( $grew / 1048576, 1 ) . ' MB' );
+
 echo $fail ? "\n$fail FAILED\n" : "\nAll passed\n";
 exit( $fail ? 1 : 0 );

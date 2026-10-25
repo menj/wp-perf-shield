@@ -727,6 +727,9 @@ class WPS_Scanner {
 		if ( class_exists( 'WPS_Utils' ) ) {
 			WPS_Utils::clear_normalised_cache();
 		}
+		if ( class_exists( 'WPS_Integrity' ) && method_exists( 'WPS_Integrity', 'reset' ) ) {
+			WPS_Integrity::reset(); // 1.4.153: the manifest memo is scan-scoped too
+		}
 
 		set_transient( 'wps_scan_results', $findings, HOUR_IN_SECONDS );
 		update_option( 'wps_last_scan', [
