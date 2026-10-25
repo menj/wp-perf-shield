@@ -64,6 +64,10 @@ $cr2 = "<?php\r# note\rsystem(\$_GET['c']);";
 check( 'and a # comment', false !== strpos( WPS_Utils::strip_php_comments( $cr2 ), "system(\$_GET['c'])" ) );
 $close = "<?php // hidden ?><?php eval(\$_REQUEST['z']);\n";
 check( 'a ?> inside a // comment ends it, so a second PHP block on the line is kept', false !== strpos( WPS_Utils::strip_php_comments( $close ), "eval(\$_REQUEST['z'])" ), json_encode( WPS_Utils::strip_php_comments( $close ) ) );
+$many = "<?php\n" . str_repeat( "// note ? still a comment\n\$a = 1;\n", 40000 ); // about 1.3 MB: 40,000 comments, no CR and no closing tag
+$t0 = microtime( true );
+$out = WPS_Utils::strip_php_comments( $many );
+check( 'a file of 40,000 comments is stripped in linear time (under 2 seconds)', microtime( true ) - $t0 < 2.0 && 40000 === substr_count( $out, '$a = 1;' ) && false === strpos( $out, 'note' ), round( microtime( true ) - $t0, 2 ) . 's' );
 check( 'an ordinary LF comment is still removed', false === strpos( WPS_Utils::strip_php_comments( "<?php // secret\n\$a=1;" ), 'secret' ) );
 
 // ---- outbound guard reads cookies and headers

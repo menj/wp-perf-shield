@@ -379,14 +379,23 @@ class WPS_Utils {
 	 * "comment"), or just before "?>", which closes the PHP block even inside a // comment.
 	 */
 	private static function line_comment_end( string $content, int $i, int $len ): int {
-		$end = $len;
-		foreach ( [ "\n", "\r", '?>' ] as $stop ) {
-			$p = strpos( $content, $stop, $i );
-			if ( false !== $p && $p < $end ) {
-				$end = $p;
+		// One forward pass to the nearest stop. Three separate strpos() calls each ran to the end of
+		// the file when a marker was absent (no \r in an LF file), which made comment-heavy files quadratic.
+		$p = $i;
+		while ( $p < $len ) {
+			$p += strcspn( $content, "\r\n?", $p );
+			if ( $p >= $len ) {
+				break;
 			}
+			if ( '?' !== $content[ $p ] ) {
+				return $p;
+			}
+			if ( $p + 1 < $len && '>' === $content[ $p + 1 ] ) {
+				return $p;
+			}
+			++$p;
 		}
-		return $end;
+		return $len;
 	}
 
 	public static function goto_density( string $content ): array {
