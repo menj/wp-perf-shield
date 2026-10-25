@@ -22,8 +22,16 @@ $GLOBALS['opts']    = [];
 $GLOBALS['trashed'] = [];
 $GLOBALS['uid']     = 0;
 $GLOBALS['hooks']   = [];
-function get_user_meta( $u, $k, $single = false ) { return $GLOBALS['meta'][ $u ][ $k ] ?? ''; }
+function get_user_meta( $u, $k = '', $single = false ) {
+	if ( '' === $k ) { // every key, each as a list of serialized values, as WordPress returns it
+		return array_map( static fn( $v ) => [ serialize( $v ) ], $GLOBALS['meta'][ $u ] ?? [] );
+	}
+	return $GLOBALS['meta'][ $u ][ $k ] ?? '';
+}
 function update_user_meta( $u, $k, $v ) { $GLOBALS['meta'][ $u ][ $k ] = $v; return true; }
+function delete_user_meta( $u, $k ) { unset( $GLOBALS['meta'][ $u ][ $k ] ); return true; }
+function maybe_unserialize( $v ) { return is_string( $v ) ? @unserialize( $v ) : $v; }
+function fp_key( string $ip, string $ua ): string { return '_wps_login_fp_' . md5( $ip . '|' . $ua ); }
 function get_option( $k, $d = false ) { return $GLOBALS['opts'][ $k ] ?? $d; }
 function get_userdata( $u ) { return (object) [ 'ID' => $u, 'user_login' => 'user' . $u ]; }
 function wp_trash_post( $id ) { $GLOBALS['trashed'][] = $id; return true; }
@@ -67,10 +75,10 @@ $GLOBALS['opts']['wps_opts'] = [ 'account_guard_lockdown' => '0' ]; // no WPS_Bl
 // ---- 1. one login record per device.
 as_device( '203.0.113.5', 'Laptop' );
 WPS_Account_Guard::record_login( 'user7', $u );
-$GLOBALS['meta'][7]['_wps_login_fingerprint'][ md5( '203.0.113.5|Laptop' ) ]['time'] = time() - 3600; // the laptop logged in an hour ago
+$GLOBALS['meta'][7][ fp_key( '203.0.113.5', 'Laptop' ) ]['time'] = time() - 3600; // the laptop logged in an hour ago
 as_device( '198.51.100.9', 'Phone' );
 WPS_Account_Guard::record_login( 'user7', $u ); // a fresh login from the phone just now
-check( 'the login fingerprint holds one record per device', 2 === count( $GLOBALS['meta'][7]['_wps_login_fingerprint'] ), json_encode( $GLOBALS['meta'][7] ) );
+check( 'each device has its own login record row', isset( $GLOBALS['meta'][7][ fp_key( '203.0.113.5', 'Laptop' ) ], $GLOBALS['meta'][7][ fp_key( '198.51.100.9', 'Phone' ) ] ) && ! isset( $GLOBALS['meta'][7]['_wps_login_fingerprint'] ), json_encode( $GLOBALS['meta'][7] ) );
 
 as_device( '203.0.113.5', 'Laptop' );
 $GLOBALS['uid'] = 7;
@@ -83,13 +91,27 @@ WPS_Account_Guard::check_rest_write( $post, null, true );
 check( 'a write from the phone seconds after its first login from a device never seen is flagged and trashed', [ 101 ] === $GLOBALS['trashed'], json_encode( $GLOBALS['trashed'] ) );
 check( 'a flagged device is not remembered as known', ! isset( $GLOBALS['meta'][7]['_wps_known_devices'][ md5( '198.51.100.9|Phone' ) ] ) );
 
+// ---- 1b. two sign-ins at the same instant keep both records (one row per device, no shared list).
+$GLOBALS['meta'][8] = [];
+$u8 = (object) [ 'ID' => 8, 'user_login' => 'user8' ];
+as_device( '203.0.113.1', 'A' );
+WPS_Account_Guard::record_login( 'user8', $u8 );
+as_device( '203.0.113.2', 'B' );
+WPS_Account_Guard::record_login( 'user8', $u8 );
+check( 'a sign-in writes only its own device row and never rewrites the list', isset( $GLOBALS['meta'][8][ fp_key( '203.0.113.1', 'A' ) ], $GLOBALS['meta'][8][ fp_key( '203.0.113.2', 'B' ) ] ) && 2 === count( $GLOBALS['meta'][8] ), json_encode( array_keys( $GLOBALS['meta'][8] ) ) );
+$GLOBALS['meta'][8][ fp_key( '203.0.113.1', 'A' ) ]['time'] = time() - 5000;
+$GLOBALS['meta'][8][ fp_key( '203.0.113.2', 'B' ) ]['time'] = time() - 4000;
+for ( $n = 0; $n < 25; $n++ ) { as_device( '203.0.113.' . ( 10 + $n ), 'D' ); WPS_Account_Guard::record_login( 'user8', $u8 ); }
+check( 'the oldest rows are pruned past the per-account cap', 20 === count( $GLOBALS['meta'][8] ) && ! isset( $GLOBALS['meta'][8][ fp_key( '203.0.113.1', 'A' ) ] ), count( $GLOBALS['meta'][8] ) . ' rows' );
+// a record written before 1.4.152 is still honoured
+$GLOBALS['meta'][9] = [ '_wps_login_fingerprint' => [ 'time' => time(), 'ip' => '192.0.2.44', 'ua' => 'Scripted' ] ];
+
 // ---- 2. the acting session is judged, not the post's author.
 $GLOBALS['trashed'] = [];
 $GLOBALS['uid']     = 9; // user 9 writes a post whose author field says 7
 as_device( '192.0.2.44', 'Scripted' );
-WPS_Account_Guard::record_login( 'user9', (object) [ 'ID' => 9, 'user_login' => 'user9' ] );
 WPS_Account_Guard::check_rest_write( (object) [ 'ID' => 202, 'post_author' => 7 ], null, true );
-check( 'a rapid write by user 9 is flagged even when the post names user 7 as author', [ 202 ] === $GLOBALS['trashed'], json_encode( $GLOBALS['trashed'] ) );
+check( 'a rapid write by user 9 is flagged even when the post names user 7 as author (and a pre-1.4.152 login record still counts)', [ 202 ] === $GLOBALS['trashed'], json_encode( $GLOBALS['trashed'] ) );
 $GLOBALS['trashed'] = [];
 $GLOBALS['uid']     = 7;
 as_device( '203.0.113.5', 'Laptop' );
@@ -98,7 +120,7 @@ check( 'and the laptop session is not punished for user 9\'s fresh login', [] ==
 
 // ---- 3. a remembered device expires.
 $GLOBALS['meta'][7]['_wps_known_devices'][ md5( '198.51.100.9|Phone' ) ] = time() - 91 * DAY_IN_SECONDS;
-$GLOBALS['meta'][7]['_wps_login_fingerprint'][ md5( '198.51.100.9|Phone' ) ]['time'] = time();
+$GLOBALS['meta'][7][ fp_key( '198.51.100.9', 'Phone' ) ]['time'] = time();
 as_device( '198.51.100.9', 'Phone' );
 WPS_Account_Guard::check_rest_write( $post, null, true );
 check( 'a device last seen 91 days ago is no longer trusted', [ 101 ] === $GLOBALS['trashed'], json_encode( $GLOBALS['trashed'] ) );
@@ -123,18 +145,18 @@ define( 'XMLRPC_REQUEST', true );
 $GLOBALS['trashed'] = [];
 $GLOBALS['uid']     = 7;
 as_device( '198.51.100.77', 'Python-xmlrpc' );
-check( 'no login record exists for a device that has only ever used XML-RPC', ! isset( $GLOBALS['meta'][7]['_wps_login_fingerprint'][ md5( '198.51.100.77|Python-xmlrpc' ) ] ) );
+check( 'no login record exists for a device that has only ever used XML-RPC', ! isset( $GLOBALS['meta'][7][ fp_key( '198.51.100.77', 'Python-xmlrpc' ) ] ) );
 ob_start();
 WPS_Account_Guard::check_xmlrpc_write( 'wp.newPost' );
 $out = ob_get_clean();
 check( 'the first write over XML-RPC from a device never seen is answered with a fault', false !== strpos( $out, 'STATUS:403;' ) && false !== strpos( $out, '<fault>' ), $out );
-check( 'and that first contact is recorded as the device\'s sign-in', isset( $GLOBALS['meta'][7]['_wps_login_fingerprint'][ md5( '198.51.100.77|Python-xmlrpc' ) ] ) );
+check( 'and that first contact is recorded as the device\'s sign-in', isset( $GLOBALS['meta'][7][ fp_key( '198.51.100.77', 'Python-xmlrpc' ) ] ) );
 check( 'the device is not remembered as known', ! isset( $GLOBALS['meta'][7]['_wps_known_devices'][ md5( '198.51.100.77|Python-xmlrpc' ) ] ) );
 ob_start();
 WPS_Account_Guard::check_xmlrpc_write( 'wp.newPost' );
 $out = ob_get_clean();
 check( 'a second write seconds later is refused too', false !== strpos( $out, 'STATUS:403;' ), $out );
-$GLOBALS['meta'][7]['_wps_login_fingerprint'][ md5( '198.51.100.77|Python-xmlrpc' ) ]['time'] = time() - 3600;
+$GLOBALS['meta'][7][ fp_key( '198.51.100.77', 'Python-xmlrpc' ) ]['time'] = time() - 3600;
 ob_start();
 WPS_Account_Guard::check_xmlrpc_write( 'wp.newPost' );
 $out = ob_get_clean();

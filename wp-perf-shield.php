@@ -320,6 +320,8 @@ function wps_uninstall(): void {
 	global $wpdb;
 	if ( isset( $wpdb ) && is_object( $wpdb ) ) {
 		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( 'wps_event_chain_st_' ) . '%' ) );
+		// The account guard's per-user rows: login records (one per device since 1.4.152) and known devices.
+		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->usermeta} WHERE meta_key LIKE %s OR meta_key IN ('_wps_login_fingerprint', '_wps_known_devices')", $wpdb->esc_like( '_wps_login_fp_' ) . '%' ) );
 		// The event table and the self-test scratch tables only (wps_events_st_<ns>); a bare prefix
 		// match would also take a table another plugin happened to name wps_events_something.
 		$wps_tables = (array) $wpdb->get_col( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $wpdb->prefix . 'wps_events_st_' ) . '%' ) );

@@ -154,15 +154,35 @@ final class WPS_Account_Guard {
 		self::remember_login( (int) $user->ID, self::client_ip(), substr( (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ), 0, 200 ) );
 	}
 
-	/** Record that this device authenticated for this account just now. */
+	/** Meta key prefix for one login record per device (1.4.152). */
+	private const LOGIN_META_PREFIX = '_wps_login_fp_';
+
+	/**
+	 * Record that this device authenticated for this account just now.
+	 *
+	 * One user-meta row per device, written with no read of the others, so two sign-ins to the same
+	 * account at the same instant cannot overwrite each other's record (a read-modify-write on a
+	 * shared list could, and the device that lost would never be judged). Only when the account has
+	 * more records than it keeps are the oldest removed.
+	 */
 	private static function remember_login( int $user_id, string $ip, string $ua ): void {
+		update_user_meta( $user_id, self::LOGIN_META_PREFIX . self::device_key( $ip, $ua ), [ 'time' => time(), 'ip' => $ip, 'ua' => $ua ] );
 		$fps = self::login_fingerprints( $user_id );
-		$fps[ self::device_key( $ip, $ua ) ] = [ 'time' => time(), 'ip' => $ip, 'ua' => $ua ];
 		if ( count( $fps ) > self::MAX_DEVICES_PER_USER ) {
 			uasort( $fps, static fn( array $a, array $b ): int => (int) $a['time'] <=> (int) $b['time'] );
-			$fps = array_slice( $fps, -self::MAX_DEVICES_PER_USER, null, true );
+			foreach ( array_slice( array_keys( $fps ), 0, count( $fps ) - self::MAX_DEVICES_PER_USER ) as $old ) {
+				delete_user_meta( $user_id, self::LOGIN_META_PREFIX . $old );
+			}
 		}
-		update_user_meta( $user_id, '_wps_login_fingerprint', $fps );
+	}
+
+	/** This device's login record for the account, or null. Reads one row. */
+	private static function login_fingerprint( int $user_id, string $device ): ?array {
+		$rec = get_user_meta( $user_id, self::LOGIN_META_PREFIX . $device, true );
+		if ( is_array( $rec ) && isset( $rec['time'] ) ) {
+			return [ 'time' => (int) $rec['time'], 'ip' => (string) ( $rec['ip'] ?? '' ), 'ua' => (string) ( $rec['ua'] ?? '' ) ];
+		}
+		return self::login_fingerprints( $user_id )[ $device ] ?? null; // a record written before 1.4.152
 	}
 
 	/**
@@ -179,25 +199,30 @@ final class WPS_Account_Guard {
 	}
 
 	/**
-	 * Login records keyed by device, converting the pre-1.4.152 single record on read.
+	 * Every login record for the account, keyed by device: the per-device rows, plus the single
+	 * record a release before 1.4.152 kept under `_wps_login_fingerprint`, converted on read.
 	 *
 	 * @return array<string, array{time:int,ip:string,ua:string}>
 	 */
 	private static function login_fingerprints( int $user_id ): array {
-		$fps = get_user_meta( $user_id, '_wps_login_fingerprint', true );
-		if ( ! is_array( $fps ) ) {
-			return [];
-		}
-		if ( isset( $fps['time'] ) ) {
-			$ip = (string) ( $fps['ip'] ?? '' );
-			$ua = (string) ( $fps['ua'] ?? '' );
-			return [ self::device_key( $ip, $ua ) => [ 'time' => (int) $fps['time'], 'ip' => $ip, 'ua' => $ua ] ];
-		}
 		$out = [];
-		foreach ( $fps as $k => $rec ) {
-			if ( is_string( $k ) && is_array( $rec ) && isset( $rec['time'] ) ) {
-				$out[ $k ] = [ 'time' => (int) $rec['time'], 'ip' => (string) ( $rec['ip'] ?? '' ), 'ua' => (string) ( $rec['ua'] ?? '' ) ];
+		$all = get_user_meta( $user_id );
+		if ( is_array( $all ) ) {
+			foreach ( $all as $key => $vals ) {
+				if ( ! is_string( $key ) || 0 !== strpos( $key, self::LOGIN_META_PREFIX ) ) {
+					continue;
+				}
+				$rec = is_array( $vals ) ? maybe_unserialize( reset( $vals ) ) : null;
+				if ( is_array( $rec ) && isset( $rec['time'] ) ) {
+					$out[ substr( $key, strlen( self::LOGIN_META_PREFIX ) ) ] = [ 'time' => (int) $rec['time'], 'ip' => (string) ( $rec['ip'] ?? '' ), 'ua' => (string) ( $rec['ua'] ?? '' ) ];
+				}
 			}
+		}
+		$legacy = get_user_meta( $user_id, '_wps_login_fingerprint', true );
+		if ( is_array( $legacy ) && isset( $legacy['time'] ) ) {
+			$ip = (string) ( $legacy['ip'] ?? '' );
+			$ua = (string) ( $legacy['ua'] ?? '' );
+			$out += [ self::device_key( $ip, $ua ) => [ 'time' => (int) $legacy['time'], 'ip' => $ip, 'ua' => $ua ] ];
 		}
 		return $out;
 	}
@@ -283,8 +308,7 @@ final class WPS_Account_Guard {
 		$ua     = substr( (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ), 0, 200 );
 		$device = self::device_key( $ip, $ua );
 
-		$fps = self::login_fingerprints( $user_id );
-		$fp  = $fps[ $device ] ?? null;
+		$fp = self::login_fingerprint( $user_id, $device );
 		if ( null === $fp ) {
 			if ( ! self::sessionless_auth() ) {
 				return false; // no recorded login for this device; nothing to compare against
