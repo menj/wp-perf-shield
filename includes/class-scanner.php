@@ -16801,6 +16801,22 @@ class WPS_Scanner {
 		if ( ! $real ) {
 			return [ 'ok' => true, 'message' => 'Already gone.', 'quarantined' => null, 'options' => [] ];
 		}
+		// 1.4.152: the policy is asked here, immediately before anything moves, on both paths. The
+		// quarantine has its own gate, but a permanent removal (the ban sweep's third sighting, or
+		// quarantine switched off) never reaches it, and a Safe decision or a tripped circuit breaker
+		// must hold there too. This is an operator channel, so a refusal is reported, never a breaker trip.
+		if ( class_exists( 'WPS_Remediation_Policy' ) ) {
+			$decision = WPS_Remediation_Policy::decide( [ 'delete_path' => $real, 'type' => $finding_type ] );
+			if ( empty( $decision['allowed'] ) ) {
+				WPS_Logger::log_event( 'manual_removal_denied_policy', self::display_path( $real ) . ': ' . (string) ( $decision['rule'] ?? '' ) );
+				return [
+					'ok'          => false,
+					'message'     => 'Removal refused by the removal policy: ' . (string) ( $decision['reason'] ?? '' ) . ' (' . (string) ( $decision['rule'] ?? '' ) . '). Nothing was deleted. If a Safe decision is blocking it, revoke it under Diagnostics first; if the circuit breaker is tripped, reset it there.',
+					'quarantined' => null,
+					'options'     => [],
+				];
+			}
+		}
 		$pre_hashes = self::compute_redrop_hashes( $real );
 		// Discover state BEFORE the files move: it is read from them.
 		$state_options = self::state_options_for_path( $real );

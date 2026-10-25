@@ -113,7 +113,9 @@ $res = WPS_Scanner::remediate_manually( $P . '/kept/kept.php' );
 check( 'a Safe target is refused', empty( $res['ok'] ) && is_file( $P . '/kept/kept.php' ), json_encode( $res ) );
 check( 'the refusal names the policy, not the quarantine store', false !== stripos( (string) $res['message'], 'removal policy' ) && false !== stripos( (string) $res['message'], 'Safe' ), (string) $res['message'] );
 check( 'an operator refusal does not trip the circuit breaker', ! WPS_Remediation_Policy::breaker_tripped() );
-check( 'the quarantine recorded why', false !== strpos( WPS_Quarantine::last_denial(), 'operator_safe' ), WPS_Quarantine::last_denial() );
+check( 'the refusal names the rule', false !== strpos( (string) $res['message'], 'operator_safe' ), (string) $res['message'] );
+$id = WPS_Quarantine::quarantine( $P . '/kept/kept.php', [ 'type' => 'manual removal', 'reason' => 'x' ] );
+check( 'the quarantine\'s own gate refuses it too and records why', null === $id && false !== strpos( WPS_Quarantine::last_denial(), 'operator_safe' ), WPS_Quarantine::last_denial() );
 
 // ---- 4. core is never removed, by anyone.
 put( ABSPATH . 'wp-includes/pluggable.php' );
@@ -131,6 +133,18 @@ check( 'a heuristic refusal is not a Safe violation, so the breaker stays armed'
 $id = WPS_Quarantine::quarantine( $P . '/kept/kept.php', [ 'type' => 'Known malware upload', 'finding_type' => 'Known malware upload', 'reason' => 'x' ] );
 check( 'a scanner finding reaching the gate on a Safe target is refused and trips the breaker', null === $id && is_file( $P . '/kept/kept.php' ) && WPS_Remediation_Policy::breaker_tripped() );
 WPS_Remediation_Policy::reset_breaker();
+
+// ---- 5b. the policy holds immediately before a permanent removal and on the bulk channel (CodeAnt, PR 29).
+put( $P . '/kept/kept.php', "<?php\n/* Plugin Name: Kept */\n" );
+$res = WPS_Scanner::remediate_manually( $P . '/kept/kept.php', true );
+check( 'a permanent removal of a Safe target is refused before anything is deleted', empty( $res['ok'] ) && is_file( $P . '/kept/kept.php' ) && false !== strpos( (string) $res['message'], 'operator_safe' ), json_encode( $res ) );
+WPS_Remediation_Policy::trip_breaker( 'test' );
+put( $P . '/evil-six/x.php' );
+$res = WPS_Scanner::remediate_manually( $P . '/evil-six/x.php', true );
+check( 'a permanent removal is refused while the circuit breaker is tripped', empty( $res['ok'] ) && is_file( $P . '/evil-six/x.php' ) && false !== strpos( (string) $res['message'], 'circuit_breaker' ), json_encode( $res ) );
+WPS_Remediation_Policy::reset_breaker();
+$id = WPS_Quarantine::quarantine( $P . '/kept/kept.php', [ 'type' => 'operator_bulk_delete', 'finding_type' => 'Known malware upload', 'reason' => 'x' ] );
+check( 'the bulk channel carrying a detector type is refused on a Safe target without tripping the breaker', null === $id && is_file( $P . '/kept/kept.php' ) && ! WPS_Remediation_Policy::breaker_tripped() && false !== strpos( WPS_Quarantine::last_denial(), 'operator_safe' ), WPS_Quarantine::last_denial() );
 
 // ---- 6. the on-disk policy ban: both tiers go through the policy.
 $GLOBALS['opts']['wps_opts'] = [ 'policy_ban_enabled' => '1' ];

@@ -162,8 +162,13 @@ class WPS_Quarantine {
 			$finding_type = in_array( $op_type, [ 'manual removal', 'operator_bulk_delete' ], true ) ? 'manual removal by operator' : $op_type;
 		}
 		self::$last_denial = '';
+		// The channel decides what a refusal means: the two operator channels carry the finding's own
+		// type so the policy judges the finding, but a Safe veto on them is a message to the operator,
+		// not a scanner defect, so only the automatic path can trip the circuit breaker.
+		$operator_action = in_array( $op_type, [ 'manual removal', 'operator_bulk_delete' ], true )
+			|| ( class_exists( 'WPS_Remediation_Policy' ) && WPS_Remediation_Policy::is_operator_type( $finding_type ) );
 		if ( $move && 'pre_clean_backup' !== $op_type && class_exists( 'WPS_Remediation_Policy' ) ) {
-			if ( WPS_Remediation_Policy::is_operator_type( $finding_type ) ) {
+			if ( $operator_action ) {
 				// An operator's action: a Safe veto is a refusal to report back, not a scanner defect.
 				$decision = WPS_Remediation_Policy::decide( [ 'delete_path' => $real, 'type' => $finding_type ] );
 				if ( ! $decision['allowed'] ) {
