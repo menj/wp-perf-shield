@@ -258,7 +258,10 @@ final class WPS_Login_Guard {
 	 */
 	private static function from_blocked_address(): bool {
 		$ip = self::ip();
-		return '' !== $ip && ! self::is_protected_ip( $ip ) && self::is_permanently_blocked( $ip );
+		// 1.4.152: judged on the address alone. is_protected_ip() also exempts whoever is signed in right
+		// now, which let a stolen administrator session on a blocked address through the very refusals
+		// built for it. The allowlist and the remembered administrator addresses still protect the operator.
+		return '' !== $ip && ! self::admin_ip_known( $ip ) && self::is_permanently_blocked( $ip );
 	}
 
 	/**

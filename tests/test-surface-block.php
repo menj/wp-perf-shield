@@ -135,5 +135,27 @@ $out = (string) shell_exec( 'php ' . escapeshellarg( $tmpf ) . ' 2>&1' );
 @unlink( $tmpf );
 check( 'an XML-RPC request from any other address is not refused', false !== strpos( $out, 'NOT REFUSED' ) && false === strpos( $out, 'STATUS:403' ), $out );
 
+// ---- 1.4.152: a signed-in administrator session on a blocked address is still refused.
+// is_protected_ip() exempts whoever is signed in; the surface refusals must judge the address alone,
+// or a stolen administrator cookie on a blocked address walks through the very checks built for it.
+$code = '<?php define("ABSPATH","/x/"); define("WPS_OPTION","wps_opts");'
+	. 'function get_option($k,$d=false){ return "wps_permanent_blocks"===$k ? ["198.51.100.7"=>["at"=>1]] : ( "wps_opts"===$k ? [] : $d ); }'
+	. 'function apply_filters($t,$v){return $v;} function get_transient(){return false;} function set_transient(){return true;}'
+	. 'function is_user_logged_in(){return true;} function current_user_can($c){return true;}'
+	. 'class WP_Error{ public $code; public $data; public function __construct($c="",$m="",$d=[]){ $this->code=$c; $this->data=$d; } }'
+	. 'require ' . var_export( dirname( __DIR__ ) . '/includes/class-login-guard.php', true ) . ';'
+	. '$_SERVER["REMOTE_ADDR"]="198.51.100.7"; $_SERVER["REQUEST_METHOD"]="POST"; $_SERVER["SCRIPT_NAME"]="/index.php";'
+	. '$r = WPS_Login_Guard::refuse_blocked_rest( null ); echo $r instanceof WP_Error ? "REFUSED" : "PASSED";'
+	. '$f = WPS_Login_Guard::refuse_blocked_upload( [ "name" => "a.jpg", "error" => 0 ] ); echo empty( $f["error"] ) ? ";UPLOAD-OK" : ";UPLOAD-REFUSED";';
+file_put_contents( $tmpf, $code );
+$out = (string) shell_exec( 'php ' . escapeshellarg( $tmpf ) . ' 2>&1' );
+@unlink( $tmpf );
+check( 'a signed-in administrator session on a blocked address is still refused REST writes and uploads', 'REFUSED;UPLOAD-REFUSED' === trim( $out ), $out );
+$code = str_replace( '"wps_opts"===$k ? []', '"wps_opts"===$k ? ["login_ip_allowlist"=>"198.51.100.7"]', $code );
+file_put_contents( $tmpf, $code );
+$out = (string) shell_exec( 'php ' . escapeshellarg( $tmpf ) . ' 2>&1' );
+@unlink( $tmpf );
+check( 'the operator allowlist still exempts the address', 'PASSED;UPLOAD-OK' === trim( $out ), $out );
+
 echo $fail ? "\n$fail FAILED\n" : "\nAll passed\n";
 exit( $fail ? 1 : 0 );

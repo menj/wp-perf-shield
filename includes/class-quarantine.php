@@ -24,6 +24,14 @@ class WPS_Quarantine {
 	const RETENTION_DAYS = 30;
 	const SUFFIX         = '.wpsq';
 
+	/** Why the last quarantine() call was refused by the removal policy, or '' (1.4.152). */
+	private static $last_denial = '';
+
+	/** The policy's reason for the last refusal, so callers can tell a policy veto from a broken store. */
+	public static function last_denial(): string {
+		return self::$last_denial;
+	}
+
 	/** Absolute path to the quarantine store. */
 	public static function store_dir(): string {
 		return rtrim( str_replace( '\\', '/', WP_CONTENT_DIR ), '/' ) . '/wps-quarantine';
@@ -124,6 +132,7 @@ class WPS_Quarantine {
 	 * @return string|null Quarantine id on success, null on refusal/failure.
 	 */
 	public static function quarantine( string $path, array $meta = [], bool $move = true ): ?string {
+		self::$last_denial = ''; // a refusal below is this call's; an earlier call's must not be reported for it
 		$real = realpath( $path );
 		if ( ! $real || ! file_exists( $real ) ) {
 			return null;
@@ -145,9 +154,30 @@ class WPS_Quarantine {
 		//
 		// Pre-clean backups are exempt: those COPY a file into the store to
 		// preserve evidence before cleaning and remove nothing.
-		$op_type = (string) ( $meta['type'] ?? '' );
+		$op_type      = (string) ( $meta['type'] ?? '' );
+		$finding_type = (string) ( $meta['finding_type'] ?? '' );
+		if ( '' === $finding_type ) {
+			// 1.4.152: until this release no caller sent finding_type, so this gate judged every removal
+			// as an untyped heuristic and refused everything under plugins and themes. The automatic
+			// path puts the finding's own type in `type`; the two operator paths get the operator type.
+			$finding_type = in_array( $op_type, [ 'manual removal', 'operator_bulk_delete' ], true ) ? 'manual removal by operator' : $op_type;
+		}
+		// The channel decides what a refusal means: the two operator channels carry the finding's own
+		// type so the policy judges the finding, but a Safe veto on them is a message to the operator,
+		// not a scanner defect, so only the automatic path can trip the circuit breaker.
+		$operator_action = in_array( $op_type, [ 'manual removal', 'operator_bulk_delete' ], true )
+			|| ( class_exists( 'WPS_Remediation_Policy' ) && WPS_Remediation_Policy::is_operator_type( $finding_type ) );
 		if ( $move && 'pre_clean_backup' !== $op_type && class_exists( 'WPS_Remediation_Policy' ) ) {
-			if ( ! WPS_Remediation_Policy::assert_may_remove( $real, (string) ( $meta['finding_type'] ?? '' ) ) ) {
+			if ( $operator_action ) {
+				// An operator's action: a Safe veto is a refusal to report back, not a scanner defect.
+				$decision = WPS_Remediation_Policy::decide( [ 'delete_path' => $real, 'type' => $finding_type ] );
+				if ( ! $decision['allowed'] ) {
+					self::$last_denial = (string) $decision['reason'] . ' (' . (string) $decision['rule'] . ')';
+					self::log( 'quarantine_denied_policy', $real . ': ' . (string) $decision['rule'] );
+					return null;
+				}
+			} elseif ( ! WPS_Remediation_Policy::assert_may_remove( $real, $finding_type ) ) {
+				self::$last_denial = 'the removal policy refused it';
 				self::log( 'quarantine_denied_policy', $real );
 				return null;
 			}

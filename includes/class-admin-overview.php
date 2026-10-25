@@ -39,8 +39,6 @@ class WPS_Admin_Overview {
 				</div>
 				<?php endforeach; ?>
 				</div>
-				</form>
-			</div>
 
 			<!-- Scan button -->
 			<div class="wps-mb10 wps-row">
@@ -84,6 +82,13 @@ class WPS_Admin_Overview {
 					if ( $b_failed ) { $parts[] = $b_failed . ' could not be actioned'; }
 					echo '<div class="wps-status wps-' . ( $b_done > 0 ? 'good' : 'muted' ) . ' wps-mb6">' . esc_html( implode( '; ', $parts ) ) . '.</div>';
 				}
+				?>
+				<?php
+				// 1.4.152: the per-finding Mark Safe controls belong to forms rendered AFTER this bulk form
+				// closes (associated by the form attribute). A <form> nested inside it was dropped by the
+				// browser, which made both bulk buttons submit the first finding's Mark Safe fields instead.
+				$wps_ms_n     = 0;
+				$wps_ms_forms = [];
 				?>
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" id="wps-bulk-findings">
 				<input type="hidden" name="action" value="wps_bulk_findings">
@@ -195,17 +200,14 @@ class WPS_Admin_Overview {
 									: [ 'safe' => false ];
 								if ( empty( $safe_now['safe'] ) ) :
 									?>
-									<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="wps-inline-form">
-										<input type="hidden" name="action" value="wps_mark_safe">
-										<?php wp_nonce_field( 'wps_mark_safe' ); ?>
-										<input type="hidden" name="path" value="<?php echo esc_attr( (string) $f['delete_path'] ); ?>">
-										<input type="hidden" name="reason" value="operator marked safe from the findings list">
-										<select name="scope" class="wps-sm">
+									<?php $wps_ms_id = 'wps-ms-' . ( ++$wps_ms_n ); $wps_ms_forms[ $wps_ms_id ] = (string) $f['delete_path']; ?>
+									<span class="wps-inline-form">
+										<select name="scope" form="<?php echo esc_attr( $wps_ms_id ); ?>" class="wps-sm">
 											<option value="file">this file only</option>
 											<option value="directory">this folder and everything in it</option>
 										</select>
-										<button type="submit" class="button">Mark Safe</button>
-									</form>
+										<button type="submit" form="<?php echo esc_attr( $wps_ms_id ); ?>" class="button">Mark Safe</button>
+									</span>
 								<?php else : ?>
 									<span class="wps-sm wps-good-t">&#10003; Marked Safe &mdash; this will not be removed automatically</span>
 								<?php endif; ?>
@@ -246,6 +248,15 @@ class WPS_Admin_Overview {
 					</div>
 					<?php endforeach; ?>
 				</div>
+				</form>
+				<?php foreach ( $wps_ms_forms as $wps_ms_id => $wps_ms_path ) : ?>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" id="<?php echo esc_attr( $wps_ms_id ); ?>" class="wps-inline-form">
+					<input type="hidden" name="action" value="wps_mark_safe">
+					<?php wp_nonce_field( 'wps_mark_safe' ); ?>
+					<input type="hidden" name="path" value="<?php echo esc_attr( $wps_ms_path ); ?>">
+					<input type="hidden" name="reason" value="operator marked safe from the findings list">
+				</form>
+				<?php endforeach; ?>
 			</div>
 			<?php else : ?>
 			<div class="wps-mb10 wps-callout-ok">

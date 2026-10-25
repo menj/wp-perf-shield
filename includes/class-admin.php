@@ -383,16 +383,19 @@ class WPS_Admin {
 				continue;
 			}
 			if ( 'delete' === $op ) {
-				// Same gate the scanner obeys. No exceptions for bulk.
+				// 1.4.152: an operator's explicit bulk removal, judged like "Delete this path": allowed
+				// everywhere except a Safe target and WordPress core. The generic type used before was
+				// heuristic to the policy, so anything inside a plugin folder was "protected".
+				$type = 'operator bulk removal';
 				if ( class_exists( 'WPS_Remediation_Policy' )
-					&& ! WPS_Remediation_Policy::decide( [ 'delete_path' => $path, 'type' => 'operator bulk action' ] )['allowed']
+					&& ! WPS_Remediation_Policy::decide( [ 'delete_path' => $path, 'type' => $type ] )['allowed']
 				) {
 					++$denied;
 					continue;
 				}
 				$ok = false;
 				if ( class_exists( 'WPS_Quarantine' ) ) {
-					$ok = null !== WPS_Quarantine::quarantine( $path, [ 'type' => 'operator_bulk_delete', 'reason' => 'removed in bulk by the operator' ] );
+					$ok = null !== WPS_Quarantine::quarantine( $path, [ 'type' => 'operator_bulk_delete', 'finding_type' => $type, 'reason' => 'removed in bulk by the operator' ] );
 				}
 				$ok ? ++$done : ++$failed;
 			}

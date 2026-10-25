@@ -543,7 +543,10 @@ final class WPS_Remediation_Policy {
 			return $deny( 'operator_safe', 'the operator marked this target Safe' . ( $safe['id'] !== $id ? ' via the ' . $safe['scope'] . ' ' . $safe['id'] : '' ), 'safe' );
 		}
 
-		$heuristic = self::is_heuristic( $type );
+		// 1.4.152: an operator's own removal is not a guess, so the rules that protect genuine software
+		// from a behavioural finding (the official-release check below, the managed-location rule) do
+		// not apply to it. The operator_removal and operator_policy_ban rules decide it after core.
+		$heuristic = ! self::is_operator_type( $type ) && self::is_heuristic( $type );
 
 		/*
 		 * 1.4.103: proof outranks inference.
@@ -593,6 +596,24 @@ final class WPS_Remediation_Policy {
 				'this is a WordPress core file, which is never removed automatically - if it is genuinely infected, replace it from an official WordPress release instead',
 				'core'
 			);
+		}
+
+		/*
+		 * 1.4.152: an operator's own removal is a decision too.
+		 *
+		 * "Delete this path" and the bulk action reach the quarantine with these two types. Before this
+		 * release they reached it with no type at all, the policy classed them as heuristic, and refused
+		 * every removal under plugins and themes while the screen blamed the quarantine store. The Safe
+		 * veto and WordPress core protection above still apply: an operator who wants to remove a Safe
+		 * target revokes the Safe decision first, and nothing removes core.
+		 */
+		if ( self::is_operator_type( $type ) && false === stripos( $type, 'banned by site policy' ) ) {
+			return [
+				'allowed' => true,
+				'reason'  => 'the operator asked for this removal',
+				'rule'    => 'operator_removal',
+				'trust'   => 'operator',
+			];
 		}
 
 		/*
@@ -843,6 +864,16 @@ final class WPS_Remediation_Policy {
 	 * Safe decision made while a long scan was running is still honoured, and a
 	 * caller that somehow skipped decide() cannot get past this.
 	 */
+	/**
+	 * Types that describe an operator's explicit action rather than a detector's finding. The
+	 * quarantine consults decide() directly for these, because assert_may_remove() treats a Safe
+	 * denial as a scanner defect and trips the circuit breaker, which an operator's click is not.
+	 */
+	public static function is_operator_type( string $type ): bool {
+		return in_array( $type, [ 'manual removal by operator', 'operator bulk removal' ], true )
+			|| false !== stripos( $type, 'banned by site policy' );
+	}
+
 	public static function assert_may_remove( string $target, string $type = '' ): bool {
 		$decision = self::decide( [ 'delete_path' => $target, 'type' => $type ] );
 		if ( $decision['allowed'] ) {

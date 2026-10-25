@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.151
+Stable tag: 1.4.152
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.152 =
+Fixes from a review of the whole code base. Removals the operator asks for (Delete this path, the bulk action, the policy ban) were refused inside plugin and theme folders because the quarantine's own gate never received the finding type; the findings screen's bulk buttons submitted the wrong form; a signed-in administrator session on a blocked address passed the surface refusals; the account-takeover guard judged the post author rather than the acting session, kept one login record per account, missed a role sent on the query string, and could not stop an XML-RPC write; the scan lock, upgrader attribution, plugin integrity path and uninstall cleanup are corrected.
 
 = 1.4.151 =
 Fixes the 1.4.149 release: the attack tools found inside a trojanized plugin were reported but the removal policy refused to remove them. They are now removed; the plugin folder itself is still only reported.
@@ -689,6 +692,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.152 =
+If "Delete this path", the bulk Quarantine button or the policy ban reported a quarantine failure inside a plugin folder, update and try again: the removal now goes through. Nothing to configure.
 
 = 1.4.151 =
 The attack-tool files from 1.4.149 are now removed, not only reported. Nothing else changes.

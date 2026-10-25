@@ -59,6 +59,20 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.152
+
+**Removals you ask for now happen.** On every release since 1.4.88, "Delete this path", the bulk "Quarantine selected" button and the on-disk policy ban were refused for anything inside `wp-content/plugins` or `wp-content/themes`, and the screen blamed the quarantine store ("Quarantine failed, so nothing was deleted" or "AUTOMATIC REMEDIATION DID NOT RUN ... check that the quarantine store exists, is writable"). The store was fine. The quarantine's last policy gate never received the finding's type, judged every removal as an untyped heuristic, and refused. If you saw that message, update and repeat the removal; it goes through, and a refusal now says which policy rule refused it (a Safe decision or the circuit breaker, both under Diagnostics). A Safe target and WordPress core are still never removed, by anyone.
+
+**The findings screen's bulk buttons work.** Each finding's Mark Safe control was a form inside the bulk form, which browsers drop; the result was that "Mark selected Safe" and "Quarantine selected" both marked the first finding Safe and quarantined nothing. Fixed; no change to how you use it.
+
+**A blocked address is blocked, even with a session.** The refusals added in 1.4.148 (XML-RPC, REST writes, uploads) exempted whoever was signed in as an administrator, so a stolen administrator cookie used from a permanently blocked address was let through. They now judge the address alone. Your own address is still protected by the allowlist and by the remembered administrator addresses, so you cannot lock yourself out by this change.
+
+**Account-takeover guard.** Four corrections: a login is remembered per device, so signing in on your phone no longer makes your laptop's next post look "rapid"; a REST write is judged by the session making it, not by the author field on the post; a role sent on the query string of a users request is refused like one in the body; and a write over XML-RPC that matches the takeover shape is now refused with a fault instead of completing. A device not seen for 90 days is no longer trusted.
+
+**Smaller fixes.** Two scans could start at once when a stale scan lock was released by one request while another had just re-acquired it. A plugin updated through WordPress was recorded as "installed through the upgrader", which hid a planted folder. Plugin integrity verdicts (verified, modified, foreign) were always "unknown" on a site with a renamed or relocated `wp-content`, which is common on Bedrock and managed hosts. Uninstalling left fifteen options and the event tables behind, including the Safe list and the circuit breaker, so a tripped breaker survived a reinstall and kept automatic removal halted. Notices go to every administrator, not the first five hundred.
+
+Nothing to configure. Six test suites added or extended; the first assertion of each fails on 1.4.151.
+
 ## 1.4.151
 
 **Fix for 1.4.149.** The attack tools that release detects inside a trojanized plugin are now removed (quarantined first, restorable from Diagnostics). On 1.4.149 and 1.4.150 they were reported with "REMOVAL DENIED BY POLICY" and left in place. If a scan reported one, run a scan after updating and it is removed. The plugin folder itself is still only reported: reinstall the plugin from a clean copy.

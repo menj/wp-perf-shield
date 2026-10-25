@@ -98,18 +98,33 @@ class WPS_Scan_Lock {
 			return false;
 		}
 
-		$held = self::current();
-		if ( ! $held || ( $held['token'] ?? '' ) !== $token ) {
+		$raw  = self::current_raw();
+		$held = is_string( $raw ) ? json_decode( $raw, true ) : null;
+		if ( ! is_array( $held ) || ( $held['token'] ?? '' ) !== $token ) {
 			return false; // not ours to release
 		}
 
+		// 1.4.152: delete the row only if it still holds what was just read, so a lock re-acquired by
+		// another worker between the read and the delete is left alone.
 		$wpdb->query(
-			$wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name = %s", self::OPTION )
+			$wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s", self::OPTION, $raw )
 		);
 		if ( self::$owner_token === $token ) {
 			self::$owner_token = null;
 		}
 		return true;
+	}
+
+	/** The lock row's raw value, or null. */
+	private static function current_raw(): ?string {
+		global $wpdb;
+		if ( ! isset( $wpdb ) || ! is_object( $wpdb ) ) {
+			return null;
+		}
+		$raw = $wpdb->get_var(
+			$wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::OPTION )
+		);
+		return ( is_string( $raw ) && '' !== $raw ) ? $raw : null;
 	}
 
 	/**
@@ -184,8 +199,9 @@ class WPS_Scan_Lock {
 	/** Drop a lock whose owner has evidently died. */
 	private static function release_if_stale(): void {
 		global $wpdb;
-		$held = self::current();
-		if ( ! $held ) {
+		$raw  = self::current_raw();
+		$held = is_string( $raw ) ? json_decode( $raw, true ) : null;
+		if ( ! is_array( $held ) ) {
 			return;
 		}
 		$expires = (int) ( $held['expires'] ?? 0 );
@@ -193,10 +209,14 @@ class WPS_Scan_Lock {
 			return;
 		}
 		if ( isset( $wpdb ) && is_object( $wpdb ) ) {
-			$wpdb->query(
-				$wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name = %s", self::OPTION )
+			// 1.4.152: conditional on the stale value. An unconditional delete let a request that had seen
+			// an expired lock remove the fresh lock another request had just acquired, and two scans ran.
+			$deleted = $wpdb->query(
+				$wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s", self::OPTION, $raw )
 			);
-			WPS_Logger::write( 'scan lock: released a stale lock (expired ' . ( time() - $expires ) . 's ago)' );
+			if ( $deleted ) {
+				WPS_Logger::write( 'scan lock: released a stale lock (expired ' . ( time() - $expires ) . 's ago)' );
+			}
 		}
 	}
 

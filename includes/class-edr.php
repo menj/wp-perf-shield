@@ -562,7 +562,10 @@ class WPS_EDR {
 		// were. A plugin folder that simply appears on disk with no such
 		// record did not come that way, and that difference is the whole
 		// point of the roster.
-		if ( class_exists( 'WPS_Scanner' ) && method_exists( 'WPS_Scanner', 'attribute_plugin_install' ) ) {
+		//
+		// 1.4.152: installs only. The hook also fires for updates, and attributing those let a folder that
+		// had been planted on disk become "installed" the moment WordPress auto-updated it.
+		if ( ( $extra['action'] ?? '' ) === 'install' && class_exists( 'WPS_Scanner' ) && method_exists( 'WPS_Scanner', 'attribute_plugin_install' ) ) {
 			foreach ( $names as $n ) {
 				WPS_Scanner::attribute_plugin_install( $n );
 			}

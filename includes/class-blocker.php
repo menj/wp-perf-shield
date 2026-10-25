@@ -424,7 +424,18 @@ class WPS_Blocker {
             if ( ! file_exists( $path ) ) {
                 continue; // another request got there first
             }
-            $result = WPS_Scanner::remediate_manually( $path, $hard || $count >= 3 );
+            // 1.4.152: the policy decides first, for both tiers. The hard tier used to delete with no
+            // policy at all, so a folder the operator had marked Safe went, and a tripped circuit breaker
+            // was ignored; the soft tier reached the quarantine with no type and was refused every time.
+            $ban_type = ( '' !== $held ? $held : $entry ) . ' banned by site policy';
+            if ( class_exists( 'WPS_Remediation_Policy' ) ) {
+                $decision = WPS_Remediation_Policy::decide( [ 'delete_path' => $path, 'type' => $ban_type ] );
+                if ( empty( $decision['allowed'] ) ) {
+                    WPS_Logger::log_event( 'policy_ban_skipped_policy', $entry . ': ' . (string) ( $decision['rule'] ?? '' ) . ' - ' . (string) ( $decision['reason'] ?? '' ) );
+                    continue;
+                }
+            }
+            $result = WPS_Scanner::remediate_manually( $path, $hard || $count >= 3, $ban_type );
             if ( ! empty( $result['ok'] ) && 'Already gone.' === ( $result['message'] ?? '' ) ) {
                 continue; // removed between the listing and now: not a new return
             }

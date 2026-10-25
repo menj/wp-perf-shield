@@ -148,11 +148,83 @@ final class WPS_Account_Guard {
 		if ( ! is_object( $user ) || empty( $user->ID ) ) {
 			return;
 		}
-		update_user_meta( (int) $user->ID, '_wps_login_fingerprint', [
-			'time' => time(),
-			'ip'   => self::client_ip(),
-			'ua'   => substr( (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ), 0, 200 ),
-		] );
+		// 1.4.152: one record per device, not one per user. A single record meant a login on the phone
+		// made the laptop's next write "rapid", and skipping the comparison for a different device would
+		// have let a second login hide the first device's write. Each device is judged against its own login.
+		self::remember_login( (int) $user->ID, self::client_ip(), substr( (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ), 0, 200 ) );
+	}
+
+	/** Meta key prefix for one login record per device (1.4.152). */
+	private const LOGIN_META_PREFIX = '_wps_login_fp_';
+
+	/**
+	 * Record that this device authenticated for this account just now.
+	 *
+	 * One user-meta row per device, written with no read of the others, so two sign-ins to the same
+	 * account at the same instant cannot overwrite each other's record (a read-modify-write on a
+	 * shared list could, and the device that lost would never be judged). Only when the account has
+	 * more records than it keeps are the oldest removed.
+	 */
+	private static function remember_login( int $user_id, string $ip, string $ua ): void {
+		update_user_meta( $user_id, self::LOGIN_META_PREFIX . self::device_key( $ip, $ua ), [ 'time' => time(), 'ip' => $ip, 'ua' => $ua ] );
+		$fps = self::login_fingerprints( $user_id );
+		if ( count( $fps ) > self::MAX_DEVICES_PER_USER ) {
+			uasort( $fps, static fn( array $a, array $b ): int => (int) $a['time'] <=> (int) $b['time'] );
+			foreach ( array_slice( array_keys( $fps ), 0, count( $fps ) - self::MAX_DEVICES_PER_USER ) as $old ) {
+				delete_user_meta( $user_id, self::LOGIN_META_PREFIX . $old );
+			}
+		}
+	}
+
+	/** This device's login record for the account, or null. Reads one row. */
+	private static function login_fingerprint( int $user_id, string $device ): ?array {
+		$rec = get_user_meta( $user_id, self::LOGIN_META_PREFIX . $device, true );
+		if ( is_array( $rec ) && isset( $rec['time'] ) ) {
+			return [ 'time' => (int) $rec['time'], 'ip' => (string) ( $rec['ip'] ?? '' ), 'ua' => (string) ( $rec['ua'] ?? '' ) ];
+		}
+		return self::login_fingerprints( $user_id )[ $device ] ?? null; // a record written before 1.4.152
+	}
+
+	/**
+	 * True when this request authenticated without a sign-in: XML-RPC (credentials inside the call)
+	 * or an application password. Neither fires wp_login, so no login record exists for the device
+	 * and the first write from it is the moment it authenticated.
+	 */
+	private static function sessionless_auth(): bool {
+		if ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) {
+			return true;
+		}
+		return class_exists( 'WPS_EDR' ) && method_exists( 'WPS_EDR', 'auth_method' )
+			&& 0 === strpos( (string) WPS_EDR::auth_method(), 'application password' );
+	}
+
+	/**
+	 * Every login record for the account, keyed by device: the per-device rows, plus the single
+	 * record a release before 1.4.152 kept under `_wps_login_fingerprint`, converted on read.
+	 *
+	 * @return array<string, array{time:int,ip:string,ua:string}>
+	 */
+	private static function login_fingerprints( int $user_id ): array {
+		$out = [];
+		$all = get_user_meta( $user_id );
+		if ( is_array( $all ) ) {
+			foreach ( $all as $key => $vals ) {
+				if ( ! is_string( $key ) || 0 !== strpos( $key, self::LOGIN_META_PREFIX ) ) {
+					continue;
+				}
+				$rec = is_array( $vals ) ? maybe_unserialize( reset( $vals ) ) : null;
+				if ( is_array( $rec ) && isset( $rec['time'] ) ) {
+					$out[ substr( $key, strlen( self::LOGIN_META_PREFIX ) ) ] = [ 'time' => (int) $rec['time'], 'ip' => (string) ( $rec['ip'] ?? '' ), 'ua' => (string) ( $rec['ua'] ?? '' ) ];
+				}
+			}
+		}
+		$legacy = get_user_meta( $user_id, '_wps_login_fingerprint', true );
+		if ( is_array( $legacy ) && isset( $legacy['time'] ) ) {
+			$ip = (string) ( $legacy['ip'] ?? '' );
+			$ua = (string) ( $legacy['ua'] ?? '' );
+			$out += [ self::device_key( $ip, $ua ) => [ 'time' => (int) $legacy['time'], 'ip' => $ip, 'ua' => $ua ] ];
+		}
+		return $out;
 	}
 
 	/**
@@ -166,14 +238,24 @@ final class WPS_Account_Guard {
 	 */
 	public static function check_rest_write( $post, $request, $creating ): void {
 		unset( $request );
-		if ( ! is_object( $post ) || empty( $post->ID ) || empty( $post->post_author ) ) {
+		if ( ! is_object( $post ) || empty( $post->ID ) ) {
 			return;
 		}
-		self::evaluate( (int) $post->post_author, (int) $post->ID, 'rest', (bool) $creating );
+		// 1.4.152: judge the session doing the writing, not the post's author. An editor can set the
+		// author to someone else, which both dodged this check and punished the wrong account.
+		$actor = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+		if ( $actor <= 0 ) {
+			$actor = (int) ( $post->post_author ?? 0 );
+		}
+		if ( $actor <= 0 ) {
+			return;
+		}
+		self::evaluate( $actor, (int) $post->ID, 'rest', (bool) $creating );
 	}
 
 	/** Same evaluation for the XML-RPC post-writing methods, if they are not already unregistered by WPS_Post_Guard. */
-	public static function check_xmlrpc_write( string $method ): void {
+	public static function check_xmlrpc_write( string $method, $args = null, $server = null ): void {
+		unset( $args, $server );
 		$post_methods = [
 			'wp.newPost', 'wp.editPost',
 			'blogger.newPost', 'blogger.editPost',
@@ -190,43 +272,74 @@ final class WPS_Account_Guard {
 		// No post ID is reliably available from this hook alone; the value
 		// still matters for the log and for the lockdown response even
 		// without a specific post to trash.
-		self::evaluate( $user_id, 0, 'xmlrpc', true );
+		if ( self::evaluate( $user_id, 0, 'xmlrpc', true ) ) {
+			// 1.4.152: an action cannot veto the method, so end the request with an XML-RPC fault. Before
+			// this the write completed and only the NEXT request was blocked.
+			self::xmlrpc_refuse();
+		}
+	}
+
+	/** Answer the XML-RPC call with a fault and stop, so the flagged write does not happen. */
+	private static function xmlrpc_refuse(): void {
+		if ( function_exists( 'status_header' ) ) {
+			status_header( 403 );
+		}
+		if ( ! headers_sent() ) {
+			header( 'Content-Type: text/xml; charset=UTF-8' );
+		}
+		echo '<?xml version="1.0"?><methodResponse><fault><value><struct>'
+			. '<member><name>faultCode</name><value><int>403</int></value></member>'
+			. '<member><name>faultString</name><value><string>Write refused by WP Perf Shield: rapid write from a device this account has not published from before.</string></value></member>'
+			. '</struct></value></fault></methodResponse>';
+		if ( defined( 'WPS_TESTING_NO_EXIT' ) ) {
+			return;
+		}
+		exit;
 	}
 
 	/**
 	 * The actual rapid-write / new-device test, shared by both entry points.
 	 */
-	private static function evaluate( int $user_id, int $post_id, string $vector, bool $creating ): void {
+	private static function evaluate( int $user_id, int $post_id, string $vector, bool $creating ): bool {
 		if ( $user_id <= 0 ) {
-			return;
+			return false;
 		}
-		$fp = get_user_meta( $user_id, '_wps_login_fingerprint', true );
-		if ( ! is_array( $fp ) || empty( $fp['time'] ) ) {
-			return; // no recorded login for this session; nothing to compare against
+		$ip     = self::client_ip();
+		$ua     = substr( (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ), 0, 200 );
+		$device = self::device_key( $ip, $ua );
+
+		$fp = self::login_fingerprint( $user_id, $device );
+		if ( null === $fp ) {
+			if ( ! self::sessionless_auth() ) {
+				return false; // no recorded login for this device; nothing to compare against
+			}
+			// 1.4.152: XML-RPC and application passwords authenticate inside the request and never
+			// fire wp_login, so no login record ever existed for their devices and every write from
+			// them passed here untested. The first write from such a device IS its sign-in: record it
+			// as one and judge this write as the rapid, post-login write it is.
+			self::remember_login( $user_id, $ip, $ua );
+			$fp = [ 'time' => time(), 'ip' => $ip, 'ua' => $ua ];
 		}
 
 		$elapsed = time() - (int) $fp['time'];
-		$ip      = self::client_ip();
-		$ua      = substr( (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ), 0, 200 );
-		$device  = self::device_key( $ip, $ua );
-
 		if ( $elapsed < 0 || $elapsed > self::RAPID_WINDOW ) {
 			// Not a rapid post-login write - ordinary publishing. A write
 			// this session is trusted to make is exactly what should teach
 			// the account which devices are normal for it, so remember this
 			// one for next time.
 			self::remember_device( $user_id, $ip, $ua );
-			return;
+			return false;
 		}
 
 		if ( self::is_known_device( $user_id, $device ) ) {
 			self::remember_device( $user_id, $ip, $ua ); // refresh last-seen
-			return; // this device has published for this account before; not new
+			return false; // this device has published for this account before; not new
 		}
 
 		// Rapid AND unrecognised device: this is the shape recovered from
 		// the incident. Act on it.
 		self::flag( $user_id, $post_id, $vector, $creating, $ip, $ua, $elapsed );
+		return true;
 	}
 
 	private static function flag( int $user_id, int $post_id, string $vector, bool $creating, string $ip, string $ua, int $elapsed ): void {
@@ -417,11 +530,10 @@ final class WPS_Account_Guard {
 		}
 
 		if ( in_array( $method, [ 'POST', 'PUT', 'PATCH' ], true ) ) {
-			$params = $request->get_json_params();
-			if ( ! is_array( $params ) || empty( $params ) ) {
-				$params = $request->get_body_params();
-			}
-			if ( is_array( $params ) && ( isset( $params['roles'] ) || isset( $params['role'] ) ) ) {
+			// 1.4.152: resolve the parameter the way core does (JSON, then body, then query string, then
+			// URL). Reading only the JSON and form bodies let `?roles[]=administrator` on the query string
+			// walk past this block while core applied it.
+			if ( null !== $request->get_param( 'roles' ) || null !== $request->get_param( 'role' ) ) {
 				self::critical_block( $ip, $route, 'attempted to set or change a user role via the REST API' );
 				return new WP_Error( 'wps_role_change_disabled', __( 'Changing user roles via the REST API is disabled on this site. Use wp-admin instead.', 'wp-perf-shield' ), [ 'status' => 403 ] );
 			}
@@ -466,7 +578,8 @@ final class WPS_Account_Guard {
 		if ( ! is_array( $devices ) ) {
 			return false;
 		}
-		return isset( $devices[ $device ] );
+		// 1.4.152: an entry past the memory window is not trusted, even if nothing has pruned it yet.
+		return isset( $devices[ $device ] ) && (int) $devices[ $device ] >= time() - self::DEVICE_MEMORY_DAYS * DAY_IN_SECONDS;
 	}
 
 	/**

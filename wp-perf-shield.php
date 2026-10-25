@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP Perf Shield
  * Description: Blocks wp-perf-analytics traffic-hijacking malware and all renamed variants. Includes real-time activation blocking, scheduled scanning, and one-click remediation.
- * Version: 1.4.151
+ * Version: 1.4.152
  * Author: MENJ
  * Author URI: https://github.com/menj
  * License: GPL-2.0+
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WPS_VERSION', '1.4.151' );
+define( 'WPS_VERSION', '1.4.152' );
 define( 'WPS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPS_URL', plugin_dir_url( __FILE__ ) );
 define( 'WPS_LOG_DIR', WPS_DIR . 'logs' );
@@ -306,7 +306,32 @@ function wps_uninstall(): void {
 	delete_option( 'wps_first_party_baseline' ); // 1.4.11: first-party plugin fingerprints
 	delete_option( 'wps_registration_baseline' ); // 1.4.10: registration/default-role baseline
 	delete_option( 'wps_headless_slugs' ); // 1.4.112: headless payload folders seen, for re-drop slot tracking
-	delete_option( 'wps_guard_notload_at' ); // 1.4.6: guard deadman timestamp
+	// 1.4.152: everything else the plugin writes, found in the whole-code-base review. The two policy
+	// options matter most: a tripped circuit breaker or a stale Safe veto surviving a reinstall kept
+	// automatic removal halted on the new install.
+	foreach ( [
+		'wps_safe_targets', 'wps_remediation_breaker', 'wps_ban_redrops', 'wps_blocked_c2_hosts', 'wps_scan_carryover',
+		'wps_self_baseline', 'wps_wpconfig_alerted', 'wps_php_inventory_baseline', 'wps_plugin_roster', 'wps_doorway_kit_history',
+		'wps_remediation_withheld', 'wps_events_schema', 'wps_event_hmac_key', 'wps_event_key_suffix', 'wps_event_chain',
+		'wps_events_migrated', 'wps_scan_lock', 'wps_login_net_offenders',
+	] as $wps_opt ) {
+		delete_option( $wps_opt );
+	}
+	global $wpdb;
+	if ( isset( $wpdb ) && is_object( $wpdb ) ) {
+		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( 'wps_event_chain_st_' ) . '%' ) );
+		// The account guard's per-user rows: login records (one per device since 1.4.152) and known devices.
+		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->usermeta} WHERE meta_key LIKE %s OR meta_key IN ('_wps_login_fingerprint', '_wps_known_devices')", $wpdb->esc_like( '_wps_login_fp_' ) . '%' ) );
+		// The event table and the self-test scratch tables only (wps_events_st_<ns>); a bare prefix
+		// match would also take a table another plugin happened to name wps_events_something.
+		$wps_tables = (array) $wpdb->get_col( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $wpdb->prefix . 'wps_events_st_' ) . '%' ) );
+		$wps_tables[] = $wpdb->prefix . 'wps_events';
+		foreach ( $wps_tables as $wps_table ) {
+			if ( is_string( $wps_table ) && preg_match( '/^[A-Za-z0-9_]+$/', $wps_table ) ) {
+				$wpdb->query( "DROP TABLE IF EXISTS `{$wps_table}`" );
+			}
+		}
+	}
 	if ( class_exists( 'WPS_Guard' ) ) {
 		WPS_Guard::purge();                     // 1.4.15: clear any withdrawn-guard leftovers
 	}
