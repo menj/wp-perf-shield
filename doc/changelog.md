@@ -20,8 +20,17 @@
 - **Uninstall** now deletes the fifteen options it missed, among them `wps_safe_targets` and `wps_remediation_breaker`, and drops the event tables. `tests/test-docs-sync.php` checks that every option the code writes is deleted there.
 - Remediation notices go to every administrator, not the first five hundred.
 
+### Review of this release (CodeAnt on the pull request)
+- The uninstall table drop matched any table beginning `wps_events`; it now takes the event table by name and the self-test scratch tables only.
+- `remediate_manually()` asks the policy immediately before anything moves, on both paths: a permanent removal (the ban sweep's third sighting, or quarantine switched off) never reached the quarantine's gate, so a Safe target or a tripped breaker did not hold there.
+- The quarantine decides what a refusal means by the channel, not the finding type, so a Safe veto on the bulk channel is reported and does not trip the breaker.
+- The bulk action sends the operator type (`operator bulk removal`) like "Delete this path" does, rather than the finding's own type, which refused the operator's explicit removal of a heuristic finding inside a plugin folder.
+- Operator types are not heuristic to the policy, so the official-release protection (for behavioural findings) no longer refuses an operator's removal of a file that matches its published release.
+- XML-RPC and application passwords never fire `wp_login`, so their devices had no login record and every write from them passed the account guard untested. The first write from such a device is now recorded as its sign-in and judged as the rapid post-login write it is; a later write after the window passes and teaches the device, as a dashboard device does.
+- Left as is, with the call put to the operator: two sign-ins for one account on different devices in the same few milliseconds could lose one device's login record (a read-modify-write on user meta). The lost device then has no record and its writes are not judged. Locking user meta would cost a round trip on every sign-in for a window an attacker cannot aim at without the owner's cooperation.
+
 ### Tests
-- New: `test-removal-pipeline.php` (30 cases; the real policy, quarantine, scanner, blocker and overview renderer loaded together, which no suite did before), `test-account-guard.php` (15), `test-scan-lock.php` (10), `test-edr-integrity.php` (8). Extended: `test-surface-block.php` (the administrator-session case), `test-docs-sync.php` (uninstall coverage).
+- New: `test-removal-pipeline.php` (35 cases; the real policy, quarantine, scanner, blocker and overview renderer loaded together, which no suite did before), `test-account-guard.php` (20), `test-scan-lock.php` (10), `test-edr-integrity.php` (8). Extended: `test-surface-block.php` (the administrator-session case), `test-docs-sync.php` (uninstall coverage).
 
 ### Not changed
 - Two races CodeAnt raised, on the login-guard transient counters and the account guard's user meta, are read-modify-write windows of a few milliseconds on counters whose worst outcome is an undercount by one. Locking them would cost a database round trip on every login attempt for no change in what the operator sees. Recorded here so they are not re-raised as unknown.

@@ -356,22 +356,6 @@ class WPS_Admin {
 	 *     batch. Selecting everything and pressing delete must not be able to
 	 *     do what the scanner itself is forbidden to do.
 	 */
-	/**
-	 * The type of the finding whose removal target is $path, from the last scan's results; the
-	 * operator bulk type when the path is not in them (a stale screen).
-	 */
-	public static function finding_type_for( string $path ): string {
-		$results = get_transient( 'wps_scan_results' );
-		if ( is_array( $results ) ) {
-			foreach ( $results as $f ) {
-				if ( is_array( $f ) && (string) ( $f['delete_path'] ?? '' ) === $path && '' !== (string) ( $f['type'] ?? '' ) ) {
-					return (string) $f['type'];
-				}
-			}
-		}
-		return 'operator bulk removal';
-	}
-
 	public static function handle_bulk_findings(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( 'Insufficient permissions.' );
@@ -399,10 +383,10 @@ class WPS_Admin {
 				continue;
 			}
 			if ( 'delete' === $op ) {
-				// Same gate the scanner obeys. No exceptions for bulk.
-				// 1.4.152: judge the finding by its own type, as the scanner does. The generic type used
-				// before was heuristic to the policy, so confirmed malware inside a plugin was "protected".
-				$type = self::finding_type_for( $path );
+				// 1.4.152: an operator's explicit bulk removal, judged like "Delete this path": allowed
+				// everywhere except a Safe target and WordPress core. The generic type used before was
+				// heuristic to the policy, so anything inside a plugin folder was "protected".
+				$type = 'operator bulk removal';
 				if ( class_exists( 'WPS_Remediation_Policy' )
 					&& ! WPS_Remediation_Policy::decide( [ 'delete_path' => $path, 'type' => $type ] )['allowed']
 				) {

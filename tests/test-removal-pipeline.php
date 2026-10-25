@@ -194,16 +194,22 @@ check( 'each Mark Safe select and button point at their own form', $ok );
 check( 'the hidden path travels with the right form', false !== strpos( $ms[0][2] ?? '', esc_attr( $P . '/a/a.php' ) ) && false !== strpos( $ms[1][2] ?? '', esc_attr( $P . '/b/b.php' ) ) );
 check( 'the tab opens and closes its divs evenly', substr_count( $html, '<div' ) === substr_count( $html, '</div>' ) && substr_count( $html, '<form' ) === substr_count( $html, '</form>' ) );
 
-// ---- 8. the bulk handler judges a finding by its own type.
+// ---- 8. the bulk handler is the operator's action, judged like "Delete this path".
 require dirname( __DIR__ ) . '/includes/class-admin.php';
-$GLOBALS['trans']['wps_scan_results'] = $findings;
-check( 'the bulk action looks the finding type up from the last scan', 'Known malware upload' === WPS_Admin::finding_type_for( $P . '/a/a.php' ) );
-check( 'and falls back to the operator type for a path the scan did not list', 'operator bulk removal' === WPS_Admin::finding_type_for( $P . '/nope.php' ) );
-check( 'both operator types are allowed by the policy inside a plugin folder', WPS_Remediation_Policy::decide( [ 'delete_path' => $P . '/kept/kept.php', 'type' => 'operator bulk removal' ] )['allowed'] === false
-	&& 'operator_safe' === WPS_Remediation_Policy::decide( [ 'delete_path' => $P . '/kept/kept.php', 'type' => 'operator bulk removal' ] )['rule'] );
+check( 'the bulk handler no longer carries a per-finding lookup', ! method_exists( 'WPS_Admin', 'finding_type_for' ) );
+check( 'the operator bulk type is refused on a Safe target with the Safe rule', 'operator_safe' === WPS_Remediation_Policy::decide( [ 'delete_path' => $P . '/kept/kept.php', 'type' => 'operator bulk removal' ] )['rule'] );
 put( $P . '/bulk/x.php' );
 $d = WPS_Remediation_Policy::decide( [ 'delete_path' => $P . '/bulk/x.php', 'type' => 'operator bulk removal' ] );
 check( 'an unmarked file in a plugin folder is allowed to the operator with the operator_removal rule', $d['allowed'] && 'operator_removal' === $d['rule'], json_encode( $d ) );
+// CodeAnt, PR 29: the official-release protection is for behavioural findings; an operator's removal of a file that
+// matches its published release is still the operator's call.
+if ( ! class_exists( 'WPS_Integrity' ) ) { // conditional, so the stub is not hoisted above the earlier checks
+	class WPS_Integrity { public static function is_official( string $p ): bool { return true; } }
+}
+$d = WPS_Remediation_Policy::decide( [ 'delete_path' => $P . '/bulk/x.php', 'type' => 'manual removal by operator' ] );
+check( 'an operator removal of a verified official file is allowed', $d['allowed'] && 'operator_removal' === $d['rule'], json_encode( $d ) );
+$d = WPS_Remediation_Policy::decide( [ 'delete_path' => $P . '/bulk/x.php', 'type' => 'Suspicious PHP in uploads' ] );
+check( 'while a behavioural finding about the same file is still refused as verified', 'verified_official_release' === $d['rule'], json_encode( $d ) );
 check( 'a banned-by-policy type keeps its own rule', 'operator_policy_ban' === WPS_Remediation_Policy::decide( [ 'delete_path' => $P . '/bulk/x.php', 'type' => 'wp-file-manager banned by site policy' ] )['rule'] );
 
 // cleanup

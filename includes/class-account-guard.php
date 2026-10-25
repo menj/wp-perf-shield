@@ -151,15 +151,31 @@ final class WPS_Account_Guard {
 		// 1.4.152: one record per device, not one per user. A single record meant a login on the phone
 		// made the laptop's next write "rapid", and skipping the comparison for a different device would
 		// have let a second login hide the first device's write. Each device is judged against its own login.
-		$ip  = self::client_ip();
-		$ua  = substr( (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ), 0, 200 );
-		$fps = self::login_fingerprints( (int) $user->ID );
+		self::remember_login( (int) $user->ID, self::client_ip(), substr( (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ), 0, 200 ) );
+	}
+
+	/** Record that this device authenticated for this account just now. */
+	private static function remember_login( int $user_id, string $ip, string $ua ): void {
+		$fps = self::login_fingerprints( $user_id );
 		$fps[ self::device_key( $ip, $ua ) ] = [ 'time' => time(), 'ip' => $ip, 'ua' => $ua ];
 		if ( count( $fps ) > self::MAX_DEVICES_PER_USER ) {
 			uasort( $fps, static fn( array $a, array $b ): int => (int) $a['time'] <=> (int) $b['time'] );
 			$fps = array_slice( $fps, -self::MAX_DEVICES_PER_USER, null, true );
 		}
-		update_user_meta( (int) $user->ID, '_wps_login_fingerprint', $fps );
+		update_user_meta( $user_id, '_wps_login_fingerprint', $fps );
+	}
+
+	/**
+	 * True when this request authenticated without a sign-in: XML-RPC (credentials inside the call)
+	 * or an application password. Neither fires wp_login, so no login record exists for the device
+	 * and the first write from it is the moment it authenticated.
+	 */
+	private static function sessionless_auth(): bool {
+		if ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) {
+			return true;
+		}
+		return class_exists( 'WPS_EDR' ) && method_exists( 'WPS_EDR', 'auth_method' )
+			&& 0 === strpos( (string) WPS_EDR::auth_method(), 'application password' );
 	}
 
 	/**
@@ -266,15 +282,19 @@ final class WPS_Account_Guard {
 		$ip     = self::client_ip();
 		$ua     = substr( (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ), 0, 200 );
 		$device = self::device_key( $ip, $ua );
-		// 1.4.152: XML-RPC authenticates inside the call and never fires wp_login, so a write over it
-		// is never a trusted write that teaches the account a device: an attacker with the password
-		// would otherwise whitelist their own device by posting once.
-		$teaches = ! ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST );
 
 		$fps = self::login_fingerprints( $user_id );
 		$fp  = $fps[ $device ] ?? null;
 		if ( null === $fp ) {
-			return false; // no recorded login for this device; nothing to compare against
+			if ( ! self::sessionless_auth() ) {
+				return false; // no recorded login for this device; nothing to compare against
+			}
+			// 1.4.152: XML-RPC and application passwords authenticate inside the request and never
+			// fire wp_login, so no login record ever existed for their devices and every write from
+			// them passed here untested. The first write from such a device IS its sign-in: record it
+			// as one and judge this write as the rapid, post-login write it is.
+			self::remember_login( $user_id, $ip, $ua );
+			$fp = [ 'time' => time(), 'ip' => $ip, 'ua' => $ua ];
 		}
 
 		$elapsed = time() - (int) $fp['time'];
@@ -283,16 +303,12 @@ final class WPS_Account_Guard {
 			// this session is trusted to make is exactly what should teach
 			// the account which devices are normal for it, so remember this
 			// one for next time.
-			if ( $teaches ) {
-				self::remember_device( $user_id, $ip, $ua );
-			}
+			self::remember_device( $user_id, $ip, $ua );
 			return false;
 		}
 
 		if ( self::is_known_device( $user_id, $device ) ) {
-			if ( $teaches ) {
-				self::remember_device( $user_id, $ip, $ua ); // refresh last-seen
-			}
+			self::remember_device( $user_id, $ip, $ua ); // refresh last-seen
 			return false; // this device has published for this account before; not new
 		}
 

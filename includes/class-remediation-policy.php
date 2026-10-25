@@ -543,7 +543,10 @@ final class WPS_Remediation_Policy {
 			return $deny( 'operator_safe', 'the operator marked this target Safe' . ( $safe['id'] !== $id ? ' via the ' . $safe['scope'] . ' ' . $safe['id'] : '' ), 'safe' );
 		}
 
-		$heuristic = self::is_heuristic( $type );
+		// 1.4.152: an operator's own removal is not a guess, so the rules that protect genuine software
+		// from a behavioural finding (the official-release check below, the managed-location rule) do
+		// not apply to it. The operator_removal and operator_policy_ban rules decide it after core.
+		$heuristic = ! self::is_operator_type( $type ) && self::is_heuristic( $type );
 
 		/*
 		 * 1.4.103: proof outranks inference.

@@ -112,22 +112,41 @@ check( 'a role in the JSON body is still blocked', $r instanceof WP_Error );
 $r = WPS_Account_Guard::guard_critical_rest_writes( null, null, new Req( '/wp/v2/users/5', 'POST', [ 'description' => 'hi' ] ) );
 check( 'a profile edit with no role passes', null === $r );
 
-// ---- 5. XML-RPC: the flagged write is refused, and a write over XML-RPC never teaches a device.
+// ---- 5. XML-RPC and application passwords never fire wp_login: the first write from a device is its sign-in.
+class WPS_EDR {
+	public static $auth = '';
+	public static $rows = [];
+	public static function auth_method() { return self::$auth; }
+	public static function record( $t, $c = [] ) { self::$rows[] = $t; }
+}
 define( 'XMLRPC_REQUEST', true );
 $GLOBALS['trashed'] = [];
 $GLOBALS['uid']     = 7;
 as_device( '198.51.100.77', 'Python-xmlrpc' );
-$GLOBALS['meta'][7]['_wps_login_fingerprint'][ md5( '198.51.100.77|Python-xmlrpc' ) ] = [ 'time' => time(), 'ip' => '198.51.100.77', 'ua' => 'Python-xmlrpc' ];
+check( 'no login record exists for a device that has only ever used XML-RPC', ! isset( $GLOBALS['meta'][7]['_wps_login_fingerprint'][ md5( '198.51.100.77|Python-xmlrpc' ) ] ) );
 ob_start();
 WPS_Account_Guard::check_xmlrpc_write( 'wp.newPost' );
 $out = ob_get_clean();
-check( 'a rapid first write over XML-RPC from a new device is answered with a fault', false !== strpos( $out, 'STATUS:403;' ) && false !== strpos( $out, '<fault>' ), $out );
+check( 'the first write over XML-RPC from a device never seen is answered with a fault', false !== strpos( $out, 'STATUS:403;' ) && false !== strpos( $out, '<fault>' ), $out );
+check( 'and that first contact is recorded as the device\'s sign-in', isset( $GLOBALS['meta'][7]['_wps_login_fingerprint'][ md5( '198.51.100.77|Python-xmlrpc' ) ] ) );
+check( 'the device is not remembered as known', ! isset( $GLOBALS['meta'][7]['_wps_known_devices'][ md5( '198.51.100.77|Python-xmlrpc' ) ] ) );
+ob_start();
+WPS_Account_Guard::check_xmlrpc_write( 'wp.newPost' );
+$out = ob_get_clean();
+check( 'a second write seconds later is refused too', false !== strpos( $out, 'STATUS:403;' ), $out );
 $GLOBALS['meta'][7]['_wps_login_fingerprint'][ md5( '198.51.100.77|Python-xmlrpc' ) ]['time'] = time() - 3600;
 ob_start();
 WPS_Account_Guard::check_xmlrpc_write( 'wp.newPost' );
 $out = ob_get_clean();
-check( 'a later XML-RPC write passes', '' === $out, $out );
-check( 'but never adds the device to the known list, since XML-RPC never logged in through wp_login', ! isset( $GLOBALS['meta'][7]['_wps_known_devices'][ md5( '198.51.100.77|Python-xmlrpc' ) ] ) );
+check( 'a write an hour after the device first authenticated passes', '' === $out, $out );
+check( 'and the device is now known, as a dashboard device would be', isset( $GLOBALS['meta'][7]['_wps_known_devices'][ md5( '198.51.100.77|Python-xmlrpc' ) ] ) );
+
+// a REST write authenticated by an application password behaves the same
+WPS_EDR::$auth = 'application password "SEO Super Tool"';
+as_device( '192.0.2.200', 'curl/8' );
+WPS_Account_Guard::check_rest_write( (object) [ 'ID' => 303, 'post_author' => 7 ], null, true );
+check( 'the first REST write with an application password from a device never seen is flagged and trashed', [ 303 ] === $GLOBALS['trashed'], json_encode( $GLOBALS['trashed'] ) );
+WPS_EDR::$auth = '';
 
 // ---- 6. the hook accepts the three arguments core passes.
 WPS_Account_Guard::register_hooks();
