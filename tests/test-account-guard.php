@@ -44,8 +44,11 @@ function get_bloginfo( $k ) { return 'UTF-8'; }
 function __( $s, $d = '' ) { return $s; }
 function wp_json_encode( $v ) { return json_encode( $v ); }
 class WP_Error { public $code; public $message; public $data; public function __construct( $c = '', $m = '', $d = [] ) { $this->code = $c; $this->message = $m; $this->data = $d; } }
-class Req {
-	public function __construct( public string $route, public string $method, public array $json = [], public array $body = [], public array $query = [] ) {}
+class Req { // no constructor promotion: the plugin supports PHP 7.4
+	public $route; public $method; public $json; public $body; public $query;
+	public function __construct( string $route, string $method, array $json = [], array $body = [], array $query = [] ) {
+		$this->route = $route; $this->method = $method; $this->json = $json; $this->body = $body; $this->query = $query;
+	}
 	public function get_route() { return $this->route; }
 	public function get_method() { return $this->method; }
 	public function get_json_params() { return $this->json; }
@@ -170,8 +173,37 @@ WPS_Account_Guard::check_rest_write( (object) [ 'ID' => 303, 'post_author' => 7 
 check( 'the first REST write with an application password from a device never seen is flagged and trashed', [ 303 ] === $GLOBALS['trashed'], json_encode( $GLOBALS['trashed'] ) );
 WPS_EDR::$auth = '';
 
+// ---- 5b. 1.4.155: the REST write is refused before it is saved, so the editor shows an error.
+$GLOBALS['trashed'] = [];
+$GLOBALS['uid']     = 12;
+as_device( '192.0.2.120', 'NewBrowser' );
+WPS_Account_Guard::record_login( 'user12', (object) [ 'ID' => 12, 'user_login' => 'user12' ] );
+$r = WPS_Account_Guard::check_rest_pre_insert( (object) [ 'ID' => 404, 'post_title' => 'x' ], null );
+check( 'a rapid write from a new device is refused with a REST error before it is saved', $r instanceof WP_Error && 'wps_rapid_write_refused' === $r->code && 403 === ( $r->data['status'] ?? 0 ), json_encode( $r ) );
+check( 'and nothing is trashed, since nothing was written', [] === $GLOBALS['trashed'] );
+$GLOBALS['meta'][12][ fp_key( '192.0.2.120', 'NewBrowser' ) ]['time'] = time() - 3600;
+$p = (object) [ 'ID' => 404, 'post_title' => 'x' ];
+check( 'the same save an hour later goes through untouched', $p === WPS_Account_Guard::check_rest_pre_insert( $p, null ) );
+$err = new WP_Error( 'earlier', 'x' );
+check( 'an error from an earlier filter is passed on', $err === WPS_Account_Guard::check_rest_pre_insert( $err, null ) );
+
 // ---- 6. the hook accepts the three arguments core passes.
 WPS_Account_Guard::register_hooks();
+check( 'the REST guard is registered before the write, not after', isset( $GLOBALS['hooks']['rest_pre_insert_post'] ) && ! isset( $GLOBALS['hooks']['rest_insert_post'] ) );
+
+// ---- 7. the refusal really ends an XML-RPC request (child process, no WPS_TESTING_NO_EXIT)
+$child = sys_get_temp_dir() . '/wps-ag-exit-' . getmypid() . '.php';
+file_put_contents( $child, '<?php define("ABSPATH","/x/"); define("WPS_OPTION","wps_opts"); define("DAY_IN_SECONDS",86400); define("XMLRPC_REQUEST",true);'
+	. '$GLOBALS["meta"]=[]; function get_user_meta($u,$k="",$s=false){ if(""===$k){ return array_map(static fn($v)=>[serialize($v)],$GLOBALS["meta"][$u]??[]); } return $GLOBALS["meta"][$u][$k]??""; }'
+	. 'function update_user_meta($u,$k,$v){ $GLOBALS["meta"][$u][$k]=$v; return true; } function delete_user_meta($u,$k){ return true; } function maybe_unserialize($v){ return @unserialize($v); }'
+	. 'function get_option($k,$d=false){ return "wps_opts"===$k ? ["account_guard_lockdown"=>"0"] : $d; } function get_userdata($u){ return (object)["user_login"=>"u"]; } function get_current_user_id(){ return 3; }'
+	. 'function status_header($c){ echo "STATUS:$c;"; } function wp_trash_post(){ return true; }'
+	. 'require ' . var_export( dirname( __DIR__ ) . '/includes/class-account-guard.php', true ) . ';'
+	. '$_SERVER["REMOTE_ADDR"]="198.51.100.200"; $_SERVER["HTTP_USER_AGENT"]="bot"; WPS_Account_Guard::check_xmlrpc_write("wp.newPost"); echo "WRITE CONTINUED";' );
+$out = (string) shell_exec( escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( $child ) . ' 2>&1' );
+@unlink( $child );
+check( 'a refused XML-RPC write ends the request, so the method never runs', false !== strpos( $out, 'STATUS:403;' ) && false === strpos( $out, 'WRITE CONTINUED' ), $out );
+
 check( 'the xmlrpc_call handler tolerates the (method, args, server) signature', is_callable( $GLOBALS['hooks']['xmlrpc_call'][0] ?? null ) && ( new ReflectionMethod( 'WPS_Account_Guard', 'check_xmlrpc_write' ) )->getNumberOfParameters() >= 3 );
 
 echo $fail ? "\n$fail FAILED\n" : "\nAll passed\n";

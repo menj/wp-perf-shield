@@ -76,10 +76,10 @@ try {
 		'auto_ip_block_enabled' => true, 'strict_upload_gate_enabled' => true, 'appearance' => 'light',
 	] );
 } catch ( \Throwable $e ) {
-	echo 'RENDER EXCEPTION: ' . $e->getMessage() . "\n";
+	$render_error = $e->getMessage();
 }
 $html = (string) ob_get_clean();
-check( 'the Settings screen renders', strlen( $html ) > 5000, (string) strlen( $html ) );
+check( 'the Settings screen renders without throwing', ! isset( $render_error ) && strlen( $html ) > 5000, ( $render_error ?? '' ) . ' / ' . strlen( $html ) . ' bytes' );
 
 check( 'there is a tab button and a panel for XML-RPC & exposure', false !== strpos( $html, 'id="wps-st-xmlrpc"' ) && false !== strpos( $html, 'id="wps-sp-xmlrpc"' ) && false !== strpos( $html, 'data-panel="xmlrpc"' ) && false !== strpos( $html, 'data-wps-panel="xmlrpc"' ) );
 preg_match_all( '/class="wps-subtab"/', $html, $tabs );

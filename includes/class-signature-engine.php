@@ -1005,7 +1005,7 @@ final class WPS_Signature_Engine {
 		}
 		$count = 0;
 		$from  = 0;
-		for ( $round = 0; $round < 64; $round++ ) {
+		for ( $round = 0; $round < 4096; $round++ ) { // 1.4.155: was 64, which misjudged counts such as =65
 			$pos   = $from;
 			$first = -1;
 			$end   = -1;

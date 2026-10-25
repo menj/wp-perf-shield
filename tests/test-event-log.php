@@ -22,7 +22,13 @@ function delete_option( $k ) { unset( $GLOBALS['opts'][ $k ] ); return true; }
 function wp_json_encode( $v ) { return json_encode( $v ); }
 function wp_get_current_user() { return (object) [ 'ID' => 1, 'user_login' => 'op', 'roles' => [ 'administrator' ] ]; }
 function wp_unslash( $v ) { return $v; }
-class WPS_Logger { public static $lines = []; public static function write( $m ) { self::$lines[] = $m; } public static function log_event( $t, $s, $ip = '' ) {} }
+class WPS_Logger {
+	public static $lines   = [];
+	public static $forward = 0; // calls that would re-enter WPS_Event_Log::record() in WordPress
+	public static function write( $m ) { ++self::$forward; self::log_event( 'debug', $m ); }
+	public static function log_event( $t, $s, $ip = '' ) { ++self::$forward; if ( self::$forward < 5 ) { WPS_Event_Log::record( [ 'event_type' => $t, 'notes' => $s ] ); } }
+	public static function file_event( $t, $s, $ip = '' ) { self::$lines[] = $t . ': ' . $s; }
+}
 class FakeDB {
 	public $prefix    = 'wp_';
 	public $insert_id = 0;
@@ -67,6 +73,7 @@ $id = WPS_Event_Log::record( [ 'event_type' => 'probe', 'severity' => 'info' ] )
 check( 'a held advisory lock is waited for a second time', 2 === q( 'GET_LOCK' ), json_encode( $wpdb->queries ) );
 check( 'and then the append is refused rather than forking the chain', null === $id && 0 === q( 'INSERT INTO' ) && 0 === q( 'FOR UPDATE' ) && 0 === q( 'START TRANSACTION' ), json_encode( $wpdb->queries ) );
 check( 'the refusal is written to the file log', 1 === count( array_filter( WPS_Logger::$lines, static fn( $l ) => false !== strpos( $l, 'refused' ) ) ), json_encode( WPS_Logger::$lines ) );
+check( 'and never through the logger path that re-enters record() (it recursed while the lock was held)', 0 === WPS_Logger::$forward && 2 === q( 'GET_LOCK' ), WPS_Logger::$forward . ' forwards, ' . q( 'GET_LOCK' ) . ' lock queries' );
 
 // ---- 3. no advisory locks at all: the row lock is the only serialisation there is, and it is used.
 $wpdb->queries = [];

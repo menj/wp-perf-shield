@@ -171,6 +171,10 @@ class WPS_Chain_Selftest {
 			}
 
 			$held = $second->get_var( $second->prepare( 'SELECT GET_LOCK(%s, %d)', $name, 0 ) );
+			if ( $held === null && ! empty( $second->last_error ) ) {
+				return [ 'id' => 'exclusion', 'label' => $label, 'status' => 'fail',
+					'detail' => 'The lock query failed: ' . substr( (string) $second->last_error, 0, 160 ) . '. Lock exclusion was not verified.' ];
+			}
 			if ( $held === null ) {
 				return [ 'id' => 'exclusion', 'label' => $label, 'status' => 'skip',
 					'detail' => 'GET_LOCK is unavailable on this database; the append uses its FOR UPDATE fallback. Verify that path on staging.' ];
@@ -189,7 +193,8 @@ class WPS_Chain_Selftest {
 
 			// Release the second connection's lock; the primary must now acquire.
 			$second->query( $second->prepare( 'DO RELEASE_LOCK(%s)', $name ) );
-			$free      = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $name, 0 ) );
+			// Two seconds' grace: a real appender may take the freed lock first.
+			$free      = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $name, 2 ) );
 			$reacquire = ( (string) $free === '1' );
 			if ( $reacquire ) {
 				$wpdb->query( $wpdb->prepare( 'DO RELEASE_LOCK(%s)', $name ) );

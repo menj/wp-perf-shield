@@ -233,7 +233,17 @@ class WPS_Quarantine {
 			],
 			$meta
 		);
-		@file_put_contents( $dest . '/manifest.json', wp_json_encode( $manifest ) );
+		if ( false === @file_put_contents( $dest . '/manifest.json', wp_json_encode( $manifest ) ) ) {
+			// 1.4.155: without its manifest the entry cannot be restored. Put the item back and fail.
+			self::denormalise( $payload ); // undo the .wpsq renames before putting it back
+			$back = $is_dir ? $payload : $payload . '/' . basename( $real );
+			if ( $move && file_exists( $back ) && ! file_exists( $real ) ) {
+				self::move( $back, $real );
+			}
+			self::rrmdir( $dest );
+			self::log( 'quarantine_manifest_failed', $real );
+			return null;
+		}
 		self::log( 'quarantined', $real . ' -> ' . $id );
 		return $id;
 	}
@@ -344,7 +354,12 @@ class WPS_Quarantine {
 			],
 			$meta
 		);
-		@file_put_contents( $dest . '/manifest.json', wp_json_encode( $manifest ) );
+		if ( false === @file_put_contents( $dest . '/manifest.json', wp_json_encode( $manifest ) ) ) {
+			// 1.4.155: no manifest, no restorable copy, so the caller must not delete the option.
+			self::rrmdir( $dest );
+			self::log( 'option_snapshot_failed', $name );
+			return null;
+		}
 		self::log( 'option_quarantined', $name . ' -> ' . $id );
 		return [ $id, self::as_stored( $value ) ];
 	}

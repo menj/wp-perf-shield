@@ -59,6 +59,16 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.155
+
+**Editor saves.** When the account-takeover guard judged a save suspicious (seconds after a sign-in, from a browser that has never published on the account), it let the save happen, then moved the post to the trash, so the editor could say "Post updated" for a post that was gone. It now refuses the save before it is written, and the editor shows the reason in red: "WP Perf Shield refused this save ... If this was you, wait a minute and save again."
+
+**A hang that could stop saves altogether.** Since 1.4.153 an event that could not be stored, because another request held the event store's lock, was logged through a path that tried to store it again. While the lock stayed held this repeated, ten seconds at a time, until the request ran out of time. Persistent database connections can hold that lock indefinitely, and on such a host every request that recorded an event would hang, with nothing ever reaching the Events tab. If editor saves hung or Events stayed empty, update.
+
+**Application Passwords.** The phishing check refused an authorization request with no referer from the requesting site, then blocked the address. The visitor on that page is the signed-in administrator, so it was blocking you. It now refuses the page with an explanation and leaves your address alone.
+
+**Smaller fixes.** The comment stripper honours old Mac line endings and a `?>` inside a `//` comment (both hid code from the signature scan). The outbound guard also reads session cookies from a request's cookies and Cookie header. The XML-RPC page methods (`wp.newPage`, `wp.editPage`, `wp.deletePage`) are removed along with the post ones. Akismet reports count as sent only when Akismet thanks you for them, the bulk report stops after fifty attempts rather than fifty successes, and a ZIP refused only for its upload route is no longer reported as malware. A permanent sign-in block holds even with a session open. The sign-in stats no longer show yesterday's counts as today's. An application password used over XML-RPC is named as one in the log. The forensics log-search commands work. A failed quarantine manifest no longer leaves an unrestorable entry. Nothing to configure.
+
 ## 1.4.154
 
 **Rank Math SEO.** If a scan reported "Hidden folder holding code inside the plugins folder" or "Hidden directory under wp-content/" for `seo-by-rank-math/vendor/donatj/phpuseragentparser/.helpers`, that was a library Rank Math installs, not malware; the finding no longer appears. Nothing else in Rank Math trips any check.

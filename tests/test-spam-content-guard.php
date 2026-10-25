@@ -99,7 +99,8 @@ $data = WPS_Spam_Content_Guard::scan_save_boundary( [
 	'post_excerpt' => '',
 ], [ 'ID' => 6 ] );
 check( 'a regulatory-evasion post the strip cannot clean is held as pending, not published', 'pending' === $data['post_status'] && 1 === events( 'spam_content_held' ), json_encode( [ $data['post_status'], WPS_EDR::$events ] ) );
-check( 'the held event names the rule', false !== strpos( WPS_EDR::$events[1][1] ?? '', 'gambling-regulatory-evasion' ), json_encode( WPS_EDR::$events ) );
+check( 'the held event names the rule', false !== strpos( WPS_EDR::$events[0][1] ?? '', 'gambling-regulatory-evasion' ), json_encode( WPS_EDR::$events ) );
+check( 'no "stripped" event is claimed when the strip removed nothing', 0 === events( 'spam_content_stripped' ), json_encode( WPS_EDR::$events ) );
 $data = WPS_Spam_Content_Guard::scan_save_boundary( [
 	'post_type'    => 'post',
 	'post_status'  => 'draft',

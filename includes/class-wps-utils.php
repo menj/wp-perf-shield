@@ -357,14 +357,12 @@ class WPS_Utils {
 				continue;
 			}
 			if ( '/' === $ch && $i + 1 < $len && '/' === $content[ $i + 1 ] ) {
-				$end  = strpos( $content, "\n", $i );
-				$i    = ( false === $end ) ? $len : $end;
+				$i    = self::line_comment_end( $content, $i, $len );
 				$out .= ' ';
 				continue;
 			}
 			if ( '#' === $ch && ( $i + 1 >= $len || '[' !== $content[ $i + 1 ] ) ) {
-				$end  = strpos( $content, "\n", $i );
-				$i    = ( false === $end ) ? $len : $end;
+				$i    = self::line_comment_end( $content, $i, $len );
 				$out .= ' ';
 				continue;
 			}
@@ -373,6 +371,22 @@ class WPS_Utils {
 			++$i;
 		}
 		return $out;
+	}
+
+	/**
+	 * Where a one-line comment ends, as PHP's lexer decides it: at "\n", at a lone "\r" (1.4.155;
+	 * a file with old Mac line endings otherwise lost everything after its first // to the
+	 * "comment"), or just before "?>", which closes the PHP block even inside a // comment.
+	 */
+	private static function line_comment_end( string $content, int $i, int $len ): int {
+		$end = $len;
+		foreach ( [ "\n", "\r", '?>' ] as $stop ) {
+			$p = strpos( $content, $stop, $i );
+			if ( false !== $p && $p < $end ) {
+				$end = $p;
+			}
+		}
+		return $end;
 	}
 
 	public static function goto_density( string $content ): array {

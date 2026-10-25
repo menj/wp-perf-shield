@@ -132,7 +132,7 @@ $GLOBALS['opts']['wlh_key'] = $GLOBALS['opts']['wlh_cdn'] = $GLOBALS['opts']['wl
 $GLOBALS['snapshot_fail']   = true;
 $r = WPS_Scanner::remediate_manually( WP_PLUGIN_DIR . '/worm2' );
 $GLOBALS['snapshot_fail']   = false;
-check( 'a failed snapshot never destroys the only copy of an option', 'v' === ( $GLOBALS['opts']['wlh_key'] ?? null ) && 'v' === ( $GLOBALS['opts']['wlh_cdn'] ?? null ), json_encode( $GLOBALS['opts'] ) );
+check( 'a failed snapshot never destroys the only copy of an option', 'v' === ( $GLOBALS['opts']['wlh_key'] ?? null ) && 'v' === ( $GLOBALS['opts']['wlh_cdn'] ?? null ) && 'v' === ( $GLOBALS['opts']['wlh_origin'] ?? null ), json_encode( $GLOBALS['opts'] ) );
 check( 'and it is not reported as cleared', false === strpos( $r['message'], 'cleared' ), $r['message'] );
 unset( $GLOBALS['opts']['wlh_key'], $GLOBALS['opts']['wlh_cdn'], $GLOBALS['opts']['wlh_origin'] );
 

@@ -36,7 +36,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class WPS_Indicators {
 
-	const INDICATOR_VERSION = '1.4.140-1';
+	const INDICATOR_VERSION = '1.4.155-1';
 
 	/**
 	 * All confirmed malware-set option keys across the wp-perf-analytics /

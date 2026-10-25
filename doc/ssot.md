@@ -192,6 +192,7 @@ tests/test-login-guard.php                bot username from shared infrastructur
 tests/test-event-log.php                  append refused on a held lock, row lock only without GET_LOCK, scratch table dropped before a self-test, namespace per run, a failed GET_LOCK refused (11 cases)
 tests/test-dev-files.php                 tests/ removed from an installed copy, kept in a git checkout, links not followed (6 cases)
 tests/test-rank-math-compat.php          a hidden folder inside a Composer package is not reported; one outside any package still is (9 cases)
+tests/test-review-1-4-155.php            1.4.155 review fixes: comment stripping, outbound cookies, XML-RPC page methods, Akismet reply, stale stats, auth label, forensics grep (16 cases)
 ```
 
 Each runs from the command line with `php tests/<file>` and exits non-zero on failure. All but `test-docs-sync.php` (which only reads the repository's own files and compares text), `test-account-guard.php`, `test-scan-lock.php`, `test-spam-content-guard.php`, `test-login-guard.php` and `test-event-log.php` (which use in-memory stand-ins alone) build synthetic fixtures in a temporary directory (random bytes stand in for payloads, so no real malware is stored) and run the real plugin code against small in-memory stand-ins for WordPress. They do not need the rebuilt harness described in `doc/remediation-roadmap.md`. `tests/` carries an `index.php` and an `.htaccess` that denies access, like `tools/`, and every test file exits unless run from the command line.

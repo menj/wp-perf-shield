@@ -169,19 +169,22 @@ final class WPS_Spam_Content_Guard {
 		}
 
 		$post_id = isset( $postarr['ID'] ) ? absint( $postarr['ID'] ) : 0;
-		if ( class_exists( 'WPS_EDR' ) && method_exists( 'WPS_EDR', 'record' ) ) {
-			WPS_EDR::record( 'spam_content_stripped', [
-				'object_type' => 'post',
-				'object_name' => $post_id > 0 ? ( 'post #' . $post_id ) : $type,
-				'severity'    => 'warning',
-				'notes'       => 'Stripped content matching the ' . $match . ' spam-content rule at the save boundary '
-					. '(a second, unconditional layer independent of the REST-insertion check above).',
-			] );
-		}
-
+		$before  = [ $data['post_title'] ?? '', $data['post_content'] ?? '', $data['post_excerpt'] ?? '' ];
 		$data['post_title']   = self::strip( (string) ( $data['post_title'] ?? '' ) );
 		$data['post_content'] = self::strip( (string) ( $data['post_content'] ?? '' ) );
 		$data['post_excerpt'] = self::strip( (string) ( $data['post_excerpt'] ?? '' ) );
+		// 1.4.155: recorded only when something was actually removed.
+		if ( $before !== [ $data['post_title'], $data['post_content'], $data['post_excerpt'] ] ) {
+			if ( class_exists( 'WPS_EDR' ) && method_exists( 'WPS_EDR', 'record' ) ) {
+				WPS_EDR::record( 'spam_content_stripped', [
+					'object_type' => 'post',
+					'object_name' => $post_id > 0 ? ( 'post #' . $post_id ) : $type,
+					'severity'    => 'warning',
+					'notes'       => 'Stripped content matching the ' . $match . ' spam-content rule at the save boundary '
+						. '(a second, unconditional layer independent of the REST-insertion check above).',
+				] );
+			}
+		}
 
 		// 1.4.153: the strip patterns know English links and hidden blocks; the multilingual and
 		// regulatory-evasion rules match prose they cannot cut out. Ask again. If the content still

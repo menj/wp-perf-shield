@@ -103,9 +103,10 @@ final class WPS_SSO_Guard {
 	 *
 	 * The token is the actual key. Removing it means a redeployed file has
 	 * nothing to compare against, so even a request that somehow reached the
-	 * endpoint before it was disarmed cannot authenticate. The previous value
-	 * is preserved in the log as evidence, because on a compromised site the
-	 * question "was this token in place, and for how long" matters later.
+	 * endpoint before it was disarmed cannot authenticate. The clearing is
+	 * logged with the option's name, because on a compromised site the question
+	 * "was this token in place" matters later; the value itself is a working
+	 * credential and is deliberately never written to a log.
 	 */
 	public static function purge_tokens(): void {
 		foreach ( self::KNOWN_TOKEN_OPTIONS as $opt ) {
