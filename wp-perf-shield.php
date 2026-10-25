@@ -249,7 +249,7 @@ add_action( 'admin_init', function (): void {
 	if ( get_option( 'wps_dev_files_cleaned', '' ) === WPS_VERSION ) {
 		return;
 	}
-	update_option( 'wps_dev_files_cleaned', WPS_VERSION, false );
+	update_option( 'wps_dev_files_cleaned', WPS_VERSION ); // autoloaded: read on every admin request
 	if ( class_exists( 'WPS_Utils' ) && method_exists( 'WPS_Utils', 'remove_dev_files' ) ) {
 		WPS_Utils::remove_dev_files( WPS_DIR );
 	}
