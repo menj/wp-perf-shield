@@ -136,7 +136,19 @@ class WPS_Admin_Settings {
 									<input type="checkbox" id="login_block_surfaces" name="login_block_surfaces" value="1" <?php checked( ( $settings['login_block_surfaces'] ?? '1' ) !== '0' ); ?>>
 									<span>
 										<strong>Also refuse XML-RPC, REST writes and uploads from a permanently blocked address</strong><br>
-										<span class="description">A permanent block used to stop sign-in only, so an address that already held a session or an application password could keep writing. With this on, a blocked address is refused on <code>xmlrpc.php</code>, on REST requests that change anything, and on uploads. An address on your allowlist, or one an administrator has signed in from recently, is never refused. <strong>On by default.</strong></span>
+										<span class="description">A permanent block used to stop sign-in only, so an address that already held a session or an application password could keep writing. With this on, a blocked address is refused on <code>xmlrpc.php</code>, on REST requests that change anything, and on uploads; a temporary block refuses <code>xmlrpc.php</code> too. An address on your allowlist, or one an administrator has signed in from recently, is never refused. <strong>On by default.</strong></span>
+									</span>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="login_forged_agent_block">Forged Jetpack</label></th>
+							<td>
+								<label class="wps-toggle-row">
+									<input type="checkbox" id="login_forged_agent_block" name="login_forged_agent_block" value="1" <?php checked( ( $settings['login_forged_agent_block'] ?? '1' ) !== '0' ); ?>>
+									<span>
+										<strong>Permanently block a failed XML-RPC sign-in that claims to be Jetpack or WordPress.com</strong><br>
+										<span class="description">Password-guessing tools send the user agent of Jetpack or WordPress.com so that the attempts look like the service. The real service connects only from Automattic's own address range and never signs in with a password, so one failed sign-in with that user agent from anywhere else is a forgery and the address is blocked for good. Addresses that look like shared infrastructure get ordinary counting instead. <strong>On by default.</strong></span>
 									</span>
 								</label>
 							</td>
@@ -338,6 +350,18 @@ class WPS_Admin_Settings {
 									</label>
 									<label for="xr_rest_exempt_namespaces" class="wps-sm wps-muted">Still allowed when signed out: namespace prefixes, one per line (for example <code>contact-form-7/</code>)</label>
 									<textarea id="xr_rest_exempt_namespaces" name="xr_rest_exempt_namespaces" rows="2" class="wps-mono wps-sm wps-w-full"><?php echo esc_textarea( (string) ( $settings['xr_rest_exempt_namespaces'] ?? '' ) ); ?></textarea>
+								</td>
+							</tr>
+							<tr>
+								<th><label for="xr_no_user_enum">Account names</label></th>
+								<td>
+									<label class="wps-toggle-row">
+										<input type="checkbox" id="xr_no_user_enum" name="xr_no_user_enum" value="1" <?php checked( ( $settings['xr_no_user_enum'] ?? '1' ) !== '0' ); ?>>
+										<span>
+											<strong>Do not list account names to signed-out visitors</strong><br>
+											<span class="description">Attackers collect the names to guess passwords for from <code>/wp-json/wp/v2/users</code>, from <code>?author=1</code> redirects and from the user sitemap. With this on, a signed-out request for the REST user list gets "no route", <code>?author=N</code> gets a 403, the user sitemap is left out, and embed answers carry no author. Signed-in users and every other REST route are unaffected. <strong>On by default.</strong> Turn it off only for a headless front end that reads authors through REST while signed out.</span>
+										</span>
+									</label>
 								</td>
 							</tr>
 						</table>

@@ -41,9 +41,20 @@ class WPS_Admin {
 		// 1.4.148: a persistent notice while a threat that automatic removal could not touch is still there.
 		add_action( 'admin_notices', [ __CLASS__, 'render_withheld_notice' ] );
 		add_action( 'network_admin_notices', [ __CLASS__, 'render_withheld_notice' ] );
+		add_action( 'admin_notices', [ __CLASS__, 'render_repo_notice' ] );
 	}
 
 	/** Red notice, on every admin screen, for each threat that is still live because removal failed. */
+	/** 1.4.156: a git repository uploaded inside the plugin folder is a leak until it is removed. */
+	public static function render_repo_notice(): void {
+		if ( ! current_user_can( 'activate_plugins' ) || ! defined( 'WPS_DIR' ) || ! is_dir( WPS_DIR . '.git' ) ) {
+			return;
+		}
+		echo '<div class="notice notice-warning"><p><strong>A git repository is inside the WP Perf Shield folder.</strong> ';
+		echo '<code>' . esc_html( basename( rtrim( WPS_DIR, '/\\' ) ) ) . '/.git</code> was uploaded with the plugin. On a server that serves dot-folders it makes the plugin\'s source history downloadable by anyone. ';
+		echo 'WP Perf Shield has told Apache to refuse it; other servers need the folder gone. Delete it with your FTP client or file manager, then upload only the plugin\'s own files next time.</p></div>';
+	}
+
 	public static function render_withheld_notice(): void {
 		if ( ! current_user_can( 'manage_options' ) || ! class_exists( 'WPS_Scanner' ) ) {
 			return;
@@ -162,6 +173,8 @@ class WPS_Admin {
 			'login_network_guard'  => isset( $_POST['login_network_guard'] ) ? '1' : '0',
 			// 1.4.148: a permanent block also refuses XML-RPC, REST writes and uploads.
 			'login_block_surfaces' => isset( $_POST['login_block_surfaces'] ) ? '1' : '0',
+			// 1.4.156: a forged Jetpack/WordPress.com agent on a failed XML-RPC sign-in is a permanent block.
+			'login_forged_agent_block' => isset( $_POST['login_forged_agent_block'] ) ? '1' : '0',
 			'login_report_spam'    => isset( $_POST['login_report_spam'] ) ? '1' : '0',
 			'akismet_report_all_blocks' => isset( $_POST['akismet_report_all_blocks'] ) ? '1' : '0',
 			// 1.4.60: was read by akismet_available() but never written, so the
@@ -201,6 +214,7 @@ class WPS_Admin {
 			'xr_disable_feeds'          => isset( $_POST['xr_disable_feeds'] ) ? '1' : '0',
 			'xr_rest_logged_in_only'    => isset( $_POST['xr_rest_logged_in_only'] ) ? '1' : '0',
 			'xr_rest_exempt_namespaces' => WPS_Exposure_Guard::sanitize_namespaces( (string) wp_unslash( $_POST['xr_rest_exempt_namespaces'] ?? '' ) ),
+			'xr_no_user_enum'           => isset( $_POST['xr_no_user_enum'] ) ? '1' : '0',
 			'xr_slow_heartbeat'         => isset( $_POST['xr_slow_heartbeat'] ) ? '1' : '0',
 			'xr_remove_emoji'           => isset( $_POST['xr_remove_emoji'] ) ? '1' : '0',
 			'xr_disable_oembed'         => isset( $_POST['xr_disable_oembed'] ) ? '1' : '0',

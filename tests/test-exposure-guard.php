@@ -32,6 +32,10 @@ function is_user_logged_in() { return $GLOBALS['logged_in']; }
 function remove_query_arg( $k, $url ) { return preg_replace( '/([?&])' . $k . '=[^&]*&?/', '$1', rtrim( $url, '?&' ) ); }
 function rest_get_url_prefix() { return 'wp-json'; }
 class WP_Error { public $code; public $data; public function __construct( $c = '', $m = '', $d = [] ) { $this->code = $c; $this->data = $d; } }
+class WPS_Logger { public static $events = []; public static function log_event( $t, $s, $ip = '' ) { self::$events[] = $t; } }
+function get_transient( $k ) { return $GLOBALS['trans'][ $k ] ?? false; }
+function set_transient( $k, $v, $t = 0 ) { $GLOBALS['trans'][ $k ] = $v; return true; }
+$GLOBALS['trans'] = [];
 
 require dirname( __DIR__ ) . '/includes/class-exposure-guard.php';
 
@@ -49,24 +53,69 @@ function reset_state(): void {
 	$GLOBALS['removed'] = [];
 }
 
-// ---- defaults: nothing registers until an option is switched on
+// ---- defaults: nothing registers until an option is switched on, except the account-name
+// refusal (1.4.156), which is on by default and registers exactly its four hooks
+$enum_hooks = [ [ 'filter', 'rest_endpoints', 10 ], [ 'action', 'init', 0 ], [ 'filter', 'wp_sitemaps_add_provider', 10 ], [ 'filter', 'oembed_response_data', 10 ] ];
 reset_state();
 WPS_Exposure_Guard::register_hooks();
-check( 'with every option at its default, no hook is registered', [] === $GLOBALS['hooks'], json_encode( $GLOBALS['hooks'] ) );
-$GLOBALS['opts'][ WPS_OPTION ] = [ 'xr_no_pingback' => '0', 'xr_hide_version' => '0', 'xr_disabled_methods' => '', 'xr_slug' => '' ];
+check( 'with every option at its default, only the account-name refusal registers', $enum_hooks === $GLOBALS['hooks'], json_encode( $GLOBALS['hooks'] ) );
+reset_state();
+$GLOBALS['opts'][ WPS_OPTION ] = [ 'xr_no_pingback' => '0', 'xr_hide_version' => '0', 'xr_disabled_methods' => '', 'xr_slug' => '', 'xr_no_user_enum' => '0' ];
 WPS_Exposure_Guard::register_hooks();
-check( 'explicit zeros and empty strings also register nothing', [] === $GLOBALS['hooks'] );
+check( 'explicit zeros and empty strings, with the refusal switched off, register nothing', [] === $GLOBALS['hooks'], json_encode( $GLOBALS['hooks'] ) );
 
 // ---- each option registers its own hooks and no others
 reset_state();
-$GLOBALS['opts'][ WPS_OPTION ] = [ 'xr_no_pingback' => '1' ];
+$GLOBALS['opts'][ WPS_OPTION ] = [ 'xr_no_pingback' => '1', 'xr_no_user_enum' => '0' ];
 WPS_Exposure_Guard::register_hooks();
 $tags = array_column( $GLOBALS['hooks'], 1 );
 check( 'pingback option registers header, pings, link and method hooks', 4 === count( $tags ) && in_array( 'wp_headers', $tags, true ) && in_array( 'pings_open', $tags, true ) && in_array( 'xmlrpc_methods', $tags, true ), json_encode( $tags ) );
 reset_state();
-$GLOBALS['opts'][ WPS_OPTION ] = [ 'xr_rest_logged_in_only' => '1' ];
+$GLOBALS['opts'][ WPS_OPTION ] = [ 'xr_rest_logged_in_only' => '1', 'xr_no_user_enum' => '0' ];
 WPS_Exposure_Guard::register_hooks();
 check( 'REST option registers only the REST gate', [ 'rest_authentication_errors' ] === array_column( $GLOBALS['hooks'], 1 ) );
+
+// ---- account-name enumeration (1.4.156)
+$routes = [ '/wp/v2' => 1, '/wp/v2/posts' => 1, '/wp/v2/users' => 1, '/wp/v2/users/(?P<id>[\d]+)' => 1, '/wp/v2/users/me' => 1, '/wp/v2/users/(?P<user_id>(?:[\d]+|me))/application-passwords' => 1 ];
+$GLOBALS['logged_in'] = false;
+$left = WPS_Exposure_Guard::hide_user_routes( $routes );
+check( 'signed out, the user collection and user-by-id routes are gone', ! isset( $left['/wp/v2/users'] ) && ! isset( $left['/wp/v2/users/(?P<id>[\d]+)'] ), json_encode( array_keys( $left ) ) );
+check( 'every other route stays, /users/me and the application-password routes included', isset( $left['/wp/v2/posts'], $left['/wp/v2/users/me'], $left['/wp/v2/users/(?P<user_id>(?:[\d]+|me))/application-passwords'], $left['/wp/v2'] ), json_encode( array_keys( $left ) ) );
+$GLOBALS['logged_in'] = true;
+check( 'signed in, nothing is hidden', $routes === WPS_Exposure_Guard::hide_user_routes( $routes ) );
+check( 'a non-array is returned untouched', 'x' === WPS_Exposure_Guard::hide_user_routes( 'x' ) );
+$GLOBALS['logged_in'] = false;
+$_SERVER['REMOTE_ADDR'] = '198.51.100.5';
+$_SERVER['REQUEST_URI'] = '/wp-json/wp/v2/posts?author=1';
+WPS_Logger::$events = [];
+WPS_Exposure_Guard::hide_user_routes( $routes );
+check( 'the filter runs for every REST request, but a request for posts is not an event', [] === WPS_Logger::$events, json_encode( WPS_Logger::$events ) );
+$_SERVER['REQUEST_URI'] = '/wp-json/wp/v2/users';
+WPS_Exposure_Guard::hide_user_routes( $routes );
+$_SERVER['REQUEST_URI'] = '/wp-json/wp/v2/users/1';
+WPS_Exposure_Guard::hide_user_routes( $routes );
+check( 'a request for the user list is one event per address every ten minutes', [ 'user_enumeration_refused' ] === WPS_Logger::$events, json_encode( WPS_Logger::$events ) );
+check( 'user_route_requested reads plain-permalink rest_route too', ( function () { $_GET['rest_route'] = '/wp/v2/users/7'; $r = WPS_Exposure_Guard::user_route_requested(); unset( $_GET['rest_route'] ); return $r; } )() );
+unset( $_SERVER['REQUEST_URI'] );
+$_GET['author'] = '1';
+check( 'a signed-out ?author=1 is refusable', WPS_Exposure_Guard::author_query_refusable() );
+$_SERVER['REQUEST_URI'] = '/wp-json/wp/v2/posts?author=1';
+check( 'a REST query for posts by author is not', ! WPS_Exposure_Guard::author_query_refusable() );
+unset( $_SERVER['REQUEST_URI'] );
+$_GET['rest_route'] = '/wp/v2/posts';
+check( 'nor is the plain-permalink form', ! WPS_Exposure_Guard::author_query_refusable() );
+unset( $_GET['rest_route'] );
+$GLOBALS['logged_in'] = true;
+check( 'the same request signed in is not', ! WPS_Exposure_Guard::author_query_refusable() );
+$GLOBALS['logged_in'] = false;
+$_GET['author'] = 'jane';
+check( 'a name, which the visitor already knows, is not refused', ! WPS_Exposure_Guard::author_query_refusable() );
+$_GET['author'] = [ '1' ];
+check( 'an array value is not refused and raises no warning', ! WPS_Exposure_Guard::author_query_refusable() );
+unset( $_GET['author'] );
+check( 'no author parameter, nothing to refuse', ! WPS_Exposure_Guard::author_query_refusable() );
+check( 'the user sitemap provider is dropped and the others kept', false === WPS_Exposure_Guard::drop_user_sitemap( 'prov', 'users' ) && 'prov' === WPS_Exposure_Guard::drop_user_sitemap( 'prov', 'posts' ) );
+check( 'an embed answer loses its author fields and keeps the rest', [ 'title' => 't' ] === WPS_Exposure_Guard::strip_oembed_author( [ 'title' => 't', 'author_name' => 'jane', 'author_url' => 'http://x/author/jane' ] ) && 'x' === WPS_Exposure_Guard::strip_oembed_author( 'x' ) );
 
 // ---- pingback helpers
 check( 'X-Pingback header is removed and other headers kept', [ 'X-Foo' => 'a' ] === WPS_Exposure_Guard::strip_pingback_header( [ 'X-Pingback' => 'x', 'X-Foo' => 'a' ] ) );
