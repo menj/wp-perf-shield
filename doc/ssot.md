@@ -174,7 +174,7 @@ tests/test-plugin-malware-detection.php   headless/payload/installer/dropper/fak
 tests/test-manual-removal.php             the "Delete this path" removal routine (16 cases)
 tests/test-policy-ban.php                 the on-disk policy ban (43 cases)
 tests/test-forensics-sql.php              the Forensics media-trace query: placeholders equal arguments (5 cases)
-tests/test-exposure-guard.php             XML-RPC and exposure guard: hooks, IP/CIDR, slug, REST gate, account-name refusal, exiting behaviour via subprocess (85 cases)
+tests/test-exposure-guard.php             XML-RPC and exposure guard: hooks, IP/CIDR, slug, REST gate, account-name refusal, readme.html refusal, exiting behaviour via subprocess (96 cases)
 tests/test-settings-render.php            the real Settings tab renders and every xr_ field is saved and read (15 cases)
 tests/test-search-console-stub.php        Search Console stub check with the Site Kit setting off and on (7 cases)
 tests/test-docs-sync.php                  version markers, changelog entries, and Appendix F against the code
@@ -193,7 +193,7 @@ tests/test-event-log.php                  append refused on a held lock, row loc
 tests/test-dev-files.php                 tests/ removed from an installed copy and from a checkout, links not followed, .git refused to the web (14 cases)
 tests/test-rank-math-compat.php          a hidden folder inside a Composer package is not reported; one outside any package still is (9 cases)
 tests/test-review-1-4-155.php            1.4.155 review fixes: comment stripping, outbound cookies, XML-RPC page methods, Akismet reply, stale stats, auth label, forensics grep, stripper speed (18 cases)
-tests/test-xmlrpc-forgery.php            forged Jetpack/WordPress.com agent on a failed XML-RPC sign-in, Automattic's range, temporary blocks refused on xmlrpc.php (25 cases)
+tests/test-xmlrpc-forgery.php            forged Jetpack/WordPress.com agent on a failed XML-RPC sign-in, Automattic's range, temporary blocks refused on xmlrpc.php, lost-password mail refused for blocked addresses (29 cases)
 tests/test-bootstrap-integrity.php       the real main file in a child process: a missing class file keeps the plugin idle, safe mode lifts itself once the upload is complete (8 cases)
 ```
 

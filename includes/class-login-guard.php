@@ -243,7 +243,29 @@ final class WPS_Login_Guard {
 			add_action( 'init', [ __CLASS__, 'refuse_blocked_surfaces' ], 0 );
 			add_filter( 'rest_authentication_errors', [ __CLASS__, 'refuse_blocked_rest' ], 1 );
 			add_filter( 'wp_handle_upload_prefilter', [ __CLASS__, 'refuse_blocked_upload' ], 1 );
+			// 1.4.156: a blocked address may not trigger password-reset mail either. One address read the
+			// account name from REST, then posted the lost-password form twice, then went back to guessing.
+			add_action( 'lostpassword_post', [ __CLASS__, 'refuse_lost_password' ], 10, 2 );
 		}
+	}
+
+	/**
+	 * `lostpassword_post`: adding an error to $errors stops WordPress sending the reset mail.
+	 *
+	 * @param mixed $errors WP_Error
+	 * @param mixed $user_data
+	 */
+	public static function refuse_lost_password( $errors, $user_data = null ): void {
+		unset( $user_data );
+		if ( ! is_object( $errors ) || ! method_exists( $errors, 'add' ) ) {
+			return;
+		}
+		$reason = self::surface_refusal( 'lostpassword' );
+		if ( '' === $reason ) {
+			return;
+		}
+		self::note_refused( 'lostpassword' );
+		$errors->add( 'wps_address_blocked', '<strong>Error:</strong> ' . $reason );
 	}
 
 	/** On by default: a permanent block is an explicit decision about an address. */
@@ -365,7 +387,7 @@ final class WPS_Login_Guard {
 		if ( self::from_blocked_address() ) {
 			return 'This address is blocked.';
 		}
-		if ( 'xmlrpc' !== $surface ) {
+		if ( ! in_array( $surface, [ 'xmlrpc', 'lostpassword' ], true ) ) {
 			return '';
 		}
 		$ip = self::ip();

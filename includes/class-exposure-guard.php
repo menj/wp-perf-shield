@@ -112,6 +112,8 @@ class WPS_Exposure_Guard {
 			add_filter( 'script_loader_src', [ __CLASS__, 'strip_version_param' ] );
 			add_filter( 'style_loader_src', [ __CLASS__, 'strip_version_param' ] );
 			add_action( 'init', [ __CLASS__, 'remove_generator' ] );
+			// 1.4.156: readme.html states the WordPress version in its first heading; three scanners read it.
+			add_action( 'init', [ __CLASS__, 'refuse_core_readme' ], 0 );
 		}
 		if ( self::on( 'xr_remove_discovery_links' ) ) {
 			add_action( 'init', [ __CLASS__, 'remove_discovery_links' ] );
@@ -412,6 +414,25 @@ class WPS_Exposure_Guard {
 
 	public static function remove_generator(): void {
 		remove_action( 'wp_head', 'wp_generator' );
+	}
+
+	/**
+	 * Is this a request for WordPress's own readme.html or license.txt, at the site root or one
+	 * folder down (a subfolder install)? Pure of side effects.
+	 */
+	public static function core_readme_requested(): bool {
+		$path = (string) parse_url( (string) ( $_SERVER['REQUEST_URI'] ?? '' ), PHP_URL_PATH );
+		return 1 === preg_match( '#^/(?:[^/]+/)?(?:readme\.html|license\.txt)$#i', rawurldecode( $path ) );
+	}
+
+	public static function refuse_core_readme(): void {
+		if ( ! self::core_readme_requested() ) {
+			return;
+		}
+		if ( function_exists( 'status_header' ) ) {
+			status_header( 404 );
+		}
+		exit;
 	}
 
 	/**

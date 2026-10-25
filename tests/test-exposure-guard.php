@@ -189,6 +189,17 @@ unset( $_GET['rest_route'] );
 check( 'an earlier error is passed through unchanged', 'earlier' === WPS_Exposure_Guard::rest_gate( 'earlier' ) );
 check( 'namespace prefixes are validated', "contact-form-7/\nmy-app/v1" === WPS_Exposure_Guard::sanitize_namespaces( "Contact-Form-7/\nmy-app/v1\n../etc\n<x>" ), WPS_Exposure_Guard::sanitize_namespaces( "Contact-Form-7/\nmy-app/v1\n../etc\n<x>" ) );
 
+// ---- readme.html and license.txt (1.4.156)
+foreach ( [ '/readme.html' => true, '/license.txt' => true, '/blog/readme.html' => true, '/README.HTML' => true, '/readme%2ehtml' => true, '/readme.html?x=1' => true, '/a/b/readme.html' => false, '/my-readme.html/' => false, '/' => false, '/readme/' => false ] as $uri => $want ) {
+	$_SERVER['REQUEST_URI'] = $uri;
+	check( 'core readme request detection: ' . $uri, $want === WPS_Exposure_Guard::core_readme_requested() );
+}
+unset( $_SERVER['REQUEST_URI'] );
+reset_state();
+$GLOBALS['opts'][ WPS_OPTION ] = [ 'xr_hide_version' => '1', 'xr_no_user_enum' => '0' ];
+WPS_Exposure_Guard::register_hooks();
+check( 'hiding the version also registers the readme refusal', in_array( [ 'action', 'init', 0 ], $GLOBALS['hooks'], true ) && 5 === count( $GLOBALS['hooks'] ), json_encode( $GLOBALS['hooks'] ) );
+
 // ---- version parameter
 check( 'only a ver= equal to the WordPress version is removed', 'http://x/a.css' === rtrim( WPS_Exposure_Guard::strip_version_param( 'http://x/a.css?ver=6.9' ), '?' ) );
 check( 'a plugin version is kept so caching still works', 'http://x/a.css?ver=2.1.0' === WPS_Exposure_Guard::strip_version_param( 'http://x/a.css?ver=2.1.0' ) );

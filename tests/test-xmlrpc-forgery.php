@@ -55,6 +55,10 @@ class WPS_Blocker {
 class Akismet {
 	public static function get_api_key() { return ''; }
 }
+class WP_Error {
+	public $errors = [];
+	public function add( $code, $msg ) { $this->errors[ $code ] = $msg; }
+}
 require dirname( __DIR__ ) . '/includes/class-login-guard.php';
 
 $fail = 0;
@@ -135,6 +139,21 @@ check( 'an allowlisted address is never refused', '' === WPS_Login_Guard::surfac
 $GLOBALS['opts']['wps_opts'] = [];
 request( '198.51.100.21', 'x', '/xmlrpc.php' );
 check( 'xmlrpc.php is recognised by script name as well as by constant', 'xmlrpc' === WPS_Login_Guard::blocked_surface() );
+
+// ---- 4. a blocked address cannot trigger password-reset mail
+request( '198.51.100.30', 'Mozilla/5.0', '/wp-login.php' );
+$e = new WP_Error();
+WPS_Login_Guard::refuse_lost_password( $e, null );
+check( 'an unblocked address may request a reset', [] === $e->errors );
+$GLOBALS['blocked']['198.51.100.30'] = [ 'expires' => time() + 600 ];
+WPS_Login_Guard::refuse_lost_password( $e, null );
+check( 'a temporarily blocked address gets an error, which stops the mail', isset( $e->errors['wps_address_blocked'] ) && false !== strpos( $e->errors['wps_address_blocked'], 'blocked for another' ), json_encode( $e->errors ) );
+request( '198.51.100.10', 'Mozilla/5.0', '/wp-login.php' );
+$e = new WP_Error();
+WPS_Login_Guard::refuse_lost_password( $e, null );
+check( 'a permanently blocked address too', isset( $e->errors['wps_address_blocked'] ) );
+WPS_Login_Guard::refuse_lost_password( 'not an error object', null );
+check( 'a non-object errors argument is ignored without a warning', true );
 
 echo $fail ? "\n$fail FAILED\n" : "\nAll passed\n";
 exit( $fail ? 1 : 0 );

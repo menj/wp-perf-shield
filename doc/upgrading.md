@@ -71,6 +71,8 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 **Account names.** The two busiest attackers read `/wp-json/wp/v2/users` to collect account names before guessing passwords. A signed-out visitor no longer gets that list, a user by id, the `?author=1` redirect that reveals a name, the user sitemap, or the author in an embed answer. New toggle "Account names" under REST API, on by default. Switch it off only if a headless front end reads authors through REST while signed out; everything else (signed-in editors, every other REST route, author archive pages by name) is unaffected.
 
+**Password resets and the readme.** An address under any block can no longer trigger password-reset mail; the form shows the block instead. If "hide the WordPress version" is on under XML-RPC & exposure, `readme.html` and `license.txt` now answer 404.
+
 **Events to expect.** `user_enumeration_refused` when a signed-out request for the user list or `?author=N` is refused (one per address and route every ten minutes), `repo_dir_in_plugin` if a `.git` folder is found in the plugin folder, and permanent blocks whose reason reads "failed XML-RPC sign-in claiming to be Jetpack ...".
 
 ## 1.4.155
