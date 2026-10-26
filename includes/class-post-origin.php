@@ -117,11 +117,29 @@ class WPS_Post_Origin {
 			'user'    => function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0,
 			'ip'      => false === $ip ? '' : (string) $ip,
 			'ua'      => substr( (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ), 0, 120 ),
-			'request' => substr( strtoupper( (string) ( $_SERVER['REQUEST_METHOD'] ?? '' ) ) . ' ' . (string) ( $_SERVER['REQUEST_URI'] ?? '' ), 0, 160 ),
+			'request' => self::request_line( (string) ( $_SERVER['REQUEST_METHOD'] ?? '' ), (string) ( $_SERVER['REQUEST_URI'] ?? '' ) ),
 			'cron'    => self::cron_hook_of( $cron, isset( $GLOBALS['wp_current_filter'] ) && is_array( $GLOBALS['wp_current_filter'] ) ? $GLOBALS['wp_current_filter'] : [] ),
 			'caller'  => $caller['file'],
 			'odd'     => $caller['odd'],
 		];
+	}
+
+	/**
+	 * Method and path, without the query string: a query can carry a nonce, a token or a password
+	 * reset key, and this line is shown on the Posts screen. The one parameter kept is `rest_route`,
+	 * which on plain permalinks is the route itself. Pure of side effects.
+	 */
+	public static function request_line( string $method, string $uri ): string {
+		$path  = (string) parse_url( $uri, PHP_URL_PATH );
+		$query = (string) parse_url( $uri, PHP_URL_QUERY );
+		$route = '';
+		if ( '' !== $query ) {
+			parse_str( $query, $params );
+			if ( isset( $params['rest_route'] ) && is_string( $params['rest_route'] ) ) {
+				$route = '?rest_route=' . $params['rest_route'];
+			}
+		}
+		return substr( trim( strtoupper( $method ) . ' ' . $path . $route ), 0, 160 );
 	}
 
 	/** Which door the request came through. Pure of side effects. */

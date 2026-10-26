@@ -11,8 +11,11 @@
 - Everything else in the two notes was already here: hidden administrators (`check_hidden_admin_users`, a direct walk of the users table), core checksums (Forensics), PHP in uploads and mu-plugins, open registration and the default role (`check_registration_settings`), revoking every application password and rotating the salts (Hardening tab). The operator checklist is in `doc/readme.md`, "When a post appears that you did not write".
 - Uninstall removes `wps_origin_since` and both post meta keys.
 
+### Review of this release (CodeAnt on PR 35)
+- The request line stored on each save carried the whole query string, which can hold a nonce, a token or a password reset key, and is shown on the Posts screen. It now keeps the method and path, plus `rest_route` on plain permalinks, and nothing else.
+
 ### Tests
-- New: `test-post-origin.php` (35): channel, cron hook, caller from synthetic frames and from a real call stack through fixture files, the once-an-hour events, the column label, the untracked-posts query and finding, registration.
+- New: `test-post-origin.php` (41): channel, cron hook, caller from synthetic frames and from a real call stack through fixture files, the once-an-hour events, the column label, the untracked-posts query and finding, registration.
 
 ## 1.4.156
 

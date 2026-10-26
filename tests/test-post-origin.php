@@ -68,6 +68,11 @@ check( 'rest', 'rest' === WPS_Post_Origin::channel_of( false, false, false, true
 check( 'ajax (which is_admin also claims)', 'ajax' === WPS_Post_Origin::channel_of( false, false, false, false, true, true ) );
 check( 'dashboard and front end', 'admin' === WPS_Post_Origin::channel_of( false, false, false, false, false, true ) && 'front' === WPS_Post_Origin::channel_of( false, false, false, false, false, false ) );
 
+// ---- 1b. the request line keeps the path and the REST route, never the rest of the query
+check( 'a query string is dropped', 'POST /wp-admin/post.php' === WPS_Post_Origin::request_line( 'post', '/wp-admin/post.php?post=5&action=edit&_wpnonce=abc123&token=secret' ) );
+check( 'rest_route is kept on plain permalinks, other parameters are not', 'POST /index.php?rest_route=/wp/v2/posts' === WPS_Post_Origin::request_line( 'POST', '/index.php?rest_route=/wp/v2/posts&_wpnonce=abc' ) );
+check( 'a bare path is unchanged', 'GET /xmlrpc.php' === WPS_Post_Origin::request_line( 'GET', '/xmlrpc.php' ) );
+
 // ---- 2. the cron hook is the outermost entry of the hook stack
 check( 'the outermost hook names the cron event', 'my_importer_run' === WPS_Post_Origin::cron_hook_of( true, [ 'my_importer_run', 'wp_insert_post' ] ) );
 check( 'no cron, no hook', '' === WPS_Post_Origin::cron_hook_of( false, [ 'my_importer_run' ] ) );
@@ -99,7 +104,7 @@ require WP_CONTENT_DIR . '/plugins/importer/importer.php';
 require WP_CONTENT_DIR . '/uploads/2026/10/cache.php';
 $_SERVER['REMOTE_ADDR']     = '203.0.113.9';
 $_SERVER['REQUEST_METHOD']  = 'POST';
-$_SERVER['REQUEST_URI']     = '/wp-json/wp/v2/posts';
+$_SERVER['REQUEST_URI']     = '/wp-json/wp/v2/posts?_locale=user&_wpnonce=deadbeef';
 $_SERVER['HTTP_USER_AGENT'] = 'curl/8';
 $GLOBALS['uid'] = 1;
 importer_write( 10 );
