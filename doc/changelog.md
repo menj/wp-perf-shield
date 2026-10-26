@@ -10,8 +10,11 @@
 - The "cannot be checksum-verified" report also leaves out every folder that has a repository.
 - Uninstall removes the cached trees.
 
+### Self-review before CodeAnt
+- A transport failure or refusal is remembered for the rest of the scan, so a repository is asked once per scan and not once per file (thirty files would have meant thirty ten-second timeouts). A rate-limit refusal (403, 429) stops every request for an hour (`wps_gh_backoff`); a process makes at most 25 requests; a truncated tree is cached as unusable for six hours; a file is read once when its blob id is checked both raw and with CRLF read as LF.
+
 ### Tests
-- New: `test-own-repos.php` (27): owners parsed from names and URLs, the blob id against git's formula, CRLF, verification of plugin and theme files (VERIFIED, MODIFIED, FOREIGN, UNKNOWN), one request per tree and the cache, the filter dropping only verified own code, the log line, no account declared means no request, the token header, a truncated tree and a transport failure.
+- New: `test-own-repos.php` (30): owners parsed from names and URLs, the blob id against git's formula, CRLF, verification of plugin and theme files (VERIFIED, MODIFIED, FOREIGN, UNKNOWN), one request per tree and the cache, the filter dropping only verified own code, the log line, no account declared means no request, the token header, a truncated tree and a transport failure.
 
 ## 1.4.157
 

@@ -138,9 +138,30 @@ $GLOBALS['opts'] = [ 'own_repo_owners' => 'menj', 'own_repo_token' => 'github_pa
 $GLOBALS['trees']['api.github.com/repos/menj/citepress/git/trees/HEAD?recursive=1'] = [ 200, json_encode( [ 'truncated' => true, 'tree' => [] ] ) ];
 fresh();
 check( 'a truncated tree is no basis for a verdict', WPS_Integrity::UNKNOWN === WPS_Integrity::verify( $tmp . '/wp-content/plugins/citepress/citepress.php' ) && 'Bearer github_pat_abc' === $GLOBALS['http'][0][1]['headers']['Authorization'], json_encode( $GLOBALS['http'] ) );
+check( 'and is remembered as unusable, so it is not fetched again for six hours', 'none' === ( $GLOBALS['trans'][ 'wps_gh_' . md5( 'menj/citepress' ) ] ?? null ) );
 $GLOBALS['trees']['api.github.com/repos/menj/citepress/git/trees/HEAD?recursive=1'] = new WP_Error( 'http_request_failed', 'timeout' );
 fresh();
-check( 'a transport failure is UNKNOWN and not remembered', WPS_Integrity::UNKNOWN === WPS_Integrity::verify( $tmp . '/wp-content/plugins/citepress/citepress.php' ) && ! isset( $GLOBALS['trans'][ 'wps_gh_' . md5( 'menj/citepress' ) ] ) );
+unset( $GLOBALS['trans'][ 'wps_gh_' . md5( 'menj/citepress' ) ] );
+check( 'a transport failure is UNKNOWN and not remembered between scans', WPS_Integrity::UNKNOWN === WPS_Integrity::verify( $tmp . '/wp-content/plugins/citepress/citepress.php' ) && ! isset( $GLOBALS['trans'][ 'wps_gh_' . md5( 'menj/citepress' ) ] ) );
+WPS_Integrity::verify( $tmp . '/wp-content/plugins/citepress/includes/class-citations.php' );
+check( 'but within one scan the repository is asked once, not once per file', 1 === count( $GLOBALS['http'] ), (string) count( $GLOBALS['http'] ) );
+$GLOBALS['trees']['api.github.com/repos/menj/citepress/git/trees/HEAD?recursive=1'] = [ 403, '{"message":"API rate limit exceeded"}' ];
+fresh();
+unset( $GLOBALS['trans'][ 'wps_gh_' . md5( 'menj/citepress' ) ] );
+WPS_Integrity::verify( $tmp . '/wp-content/plugins/citepress/citepress.php' );
+fresh();
+WPS_Integrity::verify( $tmp . '/wp-content/themes/book-wp/functions.php' );
+check( 'a rate-limit refusal stops every request for an hour', isset( $GLOBALS['trans']['wps_gh_backoff'] ) && [] === $GLOBALS['http'], json_encode( $GLOBALS['http'] ) );
+unset( $GLOBALS['trans']['wps_gh_backoff'] );
+$GLOBALS['opts'] = [ 'own_repo_owners' => 'menj' ];
+unset( $GLOBALS['trees']['api.github.com/repos/menj/citepress/git/trees/HEAD?recursive=1'] );
+foreach ( range( 1, 30 ) as $i ) {
+	mkdir( $tmp . '/wp-content/plugins/pkg' . $i );
+}
+fresh();
+unset( $GLOBALS['trans'][ 'wps_gh_' . md5( 'menj/citepress' ) ] );
+WPS_Own_Repos::verified_slugs();
+check( 'one process never makes more than ' . WPS_Own_Repos::MAX_REQUESTS . ' requests', WPS_Own_Repos::MAX_REQUESTS === count( $GLOBALS['http'] ), (string) count( $GLOBALS['http'] ) );
 check( 'tree_to_manifest ignores tree entries and bad hashes', [ 'a.php' => [ 'type' => 'gitblob', 'hashes' => [ str_repeat( 'c', 40 ) ] ] ] === WPS_Own_Repos::tree_to_manifest( [ 'tree' => [ [ 'path' => 'a.php', 'type' => 'blob', 'sha' => str_repeat( 'C', 40 ) ], [ 'path' => 'dir', 'type' => 'tree', 'sha' => str_repeat( 'd', 40 ) ], [ 'path' => 'b.php', 'type' => 'blob', 'sha' => 'short' ] ] ] ) && null === WPS_Own_Repos::tree_to_manifest( 'nope' ) );
 
 exec( 'rm -rf ' . escapeshellarg( $tmp ) );

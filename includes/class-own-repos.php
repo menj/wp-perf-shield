@@ -25,15 +25,21 @@ if ( ! defined( 'ABSPATH' ) ) {
 class WPS_Own_Repos {
 
 	const TTL           = 6 * 3600;        // tree cache
+	const BACKOFF       = 3600;            // after GitHub refuses for rate limiting
+	const MAX_REQUESTS  = 25;              // per process: GitHub allows sixty an hour without a token
 	const MAX_FILE      = 8 * 1024 * 1024; // larger files are not hashed
 	const TREE_API      = 'https://api.github.com/repos/%s/%s/git/trees/HEAD?recursive=1';
 
-	/** Trees already resolved this process, by owner/slug ('' for none). @var array<string, array|null> */
+	/** Trees already resolved this process, by owner/slug; null for a miss or a failure. @var array<string, array|null> */
 	private static $trees = [];
+
+	/** Requests made this process. */
+	private static $requests = 0;
 
 	/** Forget the per-process memo (a scan calls this when it finishes). */
 	public static function reset(): void {
-		self::$trees = [];
+		self::$trees    = [];
+		self::$requests = 0;
 	}
 
 	// ---------------------------------------------------------------
@@ -146,8 +152,10 @@ class WPS_Own_Repos {
 	}
 
 	/**
-	 * The repository's file tree as a manifest, cached six hours. A missing repository is also
-	 * cached (as 'none'); a transport failure is not, so the next scan retries.
+	 * The repository's file tree as a manifest, cached six hours. A missing or unusable repository
+	 * is also cached (as 'none'); a transport failure or a refusal is remembered for this process
+	 * only, so one scan asks once and the next scan retries. A rate-limit refusal stops all
+	 * requests for an hour, and a process never makes more than MAX_REQUESTS.
 	 *
 	 * @return array<string, array{type: string, hashes: string[]}>|null
 	 */
@@ -164,9 +172,10 @@ class WPS_Own_Repos {
 		if ( 'none' === $cached ) {
 			return self::$trees[ $memo ] = null;
 		}
-		if ( ! function_exists( 'wp_remote_get' ) ) {
-			return null;
+		if ( ! function_exists( 'wp_remote_get' ) || get_transient( 'wps_gh_backoff' ) || self::$requests >= self::MAX_REQUESTS ) {
+			return self::$trees[ $memo ] = null;
 		}
+		++self::$requests;
 		$headers = [ 'Accept' => 'application/vnd.github+json', 'User-Agent' => 'WP-Perf-Shield' ];
 		$token   = self::token();
 		if ( '' !== $token ) {
@@ -174,20 +183,25 @@ class WPS_Own_Repos {
 		}
 		$resp = wp_remote_get( sprintf( self::TREE_API, rawurlencode( $owner ), rawurlencode( $slug ) ), [ 'timeout' => 10, 'redirection' => 2, 'headers' => $headers ] );
 		if ( ! is_array( $resp ) || ( function_exists( 'is_wp_error' ) && is_wp_error( $resp ) ) ) {
-			return null; // transport failure: retry next scan, remember nothing
+			return self::$trees[ $memo ] = null; // transport failure: not asked again this scan, retried next
 		}
 		$code = (int) ( function_exists( 'wp_remote_retrieve_response_code' ) ? wp_remote_retrieve_response_code( $resp ) : ( $resp['response']['code'] ?? 0 ) );
 		if ( 404 === $code ) {
 			set_transient( $key, 'none', self::TTL ); // no such repository under this account
 			return self::$trees[ $memo ] = null;
 		}
+		if ( 403 === $code || 429 === $code ) {
+			set_transient( 'wps_gh_backoff', 1, self::BACKOFF ); // rate limited, or a token without access: wait an hour
+			return self::$trees[ $memo ] = null;
+		}
 		if ( 200 !== $code ) {
-			return null; // 401, 403 (rate limit), 5xx: retry later
+			return self::$trees[ $memo ] = null; // 401, 5xx: retry next scan
 		}
 		$body = function_exists( 'wp_remote_retrieve_body' ) ? wp_remote_retrieve_body( $resp ) : ( $resp['body'] ?? '' );
 		$m    = self::tree_to_manifest( json_decode( (string) $body, true ) );
 		if ( null === $m ) {
-			return null; // truncated or malformed: not a basis for any verdict
+			set_transient( $key, 'none', self::TTL ); // truncated (a repository too large to list) or malformed: no basis for a verdict
+			return self::$trees[ $memo ] = null;
 		}
 		set_transient( $key, $m, self::TTL );
 		return self::$trees[ $memo ] = $m;
@@ -228,40 +242,50 @@ class WPS_Own_Repos {
 	 * repository that stores LF.
 	 */
 	public static function git_blob_sha( string $file, bool $normalise = false ): string {
-		if ( ! is_file( $file ) || ! is_readable( $file ) ) {
+		$content = self::read( $file );
+		if ( null === $content ) {
 			return '';
+		}
+		return self::blob_id( $normalise ? str_replace( "\r\n", "\n", $content ) : $content );
+	}
+
+	/** The blob id of content. Pure of side effects. */
+	public static function blob_id( string $content ): string {
+		return sha1( 'blob ' . strlen( $content ) . "\0" . $content );
+	}
+
+	/** A file's content, or null when it is missing, unreadable or too large to hash. */
+	private static function read( string $file ): ?string {
+		if ( ! is_file( $file ) || ! is_readable( $file ) ) {
+			return null;
 		}
 		$size = filesize( $file );
 		if ( false === $size || $size > self::MAX_FILE ) {
-			return '';
+			return null;
 		}
 		$content = @file_get_contents( $file );
-		if ( ! is_string( $content ) ) {
-			return '';
-		}
-		if ( $normalise ) {
-			$content = str_replace( "\r\n", "\n", $content );
-		}
-		return sha1( 'blob ' . strlen( $content ) . "\0" . $content );
+		return is_string( $content ) ? $content : null;
 	}
 
 	/** Does this file's content match one of the git blob ids? Raw first, then with CRLF read as LF. */
 	public static function blob_matches( string $file, array $hashes ): bool {
-		$raw = self::git_blob_sha( $file );
-		if ( '' === $raw ) {
+		$content = self::read( $file );
+		if ( null === $content ) {
 			return false;
 		}
-		foreach ( $hashes as $h ) {
-			if ( hash_equals( strtolower( (string) $h ), $raw ) ) {
+		$want = array_map( static fn( $h ) => strtolower( (string) $h ), $hashes );
+		$raw  = self::blob_id( $content );
+		foreach ( $want as $h ) {
+			if ( hash_equals( $h, $raw ) ) {
 				return true;
 			}
 		}
-		$norm = self::git_blob_sha( $file, true );
-		if ( '' === $norm || $norm === $raw ) {
+		if ( false === strpos( $content, "\r\n" ) ) {
 			return false;
 		}
-		foreach ( $hashes as $h ) {
-			if ( hash_equals( strtolower( (string) $h ), $norm ) ) {
+		$norm = self::blob_id( str_replace( "\r\n", "\n", $content ) );
+		foreach ( $want as $h ) {
+			if ( hash_equals( $h, $norm ) ) {
 				return true;
 			}
 		}
