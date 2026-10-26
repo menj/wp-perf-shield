@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP Perf Shield
  * Description: Blocks wp-perf-analytics traffic-hijacking malware and all renamed variants. Includes real-time activation blocking, scheduled scanning, and one-click remediation.
- * Version: 1.4.156
+ * Version: 1.4.157
  * Author: MENJ
  * Author URI: https://github.com/menj
  * License: GPL-2.0+
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WPS_VERSION', '1.4.156' );
+define( 'WPS_VERSION', '1.4.157' );
 define( 'WPS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPS_URL', plugin_dir_url( __FILE__ ) );
 define( 'WPS_LOG_DIR', WPS_DIR . 'logs' );
@@ -190,6 +190,7 @@ function wps_class_map(): array {
 			'WPS_Scan_Lock'              => 'includes/class-scan-lock.php',
 			'WPS_Login_Guard'            => 'includes/class-login-guard.php',
 			'WPS_Post_Guard'             => 'includes/class-post-guard.php',
+			'WPS_Post_Origin'            => 'includes/class-post-origin.php',
 			'WPS_Exposure_Guard'         => 'includes/class-exposure-guard.php',
 			'WPS_Account_Guard'          => 'includes/class-account-guard.php',
 			'WPS_Spam_Content_Guard'     => 'includes/class-spam-content-guard.php',
@@ -397,6 +398,7 @@ function wps_uninstall(): void {
 	wps_delete_transients_like( 'wps_bs_' );        // 1.4.148: surface-refusal log throttle
 	wps_delete_transients_like( 'wps_ue_' );        // 1.4.156: enumeration-refusal log throttle       // 1.4.20: cached Akismet usage figure        // 1.4.18: login guard activity record    // 1.4.17: protected administrator addresses  // 1.4.13: unsigned-state throttle
 	delete_option( 'wps_last_fatal' );          // 1.4.12: safe-mode record
+	delete_option( 'wps_origin_since' );        // 1.4.157: when post provenance began
 	delete_option( 'wps_first_party_baseline' ); // 1.4.11: first-party plugin fingerprints
 	delete_option( 'wps_registration_baseline' ); // 1.4.10: registration/default-role baseline
 	delete_option( 'wps_headless_slugs' ); // 1.4.112: headless payload folders seen, for re-drop slot tracking
@@ -416,6 +418,8 @@ function wps_uninstall(): void {
 		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( 'wps_event_chain_st_' ) . '%' ) );
 		// The account guard's per-user rows: login records (one per device since 1.4.152) and known devices.
 		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->usermeta} WHERE meta_key LIKE %s OR meta_key IN ('_wps_login_fingerprint', '_wps_known_devices')", $wpdb->esc_like( '_wps_login_fp_' ) . '%' ) );
+		// 1.4.157: post provenance records.
+		$wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE meta_key IN ('_wps_origin', '_wps_last_write')" );
 		// The event table and the self-test scratch tables only (wps_events_st_<ns>); a bare prefix
 		// match would also take a table another plugin happened to name wps_events_something.
 		$wps_tables = (array) $wpdb->get_col( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $wpdb->prefix . 'wps_events_st_' ) . '%' ) );
@@ -502,6 +506,8 @@ wps_boot( 'login-guard', static function (): void { WPS_Login_Guard::register_ho
 // injection). Opt-in - it can break legitimate headless or integration
 // publishing - so the module registers nothing unless enabled.
 wps_boot( 'post-guard', static function (): void { WPS_Post_Guard::register_hooks(); } );
+// 1.4.157: every post saved through WordPress carries a record of what wrote it.
+wps_boot( 'post-origin', static function (): void { WPS_Post_Origin::register_hooks(); } );
 // 1.4.131: XML-RPC and site-exposure controls (pingbacks, method list, renamed
 // endpoint, address rules, version and discovery links, REST for signed-in users
 // only, speed). Every option is off by default, so this registers nothing until

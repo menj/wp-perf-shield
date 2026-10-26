@@ -1,5 +1,19 @@
 # WP Perf Shield changelog
 
+## 1.4.157
+
+**Post provenance.** Built from two pieces of advice an operator was given about posts that keep appearing under their own account: find the post's exact time, read the server's access log for that minute, and work out from the request whether it was REST, XML-RPC, a stray PHP file, a scheduled event, or nothing at all; and do not read anything into the author, since kits hard-code author 1. The plugin now answers that at the moment of writing, and keeps the answer on the post.
+
+- New `WPS_Post_Origin` (`includes/class-post-origin.php`) on `wp_insert_post` at priority 1. Every post and page saved through WordPress gets `_wps_origin` (the creation) and `_wps_last_write` (the latest save): channel (Dashboard, REST API, XML-RPC, WP-Cron, WP-CLI, admin-ajax, front end), sign-in method from `WPS_EDR::auth_method()` (cookie session, application password and its name), user, address, user agent, method and path, the cron hook when WP-Cron did the writing (the outermost entry of the hook stack), and the file that asked for the save: the first frame of the call stack that is not WordPress and not this plugin.
+- **"Written via" column** on the Posts and Pages lists, for example `REST API · application password "PBN Automation (WPU)" · 193.24.211.106` or `WP-Cron · hook autoposter_tick`. A file that should not be writing posts (uploads, the wp-content root, a non-core file at the web root, anywhere outside the installation) is named on the line: `by wp-content/uploads/2026/10/cache.php`. Styles in `assets/css/admin.css`, loaded on those two screens only.
+- **Events.** `post_written_by_unexpected_file` (high, risk 120) names the file, once an hour per file. `post_written_by_cron` (info) names the hook, once an hour per hook.
+- **Scanner:** `check_posts_without_origin` (registered checks 122). A post or page newer than the start of tracking (`wps_origin_since`, set on first load) with no record was not written through WordPress: it went straight into the database from a server cron, another site on the account, SQL access, or code that writes the posts table itself. Reported, never removed, listing up to ten posts with author and time.
+- Everything else in the two notes was already here: hidden administrators (`check_hidden_admin_users`, a direct walk of the users table), core checksums (Forensics), PHP in uploads and mu-plugins, open registration and the default role (`check_registration_settings`), revoking every application password and rotating the salts (Hardening tab). The operator checklist is in `doc/readme.md`, "When a post appears that you did not write".
+- Uninstall removes `wps_origin_since` and both post meta keys.
+
+### Tests
+- New: `test-post-origin.php` (35): channel, cron hook, caller from synthetic frames and from a real call stack through fixture files, the once-an-hour events, the column label, the untracked-posts query and finding, registration.
+
 ## 1.4.156
 
 **Hardening from one site's October logs** (access, TLS, FTP and PHP error logs for a single production site). Five changes, each with a test that fails on 1.4.155.

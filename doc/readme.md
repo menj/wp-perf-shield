@@ -135,6 +135,19 @@ Attack kits plant the same payload across a dozen directories under randomly gen
 
 Copies with identical content flagged by the same check **collapse into one finding listing every location**. Grouping is by content, not filename — the filename is the part the attacker regenerates. One file flagged by two different checks stays as two findings, because they tell you different things.
 
+## When a post appears that you did not write
+
+Since 1.4.157 every post and page saved through WordPress carries a record of what wrote it, shown in the "Written via" column on the Posts and Pages lists. Read that line first; it replaces the old advice of finding the post's exact time and reading the server's access log for that minute.
+
+- **REST API or XML-RPC, with an application password named on the line.** Something holds that password. Hardening tab, "Revoke application passwords" removes every one on every administrator, then "Rotate salts" ends every session. Disable XML-RPC sign-in under XML-RPC & exposure if nothing you use needs it.
+- **REST API or Dashboard with a cookie session, from an address that is not yours.** A stolen session or password. Rotate the salts, change the password, and read the Events tab for the sign-in that started it.
+- **WP-Cron, with a hook name.** A scheduled event. The hook name belongs to a plugin or theme; the "called from" file in the `post_written_by_cron` event says which. If you run no importer or auto-poster, that is the thing to remove.
+- **"by wp-content/uploads/..." or any other file in red.** A backdoor that is still there. That file is what to look at, whatever the scanner says about it; the `post_written_by_unexpected_file` event names it too.
+- **"Not through WordPress".** The post went straight into the database: a server cron job in the hosting panel, another site on the same account, database access, or code writing the posts table itself. Nothing in this site's web log will show the moment. Check the panel's cron jobs and the other sites, and change the database password.
+- **Do not read the author.** Kits hard-code author 1, so posts under your name do not prove your account was used.
+
+Then close the ways back in: Users (the scanner's `check_hidden_admin_users` also walks the users table directly, for accounts hidden from the list); core files against fresh copies (Forensics tab); PHP in uploads and mu-plugins (every scan); Settings, General: registration off and the default role Subscriber (`check_registration_settings` reports a change); the mail plugin's SMTP password, which lives in the database, changed at the provider; and outside WordPress, the hosting account, SFTP and database passwords, the hosting account's two-factor sign-in, and any mail forwarders added at the provider.
+
 ## Sign-in protection
 
 | Rule | Threshold |
@@ -260,7 +273,7 @@ Each exits non-zero on failure. They do not replace running the plugin on a stag
 
 ## Version
 
-Current plugin version: `1.4.156`
+Current plugin version: `1.4.157`
 
 Author: [MENJ](https://github.com/menj)
 

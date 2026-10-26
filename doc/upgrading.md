@@ -59,6 +59,14 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.157
+
+**Every post now says what wrote it.** Open Posts (or Pages) and look at the new "Written via" column. From this update on, each post saved through WordPress records the channel (Dashboard, REST API, XML-RPC, WP-Cron, WP-CLI), how the writer was signed in (your browser session, or an application password and its name), the address, and, when the save came from a plugin or theme, which file asked for it. A file that has no business writing posts, such as one in uploads, is named in red. Posts from before the update show "Before tracking". A post newer than the update that shows **"Not through WordPress"** was put into the database directly, and the next scan reports it: that means a server cron job, another site on the same hosting account, database access, or code writing the posts table itself, and nothing in this site's web log will show the moment it appeared.
+
+**What to do when a post appears that you did not write** is now a section in the Docs tab (`doc/readme.md`). The short version: read its "Written via" line, then act on the channel it names rather than on the author shown, because kits hard-code author 1.
+
+**New events:** `post_written_by_unexpected_file` (high) naming the file, and `post_written_by_cron` naming the hook, each at most once an hour.
+
 ## 1.4.156
 
 **Built from one site's October server logs.** Four log files from a production site (web access, TLS access, FTP and the PHP error log) were read end to end, and the plugin changed where they showed it short.

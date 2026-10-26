@@ -667,6 +667,7 @@ class WPS_Scanner {
 			'check_cloaked_injector' => [ __CLASS__, 'check_cloaked_injector' ],                       // 1.4.5: hides from admins AND crawlers while injecting - matched on behaviour, after de-obfuscating the source
 			'check_split_literal_obfuscation' => [ __CLASS__, 'check_split_literal_obfuscation' ],     // 1.4.5: identifier splitting has one purpose - defeating scanners
 			'check_php_config_override' => [ __CLASS__, 'check_php_config_override' ],   // 1.4.4: php.ini/.user.ini switching hardening back off (disable_functions=NONE, exec=ON)
+			'check_posts_without_origin' => [ __CLASS__, 'check_posts_without_origin' ], // 1.4.157: posts newer than provenance tracking that carry no record of what wrote them (written straight into the database)
 			'check_registration_settings' => [ __CLASS__, 'check_registration_settings' ], // 1.4.10: the account factory - default_role escalation, registration reopened, role capability tampering. Leaves no file, so nothing else sees it.
 			'check_first_party_integrity' => [ __CLASS__, 'check_first_party_integrity' ], // 1.4.11: operator-declared plugins are exempt from the checksum report but watched for in-place edits
 			'check' => [ 'WPS_Dropin_Guard', 'check' ], // 1.3.71: temporal drop-in guard  creation/modification/removal vs clean baseline
@@ -2343,6 +2344,29 @@ class WPS_Scanner {
 	}
 
 	/** @return array<int, array<string, string>> */
+	/**
+	 * 1.4.157: a post or page newer than provenance tracking with no `_wps_origin` record was not
+	 * written through WordPress at all. Report only; the record of what wrote the others is on the
+	 * Posts screen.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_posts_without_origin(): array {
+		global $wpdb;
+		if ( ! class_exists( 'WPS_Post_Origin' ) || ! isset( $wpdb ) || ! is_object( $wpdb ) ) {
+			return [];
+		}
+		$since = (int) get_option( WPS_Post_Origin::SINCE_OPTION, 0 );
+		if ( $since <= 0 ) {
+			return [];
+		}
+		try {
+			return WPS_Post_Origin::untracked_finding( WPS_Post_Origin::find_untracked( $wpdb, $since ), $since );
+		} catch ( \Throwable $t ) {
+			return [];
+		}
+	}
+
 	private static function check_cron_tampering(): array {
 		$found     = [];
 		$cron_file = ABSPATH . 'wp-cron.php';

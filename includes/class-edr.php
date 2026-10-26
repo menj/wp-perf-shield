@@ -69,6 +69,9 @@ class WPS_EDR {
 		// authentication
 		'login_success'          => 10,
 		'login_failed'           => 5,
+		// 1.4.157: post provenance
+		'post_written_by_unexpected_file' => 120,
+		'post_written_by_cron'            => 10,
 		'logout'                 => 0,
 		// accounts - the sharp end
 		'user_registered'        => 40,
