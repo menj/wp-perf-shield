@@ -148,7 +148,7 @@ $since = 1_760_000_000;
 check( 'nothing to look for before tracking began', [] === WPS_Post_Origin::find_untracked( $db, 0 ) && '' === $db->sql );
 $db->rows = [ (object) [ 'ID' => 501, 'post_title' => 'Buy now', 'post_type' => 'post', 'post_status' => 'publish', 'post_author' => 1, 'post_date_gmt' => '2026-10-20 05:55:00', 'post_modified_gmt' => '2026-10-20 05:55:00' ] ];
 $rows = WPS_Post_Origin::find_untracked( $db, $since, 25 );
-check( 'the query joins the origin record, limits to posts and pages, and cuts at the tracking date', 1 === count( $rows ) && false !== strpos( $db->sql, "meta_key = %s" ) && false !== strpos( $db->sql, "IN ('post','page')" ) && false !== strpos( $db->sql, '_wps_origin,' . gmdate( 'Y-m-d H:i:s', $since ) . ',25' ), $db->sql );
+check( 'the query joins the origin record, limits to posts and pages, and cuts at the tracking date', 1 === count( $rows ) && false !== strpos( $db->sql, "meta_key = %s" ) && false !== strpos( $db->sql, "IN ('post','page')" ) && false !== strpos( $db->sql, 'p.post_date_gmt > %s OR p.post_modified_gmt > %s' ) && false === strpos( $db->sql, 'GREATEST' ) && false !== strpos( $db->sql, '_wps_origin,' . gmdate( 'Y-m-d H:i:s', $since ) . ',' . gmdate( 'Y-m-d H:i:s', $since ) . ',25' ), $db->sql );
 $f = WPS_Post_Origin::untracked_finding( $rows, $since );
 check( 'one high finding naming the post, its author and its time', 1 === count( $f ) && 'high' === $f[0]['severity'] && false !== strpos( $f[0]['subject'], '#501 "Buy now" (post, publish, author #1, 2026-10-20 05:55:00 UTC)' ), json_encode( $f ) );
 check( 'no rows, no finding', [] === WPS_Post_Origin::untracked_finding( [], $since ) );

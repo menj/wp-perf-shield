@@ -13,6 +13,7 @@
 
 ### Review of this release (CodeAnt on PR 35)
 - The request line stored on each save carried the whole query string, which can hold a nonce, a token or a password reset key, and is shown on the Posts screen. It now keeps the method and path, plus `rest_route` on plain permalinks, and nothing else.
+- The untracked-posts query compared `GREATEST(post_date_gmt, post_modified_gmt)` with the tracking date, which no index can serve; it now compares each column, so the date indexes apply.
 
 ### Tests
 - New: `test-post-origin.php` (41): channel, cron hook, caller from synthetic frames and from a real call stack through fixture files, the once-an-hour events, the column label, the untracked-posts query and finding, registration.

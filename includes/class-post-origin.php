@@ -392,8 +392,9 @@ class WPS_Post_Origin {
 		$posts = (string) ( $wpdb->posts ?? 'wp_posts' );
 		$meta  = (string) ( $wpdb->postmeta ?? 'wp_postmeta' );
 		$sql   = $wpdb->prepare(
-			"SELECT p.ID, p.post_title, p.post_type, p.post_status, p.post_author, p.post_date_gmt, p.post_modified_gmt FROM {$posts} p LEFT JOIN {$meta} m ON m.post_id = p.ID AND m.meta_key = %s WHERE m.meta_id IS NULL AND p.post_type IN ('post','page') AND p.post_status IN ('publish','future','draft','pending','private') AND GREATEST(p.post_date_gmt, p.post_modified_gmt) > %s ORDER BY p.ID DESC LIMIT %d",
+			"SELECT p.ID, p.post_title, p.post_type, p.post_status, p.post_author, p.post_date_gmt, p.post_modified_gmt FROM {$posts} p LEFT JOIN {$meta} m ON m.post_id = p.ID AND m.meta_key = %s WHERE m.meta_id IS NULL AND p.post_type IN ('post','page') AND p.post_status IN ('publish','future','draft','pending','private') AND (p.post_date_gmt > %s OR p.post_modified_gmt > %s) ORDER BY p.ID DESC LIMIT %d",
 			self::META,
+			gmdate( 'Y-m-d H:i:s', $since ),
 			gmdate( 'Y-m-d H:i:s', $since ),
 			max( 1, $limit )
 		);
