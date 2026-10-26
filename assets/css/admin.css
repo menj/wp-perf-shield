@@ -1955,3 +1955,9 @@ th.wps-ev-ip { text-align: right; }
 	border-radius: 6px;
 	background: var(--wps-bg-soft, #f9f9f9);
 }
+
+/* --- "Written via" column on the Posts and Pages lists (1.4.157) --- */
+.column-wps_origin { width: 16%; }
+.wps-origin { font-size: 12px; }
+.wps-origin-missing { color: var(--wps-bad, #bf2f45); font-weight: 600; }
+.wps-origin-muted { color: var(--wps-muted, #667085); }

@@ -1,5 +1,45 @@
 # WP Perf Shield changelog
 
+## 1.4.158
+
+**The operator's own repositories as a verification source.** The operator writes plugins and themes, publishes them at github.com/menj and uploads them to the site, and the scanner kept reporting them: a hidden folder, a self-concealing pattern, "cannot be checksum-verified". The first-party list (1.4.11) silenced one report and left the rest, because the scanner had no baseline for code that was never on wordpress.org. Now it has one.
+
+- New `WPS_Own_Repos` (`includes/class-own-repos.php`). Settings, "Your GitHub accounts": account names whose repositories are the operator's (`own_repo_owners`), and an optional token for private repositories (`own_repo_token`, kept unless replaced, removed with `-`). For every installed plugin or theme whose folder name is a repository under a declared account, the repository's file tree (`GET /repos/{owner}/{slug}/git/trees/HEAD?recursive=1`, one request, cached six hours in `wps_gh_*`; a missing repository is remembered, a transport failure is not) becomes the manifest, and each file is verified the way git names it: the blob id of its content (`sha1("blob <size>\0" + content)`), with CRLF read as LF for a Windows checkout.
+- `WPS_Integrity` now verifies themes as well as plugins, and asks the operator's repositories when wordpress.org has no manifest for a plugin (the directory is asked first, so a published plugin keeps its release as the reference). Verdicts are unchanged in meaning: VERIFIED for an identical file, MODIFIED for one that differs, FOREIGN for one the repository does not have.
+- **Findings against verified own code are not reported.** `WPS_Own_Repos::filter_findings()` runs before remediation: a finding on a file identical to the repository, or on a folder whose every PHP file is identical and none is foreign, is dropped and logged once per folder (`own_code_verified`, naming the repository). A changed or planted file keeps every finding it earns, since the operator's own folder is exactly where an intruder adds a file. Nothing trusts a header: a dropped plugin claiming to be the operator's would have to be byte for byte what they published.
+- The "cannot be checksum-verified" report also leaves out every folder that has a repository.
+- Uninstall removes the cached trees.
+
+### Review of this release (CodeAnt on PR 35)
+- A folder counted as own code when its PHP files matched the repository, so a planted `.htaccess` or `.user.ini` inside it would have gone unreported with the folder finding; every file in the folder is now compared, `.git/` aside.
+- A finding that enforces the site's own policy (a banned plugin on disk) is never dropped, whoever wrote the code.
+- Repository lookups stay inside the scan: no request once the scan is out of time, at most thirty seconds spent waiting on GitHub per process, six seconds per request.
+
+### Self-review before CodeAnt
+- A transport failure or refusal is remembered for the rest of the scan, so a repository is asked once per scan and not once per file (thirty files would have meant thirty ten-second timeouts). A rate-limit refusal (403, 429) stops every request for an hour (`wps_gh_backoff`); a process makes at most 25 requests; a truncated tree is cached as unusable for six hours; a file is read once when its blob id is checked both raw and with CRLF read as LF.
+
+### Tests
+- New: `test-own-repos.php` (36): owners parsed from names and URLs, the blob id against git's formula, CRLF, verification of plugin and theme files (VERIFIED, MODIFIED, FOREIGN, UNKNOWN), one request per tree and the cache, the filter dropping only verified own code, the log line, no account declared means no request, the token header, a truncated tree and a transport failure.
+
+## 1.4.157
+
+**Post provenance.** Built from two pieces of advice an operator was given about posts that keep appearing under their own account: find the post's exact time, read the server's access log for that minute, and work out from the request whether it was REST, XML-RPC, a stray PHP file, a scheduled event, or nothing at all; and do not read anything into the author, since kits hard-code author 1. The plugin now answers that at the moment of writing, and keeps the answer on the post.
+
+- New `WPS_Post_Origin` (`includes/class-post-origin.php`) on `wp_insert_post` at priority 1. Every post and page saved through WordPress gets `_wps_origin` (the creation) and `_wps_last_write` (the latest save): channel (Dashboard, REST API, XML-RPC, WP-Cron, WP-CLI, admin-ajax, front end), sign-in method from `WPS_EDR::auth_method()` (cookie session, application password and its name), user, address, user agent, method and path, the cron hook when WP-Cron did the writing (the outermost entry of the hook stack), and the file that asked for the save: the first frame of the call stack that is not WordPress and not this plugin.
+- **"Written via" column** on the Posts and Pages lists, for example `REST API · application password "PBN Automation (WPU)" · 193.24.211.106` or `WP-Cron · hook autoposter_tick`. A file that should not be writing posts (uploads, the wp-content root, a non-core file at the web root, anywhere outside the installation) is named on the line: `by wp-content/uploads/2026/10/cache.php`. Styles in `assets/css/admin.css`, loaded on those two screens only.
+- **Events.** `post_written_by_unexpected_file` (high, risk 120) names the file, once an hour per file. `post_written_by_cron` (info) names the hook, once an hour per hook.
+- **Scanner:** `check_posts_without_origin` (registered checks 122). A post or page newer than the start of tracking (`wps_origin_since`, set on first load) with no record was not written through WordPress: it went straight into the database from a server cron, another site on the account, SQL access, or code that writes the posts table itself. Reported, never removed, listing up to ten posts with author and time.
+- Everything else in the two notes was already here: hidden administrators (`check_hidden_admin_users`, a direct walk of the users table), core checksums (Forensics), PHP in uploads and mu-plugins, open registration and the default role (`check_registration_settings`), revoking every application password and rotating the salts (Hardening tab). The operator checklist is in `doc/readme.md`, "When a post appears that you did not write".
+- Uninstall removes `wps_origin_since` and both post meta keys.
+
+### Review of this release (CodeAnt on PR 35)
+- The request line stored on each save carried the whole query string, which can hold a nonce, a token or a password reset key, and is shown on the Posts screen. It now keeps the method and path, plus `rest_route` on plain permalinks, and nothing else.
+- The untracked-posts query compared `GREATEST(post_date_gmt, post_modified_gmt)` with the tracking date, which no index can serve; it now compares each column, so the date indexes apply.
+- Nitpicks taken: wp-config.php is skipped as a caller only for the frame that includes wp-settings.php, so code added to it that writes a post is named as an odd caller; a full page of untracked posts is reported as "at least 50"; a zero modified date no longer hides the real date in the finding.
+
+### Tests
+- New: `test-post-origin.php` (45): channel, cron hook, caller from synthetic frames and from a real call stack through fixture files, the once-an-hour events, the column label, the untracked-posts query and finding, registration.
+
 ## 1.4.156
 
 **Hardening from one site's October logs** (access, TLS, FTP and PHP error logs for a single production site). Five changes, each with a test that fails on 1.4.155.

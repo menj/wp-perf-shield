@@ -147,6 +147,9 @@ class WPS_Admin {
 			// 1.4.11: operator-declared first-party plugins. Same shape as the slug
 			// list, so the same sanitiser applies.
 			'first_party_plugins' => self::sanitize_slug_list( (string) wp_unslash( $_POST['first_party_plugins'] ?? '' ) ),
+			// 1.4.158: the operator's own GitHub accounts; the token is kept unless replaced or removed with "-".
+			'own_repo_owners'     => implode( "\n", WPS_Own_Repos::parse_owners( (string) wp_unslash( $_POST['own_repo_owners'] ?? '' ) ) ),
+			'own_repo_token'      => self::keep_or_replace_secret( (string) ( $existing['own_repo_token'] ?? '' ), (string) wp_unslash( $_POST['own_repo_token'] ?? '' ) ),
 			// 1.4.17: login guard.
 			'login_guard_enabled'  => isset( $_POST['login_guard_enabled'] ) ? '1' : '0',
 			'xmlrpc_auth_disabled' => isset( $_POST['xmlrpc_auth_disabled'] ) ? '1' : '0',
@@ -234,6 +237,18 @@ class WPS_Admin {
 			}
 		}
 		return implode( "\n", array_keys( $out ) );
+	}
+
+	/** A posted secret: blank keeps the stored one, "-" removes it, anything else replaces it. */
+	public static function keep_or_replace_secret( string $stored, string $posted ): string {
+		$posted = trim( $posted );
+		if ( '' === $posted ) {
+			return $stored;
+		}
+		if ( '-' === $posted ) {
+			return '';
+		}
+		return preg_match( '/^[A-Za-z0-9_\-.]{8,255}$/', $posted ) ? $posted : $stored;
 	}
 
 	private static function sanitize_slug_list( string $raw ): string {

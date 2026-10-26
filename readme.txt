@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.156
+Stable tag: 1.4.158
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,12 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.158 =
+Your own plugins and themes are verified against your GitHub repositories: name your account under Settings, and every installed plugin or theme whose folder is a repository of yours is compared with it file by file (by git blob id). Files identical to the repository are never reported; a changed or added file still is. Themes are verifiable for the first time. Private repositories take an optional token.
+
+= 1.4.157 =
+Post provenance: every post and page saved through WordPress records the channel (Dashboard, REST, XML-RPC, WP-Cron, WP-CLI), the sign-in method including the application password's name, the address, the cron hook and the file that asked for the save, shown in a "Written via" column on the Posts and Pages lists. A file that should not be writing posts is named in red and logged. Posts newer than the update with no record were written straight into the database, and the scanner reports them. A checklist for posts you did not write is in the Docs tab.
 
 = 1.4.156 =
 Hardening from one site's October server logs. A plugin still being uploaded stays idle instead of crashing, and safe mode clears itself once the upload completes. A failed XML-RPC sign-in claiming to be Jetpack or WordPress.com from outside Automattic's network is a permanent block on the first attempt; a temporarily blocked address is refused on xmlrpc.php. Signed-out visitors no longer get the REST user list, ?author=N redirects, the user sitemap or embed authors. A .git folder uploaded with the plugin is refused on Apache and reported; tests/ is removed from the installed copy even beside .git. A blocked address cannot trigger password-reset mail, and readme.html answers 404 when the version is hidden.
@@ -704,6 +710,12 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.158 =
+Enter your GitHub account under Settings, "Your GitHub accounts", and findings on your own published code stop. Nothing else to configure.
+
+= 1.4.157 =
+Adds a "Written via" column to Posts and Pages. Nothing to configure.
 
 = 1.4.156 =
 Two toggles are on by default: forged-Jetpack XML-RPC sign-ins are blocked permanently, and account names are not listed to signed-out visitors. Delete wp-content/plugins/wp-perf-shield/.git from the site if your FTP client uploaded it.

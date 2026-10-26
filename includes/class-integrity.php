@@ -83,13 +83,26 @@ final class WPS_Integrity {
 		// 1.4.152: relative to the plugins directory itself. The path used to be taken relative to
 		// ABSPATH and matched against a literal 'wp-content/plugins/', so a renamed content directory,
 		// or one kept outside the install, made every verdict UNKNOWN and the foreign-file detector inert.
-		$plug = defined( 'WP_PLUGIN_DIR' ) ? realpath( WP_PLUGIN_DIR ) : false;
-		$plug = is_string( $plug ) ? str_replace( '\\', '/', rtrim( $plug, '/\\' ) ) : '';
-		$path = str_replace( '\\', '/', $real );
-		if ( '' === $plug || 0 !== strpos( $path, $plug . '/' ) ) {
+		// 1.4.158: the themes directory as well, for the operator's own repositories; wordpress.org
+		// publishes no theme checksums, so a theme is verifiable only that way.
+		$plug  = defined( 'WP_PLUGIN_DIR' ) ? realpath( WP_PLUGIN_DIR ) : false;
+		$plug  = is_string( $plug ) ? str_replace( '\\', '/', rtrim( $plug, '/\\' ) ) : '';
+		$theme = function_exists( 'get_theme_root' ) ? realpath( (string) get_theme_root() ) : false;
+		$theme = is_string( $theme ) ? str_replace( '\\', '/', rtrim( $theme, '/\\' ) ) : '';
+		$path  = str_replace( '\\', '/', $real );
+		$kind  = '';
+		$base  = '';
+		if ( '' !== $plug && 0 === strpos( $path, $plug . '/' ) ) {
+			$kind = 'plugin';
+			$base = $plug;
+		} elseif ( '' !== $theme && 0 === strpos( $path, $theme . '/' ) ) {
+			$kind = 'theme';
+			$base = $theme;
+		}
+		if ( '' === $kind ) {
 			return self::UNKNOWN;
 		}
-		$rel = substr( $path, strlen( $plug ) + 1 );
+		$rel = substr( $path, strlen( $base ) + 1 );
 		// Only directory plugins can be verified this way. Core has its own
 		// check, and core is never auto-removed regardless.
 		if ( ! preg_match( '#^([^/]+)/(.+)$#', $rel, $m ) ) {
@@ -98,7 +111,7 @@ final class WPS_Integrity {
 		$slug     = $m[1];
 		$in_plugin = $m[2];
 
-		$manifest = self::manifest( $slug );
+		$manifest = self::manifest( $slug, $kind );
 		if ( ! is_array( $manifest ) || ! $manifest ) {
 			return self::UNKNOWN;
 		}
@@ -113,6 +126,16 @@ final class WPS_Integrity {
 		$want  = (array) ( $entry['hashes'] ?? [] );
 		if ( '' === $type || ! $want ) {
 			return self::UNKNOWN;
+		}
+		if ( 'gitblob' === $type ) {
+			// 1.4.158: the operator's repository names the file by its git blob id.
+			if ( ! class_exists( 'WPS_Own_Repos' ) ) {
+				return self::UNKNOWN;
+			}
+			if ( WPS_Own_Repos::blob_matches( $real, $want ) ) {
+				return self::VERIFIED;
+			}
+			return '' === WPS_Own_Repos::git_blob_sha( $real ) ? self::UNKNOWN : self::MODIFIED;
 		}
 		$have = @hash_file( $type, $real );
 		if ( ! is_string( $have ) || '' === $have ) {
@@ -140,15 +163,25 @@ final class WPS_Integrity {
 	public static function reset(): void {
 		self::$manifests = [];
 		self::$memo      = [];
+		if ( class_exists( 'WPS_Own_Repos' ) ) {
+			WPS_Own_Repos::reset();
+		}
 	}
 
-	private static function manifest( string $slug ): ?array {
-		if ( isset( self::$manifests[ $slug ] ) ) {
-			return self::$manifests[ $slug ];
+	private static function manifest( string $slug, string $kind = 'plugin' ): ?array {
+		$key = $kind . '/' . $slug;
+		if ( isset( self::$manifests[ $key ] ) ) {
+			return self::$manifests[ $key ];
 		}
-		$m = self::resolve_manifest( $slug );
+		$m = 'plugin' === $kind ? self::resolve_manifest( $slug ) : null;
+		// 1.4.158: the operator's own repositories, for a plugin wordpress.org does not know and for
+		// any theme. The official directory is asked first, so a published plugin keeps its release
+		// as the reference even when a repository of the same name exists.
+		if ( null === $m && class_exists( 'WPS_Own_Repos' ) ) {
+			$m = WPS_Own_Repos::manifest_for( $slug );
+		}
 		if ( is_array( $m ) ) {
-			self::$manifests[ $slug ] = $m; // a failed fetch is not remembered, so the next file retries it
+			self::$manifests[ $key ] = $m; // a failed fetch is not remembered, so the next file retries it
 		}
 		return $m;
 	}
