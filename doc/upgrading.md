@@ -59,6 +59,14 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.158
+
+**Your own plugins and themes stop being reported, once you say which GitHub account is yours.** Settings, "Your GitHub accounts": enter `menj` (one account per line). From the next scan, every installed plugin or theme whose folder name is a repository under that account is compared with the repository file by file. Files identical to the repository are your own work and nothing is reported about them, so the hidden-folder, self-concealing and "cannot be checksum-verified" findings on your own code go away. The Events tab records what was left out and why (`own_code_verified`).
+
+**What still gets reported, on purpose.** A file in one of your folders that differs from the repository, or a file the repository does not have. That is what a planted backdoor in "your own plugin" looks like, and it is also what you see when you upload a version you have not pushed yet: push first, or expect a finding until you do. The folder name must match the repository name. Private repositories need the token field (a fine-grained GitHub token with read access to contents); public ones need nothing. One request per repository every six hours, within GitHub's limit for unauthenticated use.
+
+**Upload only the plugin's own files.** The `.git` folder an FTP client drags along is not judged here (it is handled by 1.4.156), but `tests/`, `vendor/` and the like are compared like everything else, and match as long as they are what the repository holds.
+
 ## 1.4.157
 
 **Every post now says what wrote it.** Open Posts (or Pages) and look at the new "Written via" column. From this update on, each post saved through WordPress records the channel (Dashboard, REST API, XML-RPC, WP-Cron, WP-CLI), how the writer was signed in (your browser session, or an application password and its name), the address, and, when the save came from a plugin or theme, which file asked for it. A file that has no business writing posts, such as one in uploads, is named in red. Posts from before the update show "Before tracking". A post newer than the update that shows **"Not through WordPress"** was put into the database directly, and the next scan reports it: that means a server cron job, another site on the same hosting account, database access, or code writing the posts table itself, and nothing in this site's web log will show the moment it appeared.

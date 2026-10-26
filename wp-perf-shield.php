@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP Perf Shield
  * Description: Blocks wp-perf-analytics traffic-hijacking malware and all renamed variants. Includes real-time activation blocking, scheduled scanning, and one-click remediation.
- * Version: 1.4.157
+ * Version: 1.4.158
  * Author: MENJ
  * Author URI: https://github.com/menj
  * License: GPL-2.0+
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WPS_VERSION', '1.4.157' );
+define( 'WPS_VERSION', '1.4.158' );
 define( 'WPS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPS_URL', plugin_dir_url( __FILE__ ) );
 define( 'WPS_LOG_DIR', WPS_DIR . 'logs' );
@@ -191,6 +191,7 @@ function wps_class_map(): array {
 			'WPS_Login_Guard'            => 'includes/class-login-guard.php',
 			'WPS_Post_Guard'             => 'includes/class-post-guard.php',
 			'WPS_Post_Origin'            => 'includes/class-post-origin.php',
+			'WPS_Own_Repos'              => 'includes/class-own-repos.php',
 			'WPS_Exposure_Guard'         => 'includes/class-exposure-guard.php',
 			'WPS_Account_Guard'          => 'includes/class-account-guard.php',
 			'WPS_Spam_Content_Guard'     => 'includes/class-spam-content-guard.php',
@@ -396,7 +397,8 @@ function wps_uninstall(): void {
 	// removal should not leave them behind either.
 	wps_delete_transients_like( 'wps_lfn_' );
 	wps_delete_transients_like( 'wps_bs_' );        // 1.4.148: surface-refusal log throttle
-	wps_delete_transients_like( 'wps_ue_' );        // 1.4.156: enumeration-refusal log throttle       // 1.4.20: cached Akismet usage figure        // 1.4.18: login guard activity record    // 1.4.17: protected administrator addresses  // 1.4.13: unsigned-state throttle
+	wps_delete_transients_like( 'wps_ue_' );        // 1.4.156: enumeration-refusal log throttle
+	wps_delete_transients_like( 'wps_gh_' );        // 1.4.158: cached repository trees       // 1.4.20: cached Akismet usage figure        // 1.4.18: login guard activity record    // 1.4.17: protected administrator addresses  // 1.4.13: unsigned-state throttle
 	delete_option( 'wps_last_fatal' );          // 1.4.12: safe-mode record
 	delete_option( 'wps_origin_since' );        // 1.4.157: when post provenance began
 	delete_option( 'wps_first_party_baseline' ); // 1.4.11: first-party plugin fingerprints

@@ -705,6 +705,14 @@ class WPS_Scanner {
 			WPS_Logger::log_event( 'scan_budget_exhausted', count( $skipped ) . ' checks skipped: ' . implode( ',', $skipped ) );
 		}
 
+		// 1.4.158: findings against the operator's own published code (files identical to their
+		// repository) are not reported, and so never reach the remediator either.
+		if ( class_exists( 'WPS_Own_Repos' ) ) {
+			try {
+				$findings = WPS_Own_Repos::filter_findings( $findings );
+			} catch ( \Throwable $t ) {} // phpcs:ignore
+		}
+
 		// Auto-delete confirmed malware that is safe to remove when enabled.
 		// Theme files and WP core files are never touched.
 		if ( self::auto_delete_enabled() ) {
@@ -13695,6 +13703,9 @@ class WPS_Scanner {
 		// check_first_party_integrity(), which watches their files for changes
 		// that arrive without a version bump.
 		$first_party = self::first_party_slugs();
+		if ( class_exists( 'WPS_Own_Repos' ) ) {
+			$first_party = array_values( array_unique( array_merge( $first_party, WPS_Own_Repos::verified_slugs() ) ) ); // 1.4.158
+		}
 		if ( $first_party ) {
 			$unverifiable = array_values( array_filter(
 				$unverifiable,

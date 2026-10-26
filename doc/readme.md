@@ -135,6 +135,10 @@ Attack kits plant the same payload across a dozen directories under randomly gen
 
 Copies with identical content flagged by the same check **collapse into one finding listing every location**. Grouping is by content, not filename — the filename is the part the attacker regenerates. One file flagged by two different checks stays as two findings, because they tell you different things.
 
+## Your own code
+
+Code you wrote and published on GitHub has no wordpress.org baseline, so until 1.4.158 the scanner judged it by its behaviour alone and sometimes reported it. Under Settings, "Your GitHub accounts", name the accounts whose repositories are yours. Every installed plugin or theme whose folder name is a repository under one of them is then verified against that repository file by file, by the git blob id of each file's content. A file identical to the repository is your work: no finding against it is reported, and the Events tab records what was left out (`own_code_verified`). A file that differs from the repository, or one the repository does not have, keeps every finding, because your own folder is where an intruder would add a file. A header saying "by menj" counts for nothing; only identical content does.
+
 ## When a post appears that you did not write
 
 Since 1.4.157 every post and page saved through WordPress carries a record of what wrote it, shown in the "Written via" column on the Posts and Pages lists. Read that line first; it replaces the old advice of finding the post's exact time and reading the server's access log for that minute.
@@ -273,7 +277,7 @@ Each exits non-zero on failure. They do not replace running the plugin on a stag
 
 ## Version
 
-Current plugin version: `1.4.157`
+Current plugin version: `1.4.158`
 
 Author: [MENJ](https://github.com/menj)
 

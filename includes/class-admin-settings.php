@@ -72,6 +72,15 @@ class WPS_Admin_Settings {
 								<p class="description">One plugin folder name per line, for plugins you wrote or commissioned. These stop being reported as lacking a wordpress.org baseline &ndash; there is no baseline to be had for code never published there. They are not ignored: their PHP files are fingerprinted, and a change that arrives without a version bump is reported, since editing files in place is what both a hotfix and a planted file look like.</p>
 							</td>
 						</tr>
+						<tr>
+							<th><label for="own_repo_owners">Your GitHub accounts</label></th>
+							<td>
+								<textarea id="own_repo_owners" name="own_repo_owners" rows="2" class="wps-mono wps-sm" placeholder="menj"><?php echo esc_textarea( (string) ( $settings['own_repo_owners'] ?? '' ) ); ?></textarea>
+								<p class="description">Account names whose repositories are yours, one per line. An installed plugin or theme whose folder name is a repository under one of these accounts is verified against that repository: each file is compared with the repository's copy by its git blob id. A file identical to the repository is your own work and nothing is reported about it. A file that differs, or a file the repository does not have, keeps every finding it earns, because your own plugin folder is exactly where an intruder adds a file. One request per repository every six hours.</p>
+								<label for="own_repo_token" class="wps-sm wps-muted">Access token, only for private repositories (a fine-grained token with read access to contents)</label>
+								<input type="password" id="own_repo_token" name="own_repo_token" value="" class="regular-text wps-mono" autocomplete="off" placeholder="<?php echo '' !== (string) ( $settings['own_repo_token'] ?? '' ) ? 'saved; enter a new one to replace it, or - to remove it' : 'none'; ?>">
+							</td>
+						</tr>
 						</table>
 					</div>
 				</section>

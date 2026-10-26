@@ -1,5 +1,18 @@
 # WP Perf Shield changelog
 
+## 1.4.158
+
+**The operator's own repositories as a verification source.** The operator writes plugins and themes, publishes them at github.com/menj and uploads them to the site, and the scanner kept reporting them: a hidden folder, a self-concealing pattern, "cannot be checksum-verified". The first-party list (1.4.11) silenced one report and left the rest, because the scanner had no baseline for code that was never on wordpress.org. Now it has one.
+
+- New `WPS_Own_Repos` (`includes/class-own-repos.php`). Settings, "Your GitHub accounts": account names whose repositories are the operator's (`own_repo_owners`), and an optional token for private repositories (`own_repo_token`, kept unless replaced, removed with `-`). For every installed plugin or theme whose folder name is a repository under a declared account, the repository's file tree (`GET /repos/{owner}/{slug}/git/trees/HEAD?recursive=1`, one request, cached six hours in `wps_gh_*`; a missing repository is remembered, a transport failure is not) becomes the manifest, and each file is verified the way git names it: the blob id of its content (`sha1("blob <size>\0" + content)`), with CRLF read as LF for a Windows checkout.
+- `WPS_Integrity` now verifies themes as well as plugins, and asks the operator's repositories when wordpress.org has no manifest for a plugin (the directory is asked first, so a published plugin keeps its release as the reference). Verdicts are unchanged in meaning: VERIFIED for an identical file, MODIFIED for one that differs, FOREIGN for one the repository does not have.
+- **Findings against verified own code are not reported.** `WPS_Own_Repos::filter_findings()` runs before remediation: a finding on a file identical to the repository, or on a folder whose every PHP file is identical and none is foreign, is dropped and logged once per folder (`own_code_verified`, naming the repository). A changed or planted file keeps every finding it earns, since the operator's own folder is exactly where an intruder adds a file. Nothing trusts a header: a dropped plugin claiming to be the operator's would have to be byte for byte what they published.
+- The "cannot be checksum-verified" report also leaves out every folder that has a repository.
+- Uninstall removes the cached trees.
+
+### Tests
+- New: `test-own-repos.php` (27): owners parsed from names and URLs, the blob id against git's formula, CRLF, verification of plugin and theme files (VERIFIED, MODIFIED, FOREIGN, UNKNOWN), one request per tree and the cache, the filter dropping only verified own code, the log line, no account declared means no request, the token header, a truncated tree and a transport failure.
+
 ## 1.4.157
 
 **Post provenance.** Built from two pieces of advice an operator was given about posts that keep appearing under their own account: find the post's exact time, read the server's access log for that minute, and work out from the request whether it was REST, XML-RPC, a stray PHP file, a scheduled event, or nothing at all; and do not read anything into the author, since kits hard-code author 1. The plugin now answers that at the moment of writing, and keeps the answer on the post.
