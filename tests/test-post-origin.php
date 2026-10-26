@@ -96,6 +96,10 @@ check( 'an mu-plugin is code, not odd', 'wp-content/mu-plugins/loader.php' === $
 $r = WPS_Post_Origin::caller_of( $frames( [ ABSPATH . 'wp-includes/post.php', '/usr/local/bin/wp' ] ) );
 check( 'a file outside the installation is odd and shown as given', '/usr/local/bin/wp' === $r['file'] && true === $r['odd'], json_encode( $r ) );
 check( 'frames without a file are skipped', '' === WPS_Post_Origin::caller_of( [ [ 'function' => 'x' ] ] )['file'] );
+$r = WPS_Post_Origin::caller_of( [ [ 'file' => ABSPATH . 'wp-includes/post.php', 'function' => 'wp_insert_post' ], [ 'file' => ABSPATH . 'wp-settings.php', 'function' => 'do_action' ], [ 'file' => ABSPATH . 'wp-config.php', 'function' => 'require_once' ], [ 'file' => ABSPATH . 'wp-load.php', 'function' => 'require_once' ] ] );
+check( 'wp-config.php including wp-settings.php is the normal stack, not a caller', '' === $r['file'] && false === $r['odd'], json_encode( $r ) );
+$r = WPS_Post_Origin::caller_of( [ [ 'file' => ABSPATH . 'wp-includes/post.php', 'function' => 'wp_insert_post' ], [ 'file' => ABSPATH . 'wp-config.php', 'function' => 'wp_insert_post' ], [ 'file' => ABSPATH . 'wp-includes/class-wp-hook.php', 'function' => '{closure}' ] ] );
+check( 'code in wp-config.php that writes a post is a caller, and odd', 'wp-config.php' === $r['file'] && true === $r['odd'], json_encode( $r ) );
 
 // ---- 4. the hook, with a real call stack
 file_put_contents( WP_CONTENT_DIR . '/plugins/importer/importer.php', "<?php\nfunction importer_write( \$id ) { WPS_Post_Origin::on_insert( \$id, post( \$id ), false ); }\n" );
@@ -154,6 +158,9 @@ check( 'one high finding naming the post, its author and its time', 1 === count(
 check( 'no rows, no finding', [] === WPS_Post_Origin::untracked_finding( [], $since ) );
 $many = array_fill( 0, 14, $rows[0] );
 check( 'more than ten are counted, not listed', false !== strpos( WPS_Post_Origin::untracked_finding( $many, $since )[0]['subject'], '14 posts' ) && false !== strpos( WPS_Post_Origin::untracked_finding( $many, $since )[0]['subject'], 'and 4 more' ) );
+check( 'a full page is reported as a floor, not a total', 0 === strpos( WPS_Post_Origin::untracked_finding( array_fill( 0, 50, $rows[0] ), $since )[0]['subject'], 'At least 50 posts' ) && 0 === strpos( WPS_Post_Origin::untracked_finding( $many, $since )[0]['subject'], '14 posts' ) );
+$zero = (object) [ 'ID' => 502, 'post_title' => 'x', 'post_type' => 'post', 'post_status' => 'publish', 'post_author' => 1, 'post_date_gmt' => '2026-10-21 03:00:00', 'post_modified_gmt' => '0000-00-00 00:00:00' ];
+check( 'a zero modified date does not hide the real date', false !== strpos( WPS_Post_Origin::untracked_finding( [ $zero ], $since )[0]['subject'], '2026-10-21 03:00:00 UTC' ) );
 
 // ---- 7. registration
 $GLOBALS['hooks'] = [];

@@ -193,7 +193,7 @@ tests/test-event-log.php                  append refused on a held lock, row loc
 tests/test-dev-files.php                 tests/ removed from an installed copy and from a checkout, links not followed, .git refused to the web, not through a link (16 cases)
 tests/test-rank-math-compat.php          a hidden folder inside a Composer package is not reported; one outside any package still is (9 cases)
 tests/test-review-1-4-155.php            1.4.155 review fixes: comment stripping, outbound cookies, XML-RPC page methods, Akismet reply, stale stats, auth label, forensics grep, stripper speed (18 cases)
-tests/test-post-origin.php               post provenance: channel, cron hook, caller from a real call stack, once-an-hour events, the Posts-screen label, posts written outside WordPress, the request line without its query (41 cases)
+tests/test-post-origin.php               post provenance: channel, cron hook, caller from a real call stack, once-an-hour events, the Posts-screen label, posts written outside WordPress, the request line without its query, wp-config.php as a caller (45 cases)
 tests/test-xmlrpc-forgery.php            forged Jetpack/WordPress.com agent on a failed XML-RPC sign-in, Automattic's range, temporary blocks refused on xmlrpc.php, lost-password mail refused for blocked addresses (30 cases)
 tests/test-bootstrap-integrity.php       the real main file in a child process: a missing class file keeps the plugin idle, safe mode lifts itself once the upload is complete, activation and the cleanup marker wait for the files (12 cases)
 ```

@@ -35,9 +35,13 @@ class WPS_Post_Origin {
 		'wp_block', 'wp_template', 'wp_template_part', 'wp_global_styles', 'wp_navigation', 'wp_font_face', 'wp_font_family',
 	];
 
-	/** Core files at the web root that a request passes through before any plugin code runs. */
+	/**
+	 * Core files at the web root that a request passes through before any plugin code runs.
+	 * wp-config.php is not among them: it is configuration the operator (or an intruder) edits, and
+	 * it belongs in this list only for the one thing it legitimately does, include wp-settings.php.
+	 */
 	const ROOT_CORE_FILES = [
-		'index.php', 'wp-cron.php', 'xmlrpc.php', 'wp-load.php', 'wp-blog-header.php', 'wp-settings.php', 'wp-config.php',
+		'index.php', 'wp-cron.php', 'xmlrpc.php', 'wp-load.php', 'wp-blog-header.php', 'wp-settings.php',
 		'wp-comments-post.php', 'wp-login.php', 'wp-mail.php', 'wp-trackback.php', 'wp-signup.php', 'wp-activate.php', 'wp-links-opml.php',
 	];
 
@@ -216,6 +220,11 @@ class WPS_Post_Origin {
 					continue;
 				}
 				if ( dirname( $file ) . '/' === $abs && in_array( basename( $file ), self::ROOT_CORE_FILES, true ) ) {
+					continue;
+				}
+				// wp-config.php is in every request's stack as the file that includes wp-settings.php. That
+				// frame is skipped; a frame where code in wp-config.php calls anything else is a caller.
+				if ( $abs . 'wp-config.php' === $file && in_array( strtolower( (string) ( $frame['function'] ?? '' ) ), [ 'require', 'require_once', 'include', 'include_once' ], true ) ) {
 					continue;
 				}
 			}
@@ -408,20 +417,22 @@ class WPS_Post_Origin {
 	 * @param array<int, object> $rows
 	 * @return array<int, array<string, mixed>>
 	 */
-	public static function untracked_finding( array $rows, int $since ): array {
+	public static function untracked_finding( array $rows, int $since, int $limit = 50 ): array {
 		if ( [] === $rows ) {
 			return [];
 		}
 		$lines = [];
 		foreach ( array_slice( $rows, 0, 10 ) as $r ) {
-			$lines[] = '#' . (int) ( $r->ID ?? 0 ) . ' "' . substr( trim( (string) ( $r->post_title ?? '' ) ), 0, 60 ) . '" (' . (string) ( $r->post_type ?? 'post' ) . ', ' . (string) ( $r->post_status ?? '' ) . ', author #' . (int) ( $r->post_author ?? 0 ) . ', ' . (string) ( $r->post_modified_gmt ?? $r->post_date_gmt ?? '' ) . ' UTC)';
+			// The later of the two dates; a direct insert often leaves the modified date at zero.
+			$when = max( (string) ( $r->post_date_gmt ?? '' ), (string) ( $r->post_modified_gmt ?? '' ) );
+			$lines[] = '#' . (int) ( $r->ID ?? 0 ) . ' "' . substr( trim( (string) ( $r->post_title ?? '' ) ), 0, 60 ) . '" (' . (string) ( $r->post_type ?? 'post' ) . ', ' . (string) ( $r->post_status ?? '' ) . ', author #' . (int) ( $r->post_author ?? 0 ) . ', ' . $when . ' UTC)';
 		}
 		$n = count( $rows );
 		return [
 			[
 				'severity' => 'high',
 				'type'     => 'Posts written without going through WordPress',
-				'subject'  => $n . ' post' . ( 1 === $n ? '' : 's' ) . ' since ' . gmdate( 'Y-m-d H:i', $since ) . ' UTC carry no record of what wrote them: ' . implode( '; ', $lines ) . ( $n > 10 ? '; and ' . ( $n - 10 ) . ' more' : '' ),
+				'subject'  => ( $limit > 0 && $n >= $limit ? 'At least ' : '' ) . $n . ' post' . ( 1 === $n ? '' : 's' ) . ' since ' . gmdate( 'Y-m-d H:i', $since ) . ' UTC carry no record of what wrote them: ' . implode( '; ', $lines ) . ( $n > 10 ? '; and ' . ( $n - 10 ) . ' more' : '' ),
 				'path'     => 'wp_posts',
 				'action'   => 'Every post saved through WordPress since ' . gmdate( 'Y-m-d', $since ) . ' carries a "Written via" record (see the Posts screen). These do not, so they were put into the database directly: by a server cron job, by another site on the same hosting account, by SQL access, or by code that writes to the posts table itself. Nothing on this site\'s web log will show the moment they appeared. Check the hosting panel\'s cron jobs and the other sites on the account, change the database password, and look at the author column: a kit usually hard-codes author 1, so posts under your name do not prove your account was used.',
 			],
