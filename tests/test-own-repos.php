@@ -46,6 +46,7 @@ function wp_remote_get( $url, $args = [] ) {
 }
 class WP_Error { public $code; public $message; public function __construct( $c = "", $m = "" ) { $this->code = $c; $this->message = $m; } }
 class WPS_Logger { public static function log_event( $t, $s, $ip = '' ) { $GLOBALS['events'][] = [ $t, $s ]; } }
+class WPS_Scanner { public static $late = false; public static function out_of_time(): bool { return self::$late; } }
 require dirname( __DIR__ ) . '/includes/class-own-repos.php';
 require dirname( __DIR__ ) . '/includes/class-integrity.php';
 
@@ -108,6 +109,10 @@ $GLOBALS['trees']['api.github.com/repos/menj/book-wp/git/trees/HEAD?recursive=1'
 fresh();
 check( 'a theme file identical to its repository is VERIFIED', WPS_Integrity::VERIFIED === WPS_Integrity::verify( $tmp . '/wp-content/themes/book-wp/functions.php' ) );
 check( 'the theme folder is the operator\'s own code', WPS_Own_Repos::is_own_code( $tmp . '/wp-content/themes/book-wp' ) );
+file_put_contents( $tmp . '/wp-content/themes/book-wp/.htaccess', "php_value auto_prepend_file /tmp/x.php\n" );
+check( 'a planted .htaccess, not PHP, still stops the folder counting as own code', ! WPS_Own_Repos::is_own_code( $tmp . '/wp-content/themes/book-wp' ) );
+unlink( $tmp . '/wp-content/themes/book-wp/.htaccess' );
+check( 'with it gone the folder is own code again', WPS_Own_Repos::is_own_code( $tmp . '/wp-content/themes/book-wp' ) );
 check( 'a plugin folder holding a planted file is not', ! WPS_Own_Repos::is_own_code( $tmp . '/wp-content/plugins/citepress' ) );
 check( 'a verified file inside it is', WPS_Own_Repos::is_own_code( $tmp . '/wp-content/plugins/citepress/citepress.php' ) );
 check( 'the planted file is not', ! WPS_Own_Repos::is_own_code( $tmp . '/wp-content/plugins/citepress/includes/planted.php' ) );
@@ -119,10 +124,12 @@ $findings = [
 	[ 'severity' => 'high', 'type' => 'Edited in place', 'subject' => 'edited', 'path' => $tmp . '/wp-content/plugins/citepress/includes/edited.php' ],
 	[ 'severity' => 'medium', 'type' => 'Hidden folder', 'subject' => 'theme', 'path' => '', 'delete_path' => $tmp . '/wp-content/themes/book-wp' ],
 	[ 'severity' => 'low', 'type' => 'No path at all', 'subject' => 'x', 'path' => '' ],
+	[ 'severity' => 'critical', 'type' => 'Plugin banned by site policy is installed', 'subject' => 'book-wp', 'path' => $tmp . '/wp-content/themes/book-wp' ],
 ];
 fresh();
 $kept = WPS_Own_Repos::filter_findings( $findings );
-check( 'the two findings against verified own code are dropped', 3 === count( $kept ) && 'Web shell' === $kept[0]['type'] && 'Edited in place' === $kept[1]['type'] && 'No path at all' === $kept[2]['type'], json_encode( array_column( $kept, 'type' ) ) );
+check( 'the two findings against verified own code are dropped', 4 === count( $kept ) && 'Web shell' === $kept[0]['type'] && 'Edited in place' === $kept[1]['type'] && 'No path at all' === $kept[2]['type'], json_encode( array_column( $kept, 'type' ) ) );
+check( 'a policy finding on own code stays: a ban is a ban whoever wrote the code', 'Plugin banned by site policy is installed' === $kept[3]['type'] );
 check( 'the log says what was not reported and why', 1 === count( $GLOBALS['events'] ) && 'own_code_verified' === $GLOBALS['events'][0][0] && false !== strpos( $GLOBALS['events'][0][1], '2 findings against theme book-wp' ) && false !== strpos( $GLOBALS['events'][0][1], 'github.com/menj/book-wp' ), json_encode( $GLOBALS['events'] ) );
 check( 'installed folders with a repository are listed', [ 'citepress', 'book-wp' ] === WPS_Own_Repos::verified_slugs() );
 
@@ -162,6 +169,19 @@ fresh();
 unset( $GLOBALS['trans'][ 'wps_gh_' . md5( 'menj/citepress' ) ] );
 WPS_Own_Repos::verified_slugs();
 check( 'one process never makes more than ' . WPS_Own_Repos::MAX_REQUESTS . ' requests', WPS_Own_Repos::MAX_REQUESTS === count( $GLOBALS['http'] ), (string) count( $GLOBALS['http'] ) );
+check( 'each request is given ' . WPS_Own_Repos::TIMEOUT . ' seconds, not ten', WPS_Own_Repos::TIMEOUT === $GLOBALS['http'][0][1]['timeout'] );
+fresh();
+foreach ( array_keys( $GLOBALS['trans'] ) as $k ) { if ( 0 === strpos( $k, 'wps_gh_' ) ) { unset( $GLOBALS['trans'][ $k ] ); } }
+WPS_Scanner::$late = true;
+WPS_Integrity::verify( $tmp . '/wp-content/plugins/citepress/citepress.php' );
+check( 'once the scan is out of time no request is made', [] === $GLOBALS['http'] );
+WPS_Scanner::$late = false;
+fresh();
+$p = new ReflectionProperty( 'WPS_Own_Repos', 'spent' );
+$p->setAccessible( true );
+$p->setValue( null, WPS_Own_Repos::MAX_SECONDS );
+WPS_Integrity::verify( $tmp . '/wp-content/themes/book-wp/functions.php' );
+check( 'nor once ' . (int) WPS_Own_Repos::MAX_SECONDS . ' seconds have been spent waiting on GitHub', [] === $GLOBALS['http'] && ! WPS_Own_Repos::may_request() );
 check( 'tree_to_manifest ignores tree entries and bad hashes', [ 'a.php' => [ 'type' => 'gitblob', 'hashes' => [ str_repeat( 'c', 40 ) ] ] ] === WPS_Own_Repos::tree_to_manifest( [ 'tree' => [ [ 'path' => 'a.php', 'type' => 'blob', 'sha' => str_repeat( 'C', 40 ) ], [ 'path' => 'dir', 'type' => 'tree', 'sha' => str_repeat( 'd', 40 ) ], [ 'path' => 'b.php', 'type' => 'blob', 'sha' => 'short' ] ] ] ) && null === WPS_Own_Repos::tree_to_manifest( 'nope' ) );
 
 exec( 'rm -rf ' . escapeshellarg( $tmp ) );

@@ -27,19 +27,40 @@ class WPS_Own_Repos {
 	const TTL           = 6 * 3600;        // tree cache
 	const BACKOFF       = 3600;            // after GitHub refuses for rate limiting
 	const MAX_REQUESTS  = 25;              // per process: GitHub allows sixty an hour without a token
+	const MAX_SECONDS   = 30.0;            // per process, spent waiting on GitHub; a scan has its own budget
+	const TIMEOUT       = 6;               // per request
 	const MAX_FILE      = 8 * 1024 * 1024; // larger files are not hashed
 	const TREE_API      = 'https://api.github.com/repos/%s/%s/git/trees/HEAD?recursive=1';
 
 	/** Trees already resolved this process, by owner/slug; null for a miss or a failure. @var array<string, array|null> */
 	private static $trees = [];
 
-	/** Requests made this process. */
+	/** Requests made this process, and seconds spent waiting on them. */
 	private static $requests = 0;
+	private static $spent    = 0.0;
 
 	/** Forget the per-process memo (a scan calls this when it finishes). */
 	public static function reset(): void {
 		self::$trees    = [];
 		self::$requests = 0;
+		self::$spent    = 0.0;
+	}
+
+	/**
+	 * May another request be made now? Not past the request or time budget, not while GitHub has
+	 * asked for a pause, and not once the scan itself is out of time.
+	 */
+	public static function may_request(): bool {
+		if ( self::$requests >= self::MAX_REQUESTS || self::$spent >= self::MAX_SECONDS ) {
+			return false;
+		}
+		if ( get_transient( 'wps_gh_backoff' ) ) {
+			return false;
+		}
+		if ( class_exists( 'WPS_Scanner' ) && method_exists( 'WPS_Scanner', 'out_of_time' ) && WPS_Scanner::out_of_time() ) {
+			return false;
+		}
+		return true;
 	}
 
 	// ---------------------------------------------------------------
@@ -172,7 +193,7 @@ class WPS_Own_Repos {
 		if ( 'none' === $cached ) {
 			return self::$trees[ $memo ] = null;
 		}
-		if ( ! function_exists( 'wp_remote_get' ) || get_transient( 'wps_gh_backoff' ) || self::$requests >= self::MAX_REQUESTS ) {
+		if ( ! function_exists( 'wp_remote_get' ) || ! self::may_request() ) {
 			return self::$trees[ $memo ] = null;
 		}
 		++self::$requests;
@@ -181,7 +202,9 @@ class WPS_Own_Repos {
 		if ( '' !== $token ) {
 			$headers['Authorization'] = 'Bearer ' . $token;
 		}
-		$resp = wp_remote_get( sprintf( self::TREE_API, rawurlencode( $owner ), rawurlencode( $slug ) ), [ 'timeout' => 10, 'redirection' => 2, 'headers' => $headers ] );
+		$t0   = microtime( true );
+		$resp = wp_remote_get( sprintf( self::TREE_API, rawurlencode( $owner ), rawurlencode( $slug ) ), [ 'timeout' => self::TIMEOUT, 'redirection' => 2, 'headers' => $headers ] );
+		self::$spent += microtime( true ) - $t0;
 		if ( ! is_array( $resp ) || ( function_exists( 'is_wp_error' ) && is_wp_error( $resp ) ) ) {
 			return self::$trees[ $memo ] = null; // transport failure: not asked again this scan, retried next
 		}
@@ -298,8 +321,9 @@ class WPS_Own_Repos {
 
 	/**
 	 * Is this path the operator's own, published code? A file: identical to the repository. A
-	 * folder: every PHP file in it identical to the repository and none that the repository does
-	 * not know. Data files and the `.git` folder an FTP upload drags along are not judged.
+	 * folder: every file in it identical to the repository, PHP or not, since an `.htaccess` or a
+	 * `.user.ini` changes what runs as surely as code does. Only the `.git` folder an FTP upload
+	 * drags along is not judged.
 	 */
 	public static function is_own_code( string $path ): bool {
 		if ( ! self::enabled() || ! class_exists( 'WPS_Integrity' ) ) {
@@ -333,9 +357,6 @@ class WPS_Own_Repos {
 				if ( false !== strpos( $p, '/.git/' ) ) {
 					continue;
 				}
-				if ( ! preg_match( '/\.(php|phtml|php[0-9]|phar|inc)$/i', $p ) ) {
-					continue;
-				}
 				if ( ++$n > 4000 ) {
 					return false;
 				}
@@ -351,8 +372,9 @@ class WPS_Own_Repos {
 
 	/**
 	 * Drop the findings that point at the operator's own, verified code, and say so once per
-	 * folder in the log. Findings with no path, and findings on files that differ from the
-	 * repository, stay.
+	 * folder in the log. Findings with no path, findings on files that differ from the repository,
+	 * and findings that enforce the site's own policy (a banned plugin is banned whoever wrote it)
+	 * stay.
 	 *
 	 * @param array<int, array<string, mixed>> $findings
 	 * @return array<int, array<string, mixed>>
@@ -364,6 +386,10 @@ class WPS_Own_Repos {
 		$kept    = [];
 		$dropped = [];
 		foreach ( $findings as $f ) {
+			if ( self::is_policy_finding( $f ) ) {
+				$kept[] = $f;
+				continue;
+			}
 			$path = (string) ( $f['delete_path'] ?? '' );
 			if ( '' === $path ) {
 				$path = (string) ( $f['path'] ?? '' );
@@ -384,6 +410,12 @@ class WPS_Own_Repos {
 			}
 		}
 		return $kept;
+	}
+
+	/** A finding that states the operator's own policy rather than a judgement about the code. @param array<string, mixed> $f */
+	public static function is_policy_finding( array $f ): bool {
+		$text = strtolower( (string) ( $f['type'] ?? '' ) . ' ' . (string) ( $f['subject'] ?? '' ) );
+		return false !== strpos( $text, 'banned by site policy' ) || false !== strpos( $text, 'site policy' );
 	}
 
 	/** Installed plugin and theme folders that have a repository under a declared account. @return string[] */
