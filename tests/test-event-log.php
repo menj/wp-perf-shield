@@ -36,15 +36,21 @@ class FakeDB {
 	public $lock      = '1'; // what GET_LOCK answers: '1' granted, '0' timed out, null unsupported
 	public $last_error = '';
 	public $rows      = 0;
+	public $chain     = []; // curr_hash of every chained row, oldest first (1.4.159)
 	public function prepare( $sql, ...$a ) { foreach ( $a as $x ) { $sql = preg_replace( '/%[sd]/', is_int( $x ) ? (string) $x : "'" . addslashes( (string) $x ) . "'", $sql, 1 ); } return $sql; }
 	public function get_var( $sql ) {
 		$this->queries[] = $sql;
 		if ( false !== strpos( $sql, 'GET_LOCK' ) ) { return $this->lock; }
+		if ( preg_match( "/WHERE curr_hash = '([0-9a-f]+)'/", $sql, $m ) ) { return (string) count( array_keys( $this->chain, $m[1], true ) ); }
+		if ( false !== strpos( $sql, 'SELECT curr_hash' ) ) { return [] === $this->chain ? null : end( $this->chain ); }
 		if ( false !== strpos( $sql, 'COUNT(*)' ) ) { return (string) $this->rows; }
+		if ( false !== strpos( $sql, 'SELECT id FROM' ) ) { return $this->rows > 1 ? (string) $this->rows : null; }
 		return null;
 	}
+	public function get_row( $sql, $o = null ) { $this->queries[] = $sql; return [ 'prev_hash' => 'g' ]; }
+	public function get_results( $sql, $o = null ) { $this->queries[] = $sql; return []; }
 	public function query( $sql ) { $this->queries[] = $sql; return 1; }
-	public function insert( $table, $row ) { $this->queries[] = 'INSERT INTO ' . $table; ++$this->rows; $this->insert_id = $this->rows; return 1; }
+	public function insert( $table, $row ) { $this->queries[] = 'INSERT INTO ' . $table; ++$this->rows; $this->insert_id = $this->rows; if ( '' !== (string) ( $row['curr_hash'] ?? '' ) ) { $this->chain[] = (string) $row['curr_hash']; } return 1; }
 	public function get_charset_collate() { return ''; }
 }
 $wpdb = new FakeDB();
@@ -88,6 +94,27 @@ $wpdb->last_error = 'Lock wait timeout exceeded';
 $id = WPS_Event_Log::record( [ 'event_type' => 'probe', 'severity' => 'info' ] );
 check( 'a failed GET_LOCK query refuses the append rather than taking the row lock', null === $id && 0 === q( 'FOR UPDATE' ) && 0 === q( 'INSERT INTO' ), json_encode( $wpdb->queries ) );
 $wpdb->last_error = '';
+
+// ---- 3c. rows removed from the end of the log are recorded, not forgotten, by the next append (1.4.159).
+$wpdb = new FakeDB();
+$GLOBALS['opts'] = [ 'wps_events_schema' => 1, 'wps_event_hmac_key' => str_repeat( 'a', 64 ) ];
+WPS_Logger::$lines = [];
+foreach ( [ 1, 2, 3 ] as $i ) { WPS_Event_Log::record( [ 'event_type' => 'probe' . $i, 'severity' => 'info' ] ); }
+check( 'three appends anchor the chain at the third', 3 === $wpdb->rows && ( $GLOBALS['opts']['wps_event_chain']['head'] ?? '' ) === end( $wpdb->chain ) && 3 === ( $GLOBALS['opts']['wps_event_chain']['count'] ?? 0 ) );
+array_pop( $wpdb->chain ); array_pop( $wpdb->chain ); $wpdb->rows -= 2; // someone deletes the two newest rows
+$wpdb->queries = [];
+WPS_Event_Log::record( [ 'event_type' => 'probe4', 'severity' => 'info' ] );
+$anchor = $GLOBALS['opts']['wps_event_chain'];
+check( 'the next append records the break as a signed event of its own before the new event', 2 === q( 'INSERT INTO wp_wps_events' ) && 3 === count( $wpdb->chain ), json_encode( $wpdb->queries ) );
+check( 'the anchor counts the break and keeps its details', 1 === ( $anchor['breaks'] ?? 0 ) && false !== strpos( (string) ( $anchor['last_break']['detail'] ?? '' ), 'removed from the end of the log' ), json_encode( $anchor ) );
+check( 'the break is mirrored to the file log', 1 === count( array_filter( WPS_Logger::$lines, static fn( $l ) => 0 === strpos( $l, 'chain_break_detected:' ) ) ), json_encode( WPS_Logger::$lines ) );
+check( 'verify_chain() reports the break even though the chain now closes', 1 === ( WPS_Event_Log::verify_chain()['breaks'] ?? -1 ) );
+$wpdb->chain[] = str_repeat( 'f', 64 ); ++$wpdb->rows; // an append whose anchor write was lost: the anchored head is still there, just not newest
+$wpdb->queries = [];
+WPS_Event_Log::record( [ 'event_type' => 'probe5', 'severity' => 'info' ] );
+check( 'a lost anchor write is healed quietly, not reported as a break', 1 === q( 'INSERT INTO wp_wps_events' ) && 1 === ( $GLOBALS['opts']['wps_event_chain']['breaks'] ?? 0 ), json_encode( $wpdb->queries ) );
+WPS_Event_Log::prune( 2 );
+check( 'a prune brings the anchored count down with the table, so the next append sees no break', ( $GLOBALS['opts']['wps_event_chain']['count'] ?? -1 ) === $wpdb->rows );
 
 // ---- 4. the self-test drops a leftover scratch table before creating its own, and ends cleanly.
 $wpdb->queries = [];

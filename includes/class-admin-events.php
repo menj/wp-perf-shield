@@ -87,6 +87,11 @@ class WPS_Admin_Events {
 							CHAIN VERIFICATION FAILED<?php echo ! empty( $chain['first_bad_id'] ) ? ' at record #' . (int) $chain['first_bad_id'] : ( ( $chain['truncation_suspected'] ?? false ) ? ': records appear to have been removed (anchor mismatch)' : '' ); ?>. Someone has modified or deleted event records directly. Treat the log as compromised evidence and investigate database access.
 						<?php endif; ?>
 					</p>
+					<?php if ( (int) ( $chain['breaks'] ?? 0 ) > 0 ) : ?>
+					<p class="wps-sm wps-p0 wps-bad-t">
+						<?php echo (int) $chain['breaks']; ?> break<?php echo 1 === (int) $chain['breaks'] ? '' : 's'; ?> in the chain recorded: records had been removed from the log before an event was appended<?php echo ! empty( $chain['last_break']['at'] ) ? ', last at ' . esc_html( (string) $chain['last_break']['at'] ) : ''; ?>. The chain verified above starts again from that point; the removed records cannot be recovered. Look for the <code>chain_break_detected</code> event below and investigate database access.
+					</p>
+					<?php endif; ?>
 				<?php endif; ?>
 
 				<?php if ( empty( $events ) ) : ?>
