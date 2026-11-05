@@ -929,7 +929,8 @@ class WPS_Utils {
 	 * its own folder. Servers that do not read `.htaccess` get nothing from this, which is why the
 	 * caller also logs it and the admin screen says to remove the folder.
 	 *
-	 * @return string '.git' when a repository is there, whether or not the files could be written; '' otherwise.
+	 * @return string '' when there is no repository; 'protected' when both guard files are in place;
+	 *                'unprotected' when a repository is there and a guard file could not be written (1.4.159).
 	 */
 	public static function protect_repo_dir( string $plugin_dir ): string {
 		$root = rtrim( str_replace( '\\', '/', $plugin_dir ), '/' );
@@ -941,17 +942,21 @@ class WPS_Utils {
 			'.htaccess' => "# WP Perf Shield: a version-control folder is never served.\n<IfModule mod_authz_core.c>\n\tRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\n\tOrder deny,allow\n\tDeny from all\n</IfModule>\n",
 			'index.php' => "<?php\n// Silence is golden.\n",
 		];
+		$ok = true;
 		foreach ( $files as $name => $body ) {
 			$path = $git . '/' . $name;
 			if ( is_link( $path ) ) {
-				continue; // a link would be followed to wherever it points; never written through
+				$ok = false; // a link would be followed to wherever it points; never written through
+				continue;
 			}
 			if ( is_file( $path ) && @file_get_contents( $path ) === $body ) {
 				continue;
 			}
-			@file_put_contents( $path, $body, LOCK_EX );
+			if ( strlen( $body ) !== @file_put_contents( $path, $body, LOCK_EX ) ) {
+				$ok = false;
+			}
 		}
-		return '.git';
+		return $ok ? 'protected' : 'unprotected';
 	}
 
 	/** Delete a directory tree. Symbolic links are unlinked, never followed. */

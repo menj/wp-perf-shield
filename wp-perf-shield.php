@@ -313,8 +313,14 @@ function wps_tidy_install(): void {
 	if ( method_exists( 'WPS_Utils', 'remove_dev_files' ) ) {
 		WPS_Utils::remove_dev_files( WPS_DIR );
 	}
-	if ( method_exists( 'WPS_Utils', 'protect_repo_dir' ) && '' !== WPS_Utils::protect_repo_dir( WPS_DIR ) && class_exists( 'WPS_Logger' ) ) {
-		WPS_Logger::log_event( 'repo_dir_in_plugin', 'a git repository (.git) was uploaded inside the plugin folder; web access to it is refused on Apache, and it should be removed' );
+	if ( method_exists( 'WPS_Utils', 'protect_repo_dir' ) && class_exists( 'WPS_Logger' ) ) {
+		$repo = WPS_Utils::protect_repo_dir( WPS_DIR );
+		if ( 'protected' === $repo ) {
+			WPS_Logger::log_event( 'repo_dir_in_plugin', 'a git repository (.git) was uploaded inside the plugin folder; web access to it is refused on Apache, and it should be removed' );
+		} elseif ( 'unprotected' === $repo ) {
+			// 1.4.159: say so when the guard files could not be written, rather than claiming a refusal that is not there.
+			WPS_Logger::log_event( 'repo_dir_in_plugin', 'a git repository (.git) was uploaded inside the plugin folder and its guard files could NOT be written, so it is readable from the web now; remove the folder' );
+		}
 	}
 }
 

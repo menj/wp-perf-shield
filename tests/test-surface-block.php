@@ -124,7 +124,7 @@ $code = '<?php define("ABSPATH","/x/"); define("WPS_OPTION","wps_opts"); define(
 	. 'function apply_filters($t,$v){return $v;} function get_transient(){return false;} function set_transient(){return true;} function is_user_logged_in(){return false;} function status_header($c){ echo "STATUS:$c;"; }'
 	. 'class WP_Error{} require ' . var_export( dirname( __DIR__ ) . '/includes/class-login-guard.php', true ) . ';'
 	. '$_SERVER["REMOTE_ADDR"]="198.51.100.7"; WPS_Login_Guard::refuse_blocked_surfaces(); echo "NOT REFUSED";';
-$tmpf = sys_get_temp_dir() . '/wps-sb-' . getmypid() . '.php';
+$tmpf = (string) tempnam( sys_get_temp_dir(), 'wps-sb-' ); // created exclusively by tempnam, so nothing can plant a link there first
 file_put_contents( $tmpf, $code );
 $out = (string) shell_exec( 'php ' . escapeshellarg( $tmpf ) . ' 2>&1' );
 @unlink( $tmpf );
