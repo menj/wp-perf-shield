@@ -929,8 +929,9 @@ class WPS_Utils {
 	 * its own folder. Servers that do not read `.htaccess` get nothing from this, which is why the
 	 * caller also logs it and the admin screen says to remove the folder.
 	 *
-	 * @return string '' when there is no repository; 'protected' when both guard files are in place;
-	 *                'unprotected' when a repository is there and a guard file could not be written (1.4.159).
+	 * @return string '' when there is no repository; 'protected' when the deny file is in place;
+	 *                'unprotected' when a repository is there and the deny file is not (1.4.159). The
+	 *                silent index.php is a second line against directory listings and does not decide it.
 	 */
 	public static function protect_repo_dir( string $plugin_dir ): string {
 		$root = rtrim( str_replace( '\\', '/', $plugin_dir ), '/' );
@@ -946,13 +947,13 @@ class WPS_Utils {
 		foreach ( $files as $name => $body ) {
 			$path = $git . '/' . $name;
 			if ( is_link( $path ) ) {
-				$ok = false; // a link would be followed to wherever it points; never written through
+				$ok = '.htaccess' === $name ? false : $ok; // a link would be followed to wherever it points; never written through
 				continue;
 			}
 			if ( is_file( $path ) && @file_get_contents( $path ) === $body ) {
 				continue;
 			}
-			if ( strlen( $body ) !== @file_put_contents( $path, $body, LOCK_EX ) ) {
+			if ( strlen( $body ) !== @file_put_contents( $path, $body, LOCK_EX ) && '.htaccess' === $name ) {
 				$ok = false;
 			}
 		}

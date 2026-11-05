@@ -77,10 +77,12 @@ class WPS_Admin_Overview {
 					$b_denied = isset( $_GET['denied'] ) ? (int) $_GET['denied'] : 0;
 					$b_failed = isset( $_GET['failed'] ) ? (int) $_GET['failed'] : 0;
 					$b_left   = isset( $_GET['left'] ) ? (int) $_GET['left'] : 0;
+					$b_before = isset( $_GET['already'] ) ? (int) $_GET['already'] : 0;
 					$verb  = 'safe' === $wps_bulk_msg ? 'marked Safe' : 'quarantined';
 					$parts = [ $b_done . ' ' . $verb ];
 					if ( $b_denied ) { $parts[] = $b_denied . ' skipped because policy protects them (Safe, core, or inside installed software)'; }
 					if ( $b_failed ) { $parts[] = $b_failed . ' could not be actioned'; }
+					if ( $b_before ) { $parts[] = $b_before . ' already dealt with by an earlier pass'; }
 					if ( $b_left ) { $parts[] = $b_left . ' not reached: one pass handles ' . ( class_exists( 'WPS_Admin' ) ? (int) WPS_Admin::BULK_CAP : 200 ) . ' items, so select all and run the same action again for the rest'; }
 					echo '<div class="wps-status wps-' . ( $b_done > 0 ? 'good' : 'muted' ) . ' wps-mb6">' . esc_html( implode( '; ', $parts ) ) . '.</div>';
 				}

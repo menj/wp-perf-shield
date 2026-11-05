@@ -12,8 +12,12 @@
 - **The `.git` guard claimed a refusal it might not have.** `protect_repo_dir()` returned `.git` even when neither guard file could be written. It returns `protected` or `unprotected`; the event and the admin notice say which, and the notice is an error when the folder is readable.
 - **Predictable temporary names in two tests** (`test-account-guard.php`, `test-surface-block.php`) are `tempnam()` files now.
 
+### Review of this release (CodeAnt on PR 37)
+- A temporary file in `test-surface-block.php` was removed and its name reused between runs; it is created once and removed at the end.
+- **Seven nitpicks, all taken.** The bulk pass skips paths an earlier pass already dealt with without using up its 200, so repeating it reaches the rest (`WPS_Admin::bulk_plan()`; the result line says how many were already done). Rows removed from the middle or start of the log while the newest row is still there are recorded as a break too, using the anchor's count; an anchor written by an earlier version (its count may be stale after a prune) is upgraded quietly instead (`v` = 2 marks a trustworthy count). If the break row is written and the event row after it fails, the anchor already moves onto the break, so the same truncation is not recorded twice; if the break row cannot be written, no break is claimed in the anchor and the file log holds the record. `protect_repo_dir()` reports `protected` when the deny file is in place, whether or not the silent `index.php` could be written. The event-log test's fake database now holds real rows (inserts, deletes by id, the offset query, `get_results`), so the prune and `verify_chain()` assertions exercise pruning and hashing instead of reading a counter.
+
 ### Tests
-- Extended: `test-removal-pipeline.php` (44: re-dropped original, BINARY compare, letter-case rewrite, serialized-looking string), `test-event-log.php` (truncation recorded, lost anchor write healed, prune count), `test-dev-files.php` (17: unprotected repository).
+- Extended: `test-removal-pipeline.php` (48: re-dropped original, BINARY compare, letter-case rewrite, serialized-looking string, bulk plan), `test-event-log.php` (24: truncation, older-row removal, upgrade of an old anchor, break insert and event insert failing, a real prune), `test-dev-files.php` (18: unprotected repository, protected without the silent index).
 
 ## 1.4.158
 

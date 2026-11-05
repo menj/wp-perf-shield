@@ -30,27 +30,47 @@ class WPS_Logger {
 	public static function file_event( $t, $s, $ip = '' ) { self::$lines[] = $t . ': ' . $s; }
 }
 class FakeDB {
-	public $prefix    = 'wp_';
-	public $insert_id = 0;
-	public $queries   = [];
-	public $lock      = '1'; // what GET_LOCK answers: '1' granted, '0' timed out, null unsupported
+	public $prefix     = 'wp_';
+	public $insert_id  = 0;
+	public $queries    = [];
+	public $lock       = '1'; // what GET_LOCK answers: '1' granted, '0' timed out, null unsupported
 	public $last_error = '';
-	public $rows      = 0;
-	public $chain     = []; // curr_hash of every chained row, oldest first (1.4.159)
+	public $rows       = 0;   // rows in the table
+	public $tbl        = [];  // the table itself, oldest first; every row carries its id
+	public $auto       = 0;
+	public $fail_on    = 0;   // 1.4.159: make the Nth insert from now fail (1 = the next one)
 	public function prepare( $sql, ...$a ) { foreach ( $a as $x ) { $sql = preg_replace( '/%[sd]/', is_int( $x ) ? (string) $x : "'" . addslashes( (string) $x ) . "'", $sql, 1 ); } return $sql; }
+	public function sync() { $this->rows = count( $this->tbl ); }
+	private function chained() { return array_values( array_filter( $this->tbl, static fn( $r ) => '' !== (string) ( $r['curr_hash'] ?? '' ) ) ); }
 	public function get_var( $sql ) {
 		$this->queries[] = $sql;
 		if ( false !== strpos( $sql, 'GET_LOCK' ) ) { return $this->lock; }
-		if ( preg_match( "/WHERE curr_hash = '([0-9a-f]+)'/", $sql, $m ) ) { return (string) count( array_keys( $this->chain, $m[1], true ) ); }
-		if ( false !== strpos( $sql, 'SELECT curr_hash' ) ) { return [] === $this->chain ? null : end( $this->chain ); }
-		if ( false !== strpos( $sql, 'COUNT(*)' ) ) { return (string) $this->rows; }
-		if ( false !== strpos( $sql, 'SELECT id FROM' ) ) { return $this->rows > 1 ? (string) $this->rows : null; }
+		if ( preg_match( "/WHERE curr_hash = '([0-9a-f]+)'/", $sql, $m ) ) { return (string) count( array_filter( $this->tbl, static fn( $r ) => ( $r['curr_hash'] ?? '' ) === $m[1] ) ); }
+		if ( false !== strpos( $sql, 'SELECT curr_hash' ) ) { $c = $this->chained(); return [] === $c ? null : end( $c )['curr_hash']; }
+		if ( false !== strpos( $sql, 'COUNT(*)' ) ) { return (string) ( false !== strpos( $sql, "curr_hash <> ''" ) ? count( $this->chained() ) : count( $this->tbl ) ); }
+		if ( preg_match( '/SELECT id FROM .* OFFSET (\d+)/', $sql, $m ) ) { $ids = array_reverse( array_column( $this->tbl, 'id' ) ); return isset( $ids[ (int) $m[1] ] ) ? (string) $ids[ (int) $m[1] ] : null; }
 		return null;
 	}
-	public function get_row( $sql, $o = null ) { $this->queries[] = $sql; return [ 'prev_hash' => 'g' ]; }
-	public function get_results( $sql, $o = null ) { $this->queries[] = $sql; return []; }
-	public function query( $sql ) { $this->queries[] = $sql; return 1; }
-	public function insert( $table, $row ) { $this->queries[] = 'INSERT INTO ' . $table; ++$this->rows; $this->insert_id = $this->rows; if ( '' !== (string) ( $row['curr_hash'] ?? '' ) ) { $this->chain[] = (string) $row['curr_hash']; } return 1; }
+	public function get_row( $sql, $o = null ) {
+		$this->queries[] = $sql;
+		if ( preg_match( '/WHERE id = (\d+)/', $sql, $m ) ) { foreach ( $this->tbl as $r ) { if ( (int) $r['id'] === (int) $m[1] ) { return $r; } } }
+		return null;
+	}
+	public function get_results( $sql, $o = null ) { $this->queries[] = $sql; return $this->tbl; }
+	public function query( $sql ) {
+		$this->queries[] = $sql;
+		if ( preg_match( '/^DELETE FROM \S+ WHERE id < (\d+)/', $sql, $m ) ) { $this->tbl = array_values( array_filter( $this->tbl, static fn( $r ) => (int) $r['id'] >= (int) $m[1] ) ); $this->sync(); }
+		return 1;
+	}
+	public function insert( $table, $row ) {
+		$this->queries[] = 'INSERT INTO ' . $table;
+		if ( $this->fail_on > 0 && 0 === --$this->fail_on ) { return false; }
+		$row['id'] = ++$this->auto;
+		$this->tbl[] = $row;
+		$this->insert_id = $row['id'];
+		$this->sync();
+		return 1;
+	}
 	public function get_charset_collate() { return ''; }
 }
 $wpdb = new FakeDB();
@@ -95,26 +115,77 @@ $id = WPS_Event_Log::record( [ 'event_type' => 'probe', 'severity' => 'info' ] )
 check( 'a failed GET_LOCK query refuses the append rather than taking the row lock', null === $id && 0 === q( 'FOR UPDATE' ) && 0 === q( 'INSERT INTO' ), json_encode( $wpdb->queries ) );
 $wpdb->last_error = '';
 
-// ---- 3c. rows removed from the end of the log are recorded, not forgotten, by the next append (1.4.159).
-$wpdb = new FakeDB();
-$GLOBALS['opts'] = [ 'wps_events_schema' => 1, 'wps_event_hmac_key' => str_repeat( 'a', 64 ) ];
-WPS_Logger::$lines = [];
+// ---- 3c. rows removed from the log are recorded, not forgotten, by the next append (1.4.159).
+function fresh_db(): FakeDB {
+	global $wpdb;
+	$wpdb = new FakeDB();
+	$GLOBALS['opts'] = [ 'wps_events_schema' => 1, 'wps_event_hmac_key' => str_repeat( 'a', 64 ) ];
+	WPS_Logger::$lines = [];
+	return $wpdb;
+}
+function anchor(): array { return $GLOBALS['opts']['wps_event_chain'] ?? []; }
+function types(): array { global $wpdb; return array_column( $wpdb->tbl, 'event_type' ); }
+function break_lines(): int { return count( array_filter( WPS_Logger::$lines, static fn( $l ) => 0 === strpos( $l, 'chain_break_detected:' ) ) ); }
+
+$wpdb = fresh_db();
 foreach ( [ 1, 2, 3 ] as $i ) { WPS_Event_Log::record( [ 'event_type' => 'probe' . $i, 'severity' => 'info' ] ); }
-check( 'three appends anchor the chain at the third', 3 === $wpdb->rows && ( $GLOBALS['opts']['wps_event_chain']['head'] ?? '' ) === end( $wpdb->chain ) && 3 === ( $GLOBALS['opts']['wps_event_chain']['count'] ?? 0 ) );
-array_pop( $wpdb->chain ); array_pop( $wpdb->chain ); $wpdb->rows -= 2; // someone deletes the two newest rows
+$v = WPS_Event_Log::verify_chain();
+check( 'three appends anchor the chain at the third, and the chain really verifies', 3 === $wpdb->rows && anchor()['head'] === $wpdb->tbl[2]['curr_hash'] && 3 === anchor()['count'] && 2 === anchor()['v'] && 'ok' === $v['status'] && 3 === $v['verified'] && 0 === $v['breaks'], json_encode( [ anchor(), $v ] ) );
+
+// the two newest rows are deleted
+array_splice( $wpdb->tbl, 1 ); $wpdb->rows = 1;
 $wpdb->queries = [];
 WPS_Event_Log::record( [ 'event_type' => 'probe4', 'severity' => 'info' ] );
-$anchor = $GLOBALS['opts']['wps_event_chain'];
-check( 'the next append records the break as a signed event of its own before the new event', 2 === q( 'INSERT INTO wp_wps_events' ) && 3 === count( $wpdb->chain ), json_encode( $wpdb->queries ) );
-check( 'the anchor counts the break and keeps its details', 1 === ( $anchor['breaks'] ?? 0 ) && false !== strpos( (string) ( $anchor['last_break']['detail'] ?? '' ), 'removed from the end of the log' ), json_encode( $anchor ) );
-check( 'the break is mirrored to the file log', 1 === count( array_filter( WPS_Logger::$lines, static fn( $l ) => 0 === strpos( $l, 'chain_break_detected:' ) ) ), json_encode( WPS_Logger::$lines ) );
-check( 'verify_chain() reports the break even though the chain now closes', 1 === ( WPS_Event_Log::verify_chain()['breaks'] ?? -1 ) );
-$wpdb->chain[] = str_repeat( 'f', 64 ); ++$wpdb->rows; // an append whose anchor write was lost: the anchored head is still there, just not newest
+check( 'the next append writes the break as a signed event of its own, then the new event', [ 'probe1', 'chain_break_detected', 'probe4' ] === types() && 2 === q( 'INSERT INTO wp_wps_events' ), json_encode( types() ) );
+$v = WPS_Event_Log::verify_chain();
+check( 'the anchor counts the break and keeps its details; the chain closes and verify_chain() still reports the break', 1 === anchor()['breaks'] && false !== strpos( (string) ( anchor()['last_break']['detail'] ?? '' ), 'removed from the end of the log' ) && 'ok' === $v['status'] && 3 === $v['verified'] && 1 === $v['breaks'], json_encode( [ anchor(), $v ] ) );
+check( 'the break is mirrored to the file log', 1 === break_lines(), json_encode( WPS_Logger::$lines ) );
+
+// an append whose anchor write was lost: a newer chained row exists that the anchor does not know
+$wpdb->tbl[] = [ 'id' => ++$wpdb->auto, 'event_type' => 'orphan', 'curr_hash' => str_repeat( 'f', 64 ), 'prev_hash' => $wpdb->tbl[2]['curr_hash'] ]; $wpdb->rows = count( $wpdb->tbl );
 $wpdb->queries = [];
 WPS_Event_Log::record( [ 'event_type' => 'probe5', 'severity' => 'info' ] );
-check( 'a lost anchor write is healed quietly, not reported as a break', 1 === q( 'INSERT INTO wp_wps_events' ) && 1 === ( $GLOBALS['opts']['wps_event_chain']['breaks'] ?? 0 ), json_encode( $wpdb->queries ) );
+check( 'a lost anchor write is healed quietly, not reported as a break', 1 === q( 'INSERT INTO wp_wps_events' ) && 1 === anchor()['breaks'] && 1 === break_lines(), json_encode( [ types(), anchor()['breaks'] ] ) );
+
+// 1.4.159 review: an OLDER row removed while the newest is still there
+$wpdb = fresh_db();
+foreach ( [ 1, 2, 3 ] as $i ) { WPS_Event_Log::record( [ 'event_type' => 'probe' . $i ] ); }
+array_splice( $wpdb->tbl, 0, 1 ); $wpdb->rows = 2; // the oldest row is deleted, the head is untouched
+WPS_Event_Log::record( [ 'event_type' => 'probe4' ] );
+check( 'removing an older row is recorded as a break although the head still matches', in_array( 'chain_break_detected', types(), true ) && 1 === anchor()['breaks'] && false !== strpos( (string) anchor()['last_break']['detail'], 'older records were removed' ), json_encode( [ types(), anchor() ] ) );
+$wpdb = fresh_db();
+foreach ( [ 1, 2, 3 ] as $i ) { WPS_Event_Log::record( [ 'event_type' => 'probe' . $i ] ); }
+$GLOBALS['opts']['wps_event_chain']['v'] = 0; // an anchor an earlier version wrote: its count may be stale after a prune
+array_splice( $wpdb->tbl, 0, 1 ); $wpdb->rows = 2;
+WPS_Event_Log::record( [ 'event_type' => 'probe4' ] );
+check( 'an anchor from an earlier version is upgraded quietly rather than trusted for its count', ! in_array( 'chain_break_detected', types(), true ) && 2 === anchor()['v'], json_encode( [ types(), anchor() ] ) );
+
+// 1.4.159 review: the break row is written but the event row after it fails
+$wpdb = fresh_db();
+foreach ( [ 1, 2, 3 ] as $i ) { WPS_Event_Log::record( [ 'event_type' => 'probe' . $i ] ); }
+array_splice( $wpdb->tbl, 1 ); $wpdb->rows = 1;
+$wpdb->fail_on = 2; // the break insert (1) succeeds, the event insert (2) fails
+$id = WPS_Event_Log::record( [ 'event_type' => 'probe4' ] );
+check( 'a failed event insert after a written break still moves the anchor onto the break', null === $id && [ 'probe1', 'chain_break_detected' ] === types() && anchor()['head'] === $wpdb->tbl[1]['curr_hash'] && 1 === anchor()['breaks'], json_encode( [ types(), anchor() ] ) );
+WPS_Event_Log::record( [ 'event_type' => 'probe5' ] );
+check( 'so the next append does not record the same truncation again', 1 === count( array_keys( types(), 'chain_break_detected', true ) ) && 1 === anchor()['breaks'], json_encode( types() ) );
+
+// 1.4.159 review: the break insert fails but the event insert succeeds
+$wpdb = fresh_db();
+foreach ( [ 1, 2, 3 ] as $i ) { WPS_Event_Log::record( [ 'event_type' => 'probe' . $i ] ); }
+array_splice( $wpdb->tbl, 1 ); $wpdb->rows = 1;
+$wpdb->fail_on = 1; // the break insert fails
+WPS_Event_Log::record( [ 'event_type' => 'probe4' ] );
+check( 'a break that could not be written is not claimed in the anchor, and the file log still holds it', [ 'probe1', 'probe4' ] === types() && 0 === anchor()['breaks'] && null === ( anchor()['last_break'] ?? null ) && 1 === break_lines(), json_encode( [ types(), anchor(), WPS_Logger::$lines ] ) );
+
+// 1.4.159 review: a prune that really removes rows
+$wpdb = fresh_db();
+foreach ( [ 1, 2, 3, 4, 5, 6 ] as $i ) { WPS_Event_Log::record( [ 'event_type' => 'probe' . $i ] ); }
 WPS_Event_Log::prune( 2 );
-check( 'a prune brings the anchored count down with the table, so the next append sees no break', ( $GLOBALS['opts']['wps_event_chain']['count'] ?? -1 ) === $wpdb->rows );
+$v = WPS_Event_Log::verify_chain();
+check( 'a prune keeps the newest rows, lowers the anchored count with the table, and the surviving window verifies', 2 === count( $wpdb->tbl ) && [ 'probe5', 'probe6' ] === types() && 2 === anchor()['count'] && 'ok' === $v['status'] && 2 === $v['verified'], json_encode( [ types(), anchor(), $v ] ) );
+WPS_Event_Log::record( [ 'event_type' => 'probe7' ] );
+check( 'and the next append after a prune sees no break', ! in_array( 'chain_break_detected', types(), true ) && 0 === anchor()['breaks'], json_encode( [ types(), anchor() ] ) );
 
 // ---- 4. the self-test drops a leftover scratch table before creating its own, and ends cleanly.
 $wpdb->queries = [];

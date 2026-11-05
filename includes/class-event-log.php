@@ -232,9 +232,9 @@ class WPS_Event_Log {
 		return self::$selftest_ns !== '' ? 'wps_event_chain_st_' . self::$selftest_ns : 'wps_event_chain';
 	}
 
-	/** @return array{head: string, count: int, genesis: string, breaks: int, last_break: ?array} */
+	/** @return array{head: string, count: int, genesis: string, breaks: int, last_break: ?array, v: int} */
 	private static function read_anchor(): array {
-		$default = [ 'head' => '', 'count' => 0, 'genesis' => '', 'breaks' => 0, 'last_break' => null ];
+		$default = [ 'head' => '', 'count' => 0, 'genesis' => '', 'breaks' => 0, 'last_break' => null, 'v' => 0 ];
 		$opt = function_exists( 'get_option' ) ? get_option( self::chain_option(), null ) : null;
 		if ( is_array( $opt ) && isset( $opt['head'], $opt['count'], $opt['genesis'] ) ) {
 			return self::anchor_shape( $opt );
@@ -257,6 +257,7 @@ class WPS_Event_Log {
 			'head'       => (string) $a['head'],
 			'count'      => (int) $a['count'],
 			'genesis'    => (string) $a['genesis'],
+			'v'          => (int) ( $a['v'] ?? 0 ),               // 1.4.159: 2 once an append of this version wrote it; its count can be trusted
 			'breaks'     => (int) ( $a['breaks'] ?? 0 ),          // 1.4.159: truncations detected and recorded
 			'last_break' => isset( $a['last_break'] ) && is_array( $a['last_break'] ) ? $a['last_break'] : null,
 		];
@@ -276,16 +277,25 @@ class WPS_Event_Log {
 	 */
 	private static function anchor_break( array $anchor, string $head ): string {
 		$db = self::db();
-		if ( ! $db || '' === $anchor['head'] || $anchor['head'] === $head ) {
+		if ( ! $db || '' === $anchor['head'] ) {
 			return '';
 		}
+		$count = self::chained_row_count();
+		// An anchor written by an earlier version may carry a count a prune left behind, so its count
+		// is not evidence; one written by this version is. This also catches rows removed from the
+		// middle or the start of the log while the newest row is still there.
+		$counted = (int) ( $anchor['v'] ?? 0 ) >= 2;
+		if ( $anchor['head'] === $head ) {
+			return ( $counted && $count < (int) $anchor['count'] )
+				? 'the table holds ' . $count . ' signed events where the anchor counted ' . (int) $anchor['count'] . ': older records were removed from the log'
+				: '';
+		}
 		$present = (int) $db->get_var( $db->prepare( 'SELECT COUNT(*) FROM ' . self::table() . ' WHERE curr_hash = %s', $anchor['head'] ) );
-		$count   = self::chained_row_count();
 		if ( 0 === $present ) {
 			return 'the event the chain was anchored at (hash ' . substr( $anchor['head'], 0, 12 ) . ', ' . (int) $anchor['count'] . ' signed events then) is no longer in the table, which now ends at '
 				. ( '' === $head ? 'nothing' : 'hash ' . substr( $head, 0, 12 ) ) . ' with ' . $count . ' signed events: records were removed from the end of the log';
 		}
-		if ( $count < (int) $anchor['count'] ) {
+		if ( $counted && $count < (int) $anchor['count'] ) {
 			return 'the table holds ' . $count . ' signed events where the anchor counted ' . (int) $anchor['count'] . ': records were removed from the log';
 		}
 		return '';
@@ -412,14 +422,22 @@ class WPS_Event_Log {
 				$brow['prev_hash']      = $head;
 				$brow['curr_hash']      = self::compute_hash( $brow, $head );
 				$brow['hmac_signature'] = hash_hmac( 'sha256', $brow['curr_hash'], self::hmac_key() );
-				if ( false !== $db->insert( self::table(), $brow ) ) {
-					$head = $brow['curr_hash'];
-				}
-				$anchor['breaks']     = (int) $anchor['breaks'] + 1;
-				$anchor['last_break'] = [ 'at' => gmdate( 'Y-m-d H:i:s' ) . ' UTC', 'detail' => $break ];
 				if ( class_exists( 'WPS_Logger' ) && method_exists( 'WPS_Logger', 'file_event' ) ) {
 					WPS_Logger::file_event( 'chain_break_detected', $break ); // the file log is the copy the database cannot edit
 				}
+				if ( false !== $db->insert( self::table(), $brow ) ) {
+					// The break is in the table: count it and move the anchor onto it now, so that if the
+					// event insert below fails the next append does not find, and record, the same truncation.
+					$head                 = $brow['curr_hash'];
+					$anchor['head']       = $head;
+					$anchor['count']      = self::chained_row_count();
+					$anchor['v']          = 2;
+					$anchor['breaks']     = (int) $anchor['breaks'] + 1;
+					$anchor['last_break'] = [ 'at' => gmdate( 'Y-m-d H:i:s' ) . ' UTC', 'detail' => $break ];
+					self::write_anchor( $anchor );
+				}
+				// A failed break insert claims no break: the file log above holds it, and the next
+				// append will find the truncation again and retry.
 			}
 
 			$row['prev_hash']      = $head;
@@ -437,6 +455,7 @@ class WPS_Event_Log {
 			// permanently adrift.
 			$anchor['head']  = $row['curr_hash'];
 			$anchor['count'] = self::chained_row_count();
+			$anchor['v']     = 2;
 			self::write_anchor( $anchor );
 
 			// Prune inside the lock too: it re-anchors genesis and deletes the

@@ -271,6 +271,18 @@ check( 'the tab opens and closes its divs evenly', substr_count( $html, '<div' )
 
 // ---- 8. the bulk handler is the operator's action, judged like "Delete this path".
 require dirname( __DIR__ ) . '/includes/class-admin.php';
+// ---- 6b. the bulk pass (1.4.159): paths an earlier pass dealt with do not use the cap, so a repeat reaches the rest.
+$all  = array_map( static fn( $i ) => '/p/' . $i . '.php', range( 1, 7 ) );
+$gone = [ '/p/1.php' => true, '/p/2.php' => true, '/p/3.php' => true ]; // quarantined by the first pass
+$plan = WPS_Admin::bulk_plan( $all, static fn( $p ) => isset( $gone[ $p ] ), 2 );
+check( 'handled paths are counted, not acted on, and do not use the cap', [ '/p/4.php', '/p/5.php' ] === $plan['todo'] && 3 === $plan['already'] && 2 === $plan['left'], json_encode( $plan ) );
+$plan = WPS_Admin::bulk_plan( $all, static fn( $p ) => false, 200 );
+check( 'with the cap not reached everything is acted on', 7 === count( $plan['todo'] ) && 0 === $plan['left'] && 0 === $plan['already'] );
+$plan = WPS_Admin::bulk_plan( [ '/a', '/a', ' /a ', '', '/b' ], static fn( $p ) => false, 200 );
+check( 'duplicates and blanks are dropped', [ '/a', '/b' ] === $plan['todo'], json_encode( $plan ) );
+$args = WPS_Admin::bulk_result_args( 'delete', 5, 1, 0, 3, 4 );
+check( 'the result carries what was not reached and what was already done', 3 === $args['left'] && 4 === $args['already'] && 5 === $args['done'] && 'delete' === $args['wps_bulk'], json_encode( $args ) );
+
 check( 'the bulk handler no longer carries a per-finding lookup', ! method_exists( 'WPS_Admin', 'finding_type_for' ) );
 check( 'the operator bulk type is refused on a Safe target with the Safe rule', 'operator_safe' === WPS_Remediation_Policy::decide( [ 'delete_path' => $P . '/kept/kept.php', 'type' => 'operator bulk removal' ] )['rule'] );
 put( $P . '/bulk/x.php' );

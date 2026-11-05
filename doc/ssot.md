@@ -183,14 +183,14 @@ tests/test-casino-spam.php                casino-spam injector checks with near 
 tests/test-surface-block.php              a permanent block refuses XML-RPC, REST writes and uploads; exiting behaviour via subprocess
 tests/test-incident-response.php          snippet stores, registration role flip, hidden link blocks, plugin folder names, injector markers, scan rotation, withheld-removal notice
 tests/test-official-suppression.php       a self-concealing finding is dropped for a file identical to its official release
-tests/test-removal-pipeline.php           the quarantine's policy gate with the real policy, operator removals, policy-ban tiers, the findings screen's forms, option snapshot of the value removed by conditional delete (44 cases)
+tests/test-removal-pipeline.php           the quarantine's policy gate with the real policy, operator removals, policy-ban tiers, the findings screen's forms, option snapshot of the value removed by conditional delete (48 cases)
 tests/test-account-guard.php              login fingerprint per device, acting session judged, role on the query string, device expiry, one login row per device, first-contact sign-in for XML-RPC and application passwords (22 cases)
 tests/test-scan-lock.php                  the stale-lock release is conditional on the value read (10 cases)
 tests/test-edr-integrity.php              upgrader attribution on install only; integrity verdicts with the plugins directory outside ABSPATH, foreign-file slug, manifest memo, spam marker after the event (14 cases)
 tests/test-spam-content-guard.php         content held when the strip cannot clean it, the sweep cursor, prefilter coverage, head-and-tail matching (16 cases)
 tests/test-login-guard.php                bot username from shared infrastructure, Akismet reporting with enrichment off, failed report retried, manual report with enrichment off, range-block ladder, manual bans in the total (14 cases)
-tests/test-event-log.php                  append refused on a held lock, row lock only without GET_LOCK, scratch table dropped before a self-test, namespace per run, a failed GET_LOCK refused (19 cases)
-tests/test-dev-files.php                 tests/ removed from an installed copy and from a checkout, links not followed, .git refused to the web, not through a link (17 cases)
+tests/test-event-log.php                  append refused on a held lock, row lock only without GET_LOCK, scratch table dropped before a self-test, namespace per run, a failed GET_LOCK refused (24 cases)
+tests/test-dev-files.php                 tests/ removed from an installed copy and from a checkout, links not followed, .git refused to the web, not through a link (18 cases)
 tests/test-rank-math-compat.php          a hidden folder inside a Composer package is not reported; one outside any package still is (9 cases)
 tests/test-review-1-4-155.php            1.4.155 review fixes: comment stripping, outbound cookies, XML-RPC page methods, Akismet reply, stale stats, auth label, forensics grep, stripper speed (18 cases)
 tests/test-own-repos.php                 the operator's GitHub repositories as a verification source: blob ids, plugin and theme verdicts, cache, the finding filter, policy findings kept, token, truncated tree, backoff, request and time budgets (36 cases)

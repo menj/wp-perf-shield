@@ -402,11 +402,19 @@ class WPS_Admin {
 
 		$done = 0; $denied = 0; $failed = 0;
 
-		foreach ( array_slice( $paths, 0, self::BULK_CAP ) as $path ) {
-			$path = trim( (string) $path );
-			if ( '' === $path ) {
-				continue;
+		// 1.4.159: the findings list is cached, so a second pass is offered paths the first already dealt
+		// with. Those are skipped without using up the cap, which is what lets a repeated pass reach the rest.
+		$plan = self::bulk_plan(
+			$paths,
+			static function ( string $p ) use ( $op ): bool {
+				if ( 'delete' === $op ) {
+					return ! file_exists( $p ) && ! is_link( $p );
+				}
+				return class_exists( 'WPS_Remediation_Policy' ) && ! empty( WPS_Remediation_Policy::safe_state( $p )['safe'] );
 			}
+		);
+
+		foreach ( $plan['todo'] as $path ) {
 			if ( 'safe' === $op ) {
 				if ( class_exists( 'WPS_Remediation_Policy' ) && WPS_Remediation_Policy::mark_safe( $path, 'file', 'marked safe in bulk from the findings list' ) ) {
 					++$done;
@@ -434,8 +442,35 @@ class WPS_Admin {
 			}
 		}
 
-		wp_safe_redirect( add_query_arg( self::bulk_result_args( $op, $done, $denied, $failed, count( $paths ) ), admin_url( 'tools.php' ) ) );
+		wp_safe_redirect( add_query_arg( self::bulk_result_args( $op, $done, $denied, $failed, $plan['left'], $plan['already'] ), admin_url( 'tools.php' ) ) );
 		exit;
+	}
+
+	/**
+	 * Which of the selected paths one bulk pass will act on. A path already dealt with (`$handled`
+	 * says so) is counted, not acted on, and does not use the cap; up to $cap others are acted on
+	 * and the remainder is counted as left. Pure of side effects apart from `$handled`.
+	 *
+	 * @param string[] $paths
+	 * @return array{todo: string[], already: int, left: int}
+	 */
+	public static function bulk_plan( array $paths, callable $handled, int $cap = self::BULK_CAP ): array {
+		$todo    = [];
+		$already = 0;
+		$left    = 0;
+		foreach ( array_unique( array_map( static fn( $p ) => trim( (string) $p ), $paths ) ) as $p ) {
+			if ( '' === $p ) {
+				continue;
+			}
+			if ( $handled( $p ) ) {
+				++$already;
+			} elseif ( count( $todo ) < $cap ) {
+				$todo[] = $p;
+			} else {
+				++$left;
+			}
+		}
+		return [ 'todo' => $todo, 'already' => $already, 'left' => $left ];
 	}
 
 	/** One bulk pass handles this many selected items; the rest are reported, never silently dropped (1.4.159). */
@@ -443,18 +478,20 @@ class WPS_Admin {
 
 	/**
 	 * The query arguments that carry a bulk pass's outcome back to the findings list. Pure of side
-	 * effects. `left` is how many selected items the pass did not reach.
+	 * effects. `left` is how many selected items the pass did not reach, `already` how many had been
+	 * dealt with by an earlier pass.
 	 *
 	 * @return array<string, int|string>
 	 */
-	public static function bulk_result_args( string $op, int $done, int $denied, int $failed, int $selected ): array {
+	public static function bulk_result_args( string $op, int $done, int $denied, int $failed, int $left, int $already = 0 ): array {
 		return [
 			'page'     => 'wp-perf-shield',
 			'wps_bulk' => $op,
 			'done'     => $done,
 			'denied'   => $denied,
 			'failed'   => $failed,
-			'left'     => max( 0, $selected - self::BULK_CAP ),
+			'left'     => max( 0, $left ),
+			'already'  => max( 0, $already ),
 		];
 	}
 
