@@ -1,5 +1,20 @@
 # WP Perf Shield changelog
 
+## 1.4.159
+
+**Third whole-codebase review** (PR 36, review-only, `main` at 1.4.158 against an empty base). Seven inline findings, each checked against the code; all seven were real and are fixed, with tests that fail on 1.4.158.
+
+- **A truncated event log was forgotten at the next event (critical).** An append re-anchored the chain to whatever the table held, so rows deleted from the end of the log were erased from the anchor the moment another event was written, and `verify_chain()` then called the shortened log intact. An append now compares the anchor with the table first: an anchored head row that is gone, or fewer signed rows than anchored, is written as a signed `chain_break_detected` event (critical, risk 200), counted in the anchor (`breaks`, `last_break`), mirrored to the file log, and shown on the Events tab. An append whose anchor write was lost still heals quietly, and a prune brings the anchored count down with the table.
+- **A failed quarantine could delete the only copy (critical).** When the manifest could not be written after the move, the rollback treated "the original path exists" as "put back" and removed the store entry; if something had re-dropped a file at that path in the meantime, the quarantined original was lost. Put back now means this code moved it back; an occupied path keeps the store entry and logs `quarantine_rollback_failed`.
+- **The conditional option delete matched case-insensitively.** `option_value = %s` follows the table's collation, so a value rewritten with only its letter case changed still matched and was deleted unsnapshotted. It is `BINARY` now.
+- **A string that looks serialized never matched.** WordPress stores such a string serialized a second time; `as_stored()` returned it unchanged, so the delete missed on all three retries. It mirrors `maybe_serialize()` now.
+- **The bulk action stopped at 200 without saying so.** One pass handles `WPS_Admin::BULK_CAP` items; the result line now says how many selected items were not reached and to run the action again.
+- **The `.git` guard claimed a refusal it might not have.** `protect_repo_dir()` returned `.git` even when neither guard file could be written. It returns `protected` or `unprotected`; the event and the admin notice say which, and the notice is an error when the folder is readable.
+- **Predictable temporary names in two tests** (`test-account-guard.php`, `test-surface-block.php`) are `tempnam()` files now.
+
+### Tests
+- Extended: `test-removal-pipeline.php` (44: re-dropped original, BINARY compare, letter-case rewrite, serialized-looking string), `test-event-log.php` (truncation recorded, lost anchor write healed, prune count), `test-dev-files.php` (17: unprotected repository).
+
 ## 1.4.158
 
 **The operator's own repositories as a verification source.** The operator writes plugins and themes, publishes them at github.com/menj and uploads them to the site, and the scanner kept reporting them: a hidden folder, a self-concealing pattern, "cannot be checksum-verified". The first-party list (1.4.11) silenced one report and left the rest, because the scanner had no baseline for code that was never on wordpress.org. Now it has one.

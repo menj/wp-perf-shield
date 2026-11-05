@@ -59,6 +59,12 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.159
+
+**The event log now notices when its newest records are deleted.** Before, deleting the last rows of the log left no trace once the next event was written. Now the next event is preceded by a signed `chain_break_detected` entry, the Events tab shows "n breaks in the chain recorded", and the file log keeps a copy the database cannot edit. If you see one, someone with database access removed records: treat it as evidence and look at who has that access. A site that has never had records removed shows nothing new.
+
+**Smaller fixes.** A quarantine that fails after moving a file no longer discards the quarantined copy when something has re-created the original; the "Quarantine selected" and "Mark selected Safe" buttons tell you when more than 200 items were selected and some were not reached (press the button again); the admin warning about an uploaded `.git` folder turns red when the plugin could not write the files that tell Apache to refuse it. Nothing to configure.
+
 ## 1.4.158
 
 **Your own plugins and themes stop being reported, once you say which GitHub account is yours.** Settings, "Your GitHub accounts": enter `menj` (one account per line). From the next scan, every installed plugin or theme whose folder name is a repository under that account is compared with the repository file by file. Files identical to the repository are your own work and nothing is reported about them, so the hidden-folder, self-concealing and "cannot be checksum-verified" findings on your own code go away. The Events tab records what was left out and why (`own_code_verified`).
