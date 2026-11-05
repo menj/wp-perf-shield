@@ -236,13 +236,16 @@ class WPS_Quarantine {
 		if ( ! self::write_manifest( $dest, $manifest ) ) {
 			// 1.4.155: without its manifest the entry cannot be restored. Put the item back and fail.
 			self::denormalise( $payload ); // undo the .wpsq renames before putting it back
-			$back     = $is_dir ? $payload : $payload . '/' . basename( $real );
-			$restored = ! $move || file_exists( $real ) || ( file_exists( $back ) && self::move( $back, $real ) );
+			$back = $is_dir ? $payload : $payload . '/' . basename( $real );
+			// 1.4.159: "put back" means this code moved it back. A path that is occupied again was
+			// refilled by something else in the meantime (a dropper re-dropping, for one), and that
+			// is not the item in the store; deleting the store entry then would lose the only copy.
+			$restored = ! $move || ( ! file_exists( $real ) && file_exists( $back ) && self::move( $back, $real ) );
 			if ( $restored ) {
 				self::rrmdir( $dest );
 			} else {
 				// The item could not be put back: keep it in the store rather than lose the only copy.
-				self::log( 'quarantine_rollback_failed', $real . ' kept at ' . $dest );
+				self::log( 'quarantine_rollback_failed', $real . ( $move && file_exists( $real ) ? ' was recreated by something else; the moved original is' : '' ) . ' kept at ' . $dest );
 			}
 			self::log( 'quarantine_manifest_failed', $real );
 			return null;
@@ -409,7 +412,9 @@ class WPS_Quarantine {
 	private static function delete_option_if_unchanged( string $name, string $stored ): bool {
 		$db = ( isset( $GLOBALS['wpdb'] ) && is_object( $GLOBALS['wpdb'] ) ) ? $GLOBALS['wpdb'] : null;
 		if ( $db && method_exists( $db, 'query' ) && method_exists( $db, 'prepare' ) && isset( $db->options ) ) {
-			$rows = $db->query( $db->prepare( "DELETE FROM {$db->options} WHERE option_name = %s AND option_value = %s", $name, $stored ) );
+			// 1.4.159: BINARY, because the usual collation compares case-insensitively and a value
+			// rewritten with only its letter case changed would still match and be deleted unsnapshotted.
+			$rows = $db->query( $db->prepare( "DELETE FROM {$db->options} WHERE option_name = %s AND option_value = BINARY %s", $name, $stored ) );
 			if ( function_exists( 'wp_cache_delete' ) ) {
 				wp_cache_delete( $name, 'options' );
 				wp_cache_delete( 'alloptions', 'options' );
@@ -435,9 +440,46 @@ class WPS_Quarantine {
 		return false;
 	}
 
-	/** A value the way the options table stores it: serialized when structured, a string otherwise. */
+	/**
+	 * A value the way the options table stores it: what maybe_serialize() writes. Structured values
+	 * are serialized, and so is a string that already looks serialized (WordPress serializes it
+	 * again so it reads back as the string it was); anything else is stored as given. 1.4.159: the
+	 * second case was missed, so the conditional delete of such an option never matched.
+	 *
+	 * @param mixed $value
+	 */
 	private static function as_stored( $value ): string {
-		return ( is_array( $value ) || is_object( $value ) ) ? serialize( $value ) : (string) $value;
+		if ( function_exists( 'maybe_serialize' ) ) {
+			return (string) maybe_serialize( $value );
+		}
+		if ( is_array( $value ) || is_object( $value ) ) {
+			return serialize( $value );
+		}
+		$s = (string) $value;
+		return self::looks_serialized( $s ) ? serialize( $s ) : $s;
+	}
+
+	/** The shape test WordPress's is_serialized() applies, for when it is not loaded. */
+	private static function looks_serialized( string $s ): bool {
+		$s = trim( $s );
+		if ( 'N;' === $s ) {
+			return true;
+		}
+		if ( strlen( $s ) < 4 || ':' !== $s[1] ) {
+			return false;
+		}
+		switch ( $s[0] ) {
+			case 's':
+				return '"' === substr( $s, -2, 1 ) && ';' === substr( $s, -1 );
+			case 'a':
+			case 'O':
+				return '}' === substr( $s, -1 );
+			case 'b':
+			case 'i':
+			case 'd':
+				return 1 === preg_match( '/^[bid]:[0-9.E+-]+;$/', $s );
+		}
+		return false;
 	}
 
 	private static function option_autoload( string $name ): string {
