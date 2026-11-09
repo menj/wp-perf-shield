@@ -48,7 +48,16 @@ function delete_transient( $k ) { unset( $GLOBALS['trans'][ $k ] ); return true;
 function apply_filters( $t, $v ) { return $v; }
 function add_action() {}
 function add_filter() {}
-function wp_json_encode( $v ) { return json_encode( $v ); }
+function wp_json_encode( $v ) {
+	// 1.4.159: a manifest write that fails after something re-dropped the original (the harness plays the dropper).
+	if ( isset( $GLOBALS['redrop'] ) && is_array( $v ) && ( $v['original_path'] ?? '' ) === $GLOBALS['redrop'] ) {
+		file_put_contents( $GLOBALS['redrop'], "<?php // re-dropped while the first copy was being quarantined\n" );
+		return false;
+	}
+	return json_encode( $v );
+}
+/** What the options table holds: maybe_serialize()'s output, which re-serializes a string that already looks serialized. */
+function wp_stored( $v ) { if ( is_array( $v ) || is_object( $v ) ) { return serialize( $v ); } $s = (string) $v; return preg_match( '/^(?:N;|[aO]:.*\}|s:.*";|[bid]:[0-9.E+-]+;)$/s', $s ) ? serialize( $s ) : $s; }
 function wp_get_current_user() { return (object) [ 'ID' => 1, 'user_login' => 'operator' ]; }
 function sanitize_title( $s ) { return strtolower( trim( preg_replace( '/[^a-z0-9_-]+/i', '-', $s ), '-' ) ); }
 function sanitize_key( $s ) { return preg_replace( '/[^a-z0-9_-]/', '', strtolower( (string) $s ) ); }
@@ -72,12 +81,13 @@ class FakeDB {
 	public function get_var( $sql ) { return 'yes'; }
 	public function query( $sql ) {
 		$this->deletes[] = $sql;
-		if ( preg_match( "/^DELETE FROM wp_options WHERE option_name = '([^']+)' AND option_value = '((?:[^'\\\\]|\\\\.)*)'/", $sql, $m ) ) {
+		if ( preg_match( "/^DELETE FROM wp_options WHERE option_name = '([^']+)' AND option_value = (BINARY )?'((?:[^'\\\\]|\\\\.)*)'/", $sql, $m ) ) {
 			$name = $m[1];
 			if ( ! array_key_exists( $name, $GLOBALS['opts'] ) ) { return 0; }
 			$v      = $GLOBALS['opts'][ $name ];
-			$stored = ( is_array( $v ) || is_object( $v ) ) ? serialize( $v ) : (string) $v;
-			if ( $stored !== stripslashes( $m[2] ) ) { return 0; }
+			$stored = wp_stored( $v );
+			// Without BINARY the real table compares case-insensitively; the stand-in does the same.
+			if ( '' === $m[2] ? strcasecmp( $stored, stripslashes( $m[3] ) ) !== 0 : $stored !== stripslashes( $m[3] ) ) { return 0; }
 			unset( $GLOBALS['opts'][ $name ] );
 			return 1;
 		}
@@ -188,6 +198,28 @@ $qid = WPS_Quarantine::quarantine_and_remove_option( 'calm_state', [ 'type' => '
 $man = null !== $qid ? json_decode( (string) @file_get_contents( WPS_Quarantine::store_dir() . '/' . $qid . '/manifest.json' ), true ) : null;
 check( 'an option nobody rewrote is snapshotted once', null !== $qid && is_array( $man ) && empty( $man['supersedes'] ) );
 check( 'the removal is a conditional DELETE on the snapshotted value, not a blind delete_option()', 3 === count( array_filter( $wpdb->deletes, static fn( $q ) => false !== strpos( $q, 'AND option_value =' ) ) ), json_encode( $wpdb->deletes ) );
+// 1.4.159: the comparison is byte-wise, and a string that looks serialized is matched the way WordPress stores it.
+check( 'the conditional DELETE compares bytes, not collation', 3 === count( array_filter( $wpdb->deletes, static fn( $q ) => false !== strpos( $q, 'option_value = BINARY ' ) ) ), json_encode( $wpdb->deletes ) );
+$GLOBALS['opts']['case_state'] = 'Loader';
+$GLOBALS['mutate'] = [ 'name' => 'case_state', 'after' => 1, 'to' => 'loader' ]; // only the letter case changes after the first read
+$qid = WPS_Quarantine::quarantine_and_remove_option( 'case_state', [ 'type' => 'db_option', 'reason' => 'x' ] );
+unset( $GLOBALS['mutate'] );
+$man = null !== $qid ? json_decode( (string) @file_get_contents( WPS_Quarantine::store_dir() . '/' . $qid . '/manifest.json' ), true ) : null;
+check( 'a value rewritten in letter case only is snapshotted again before it is removed', null !== $qid && is_array( $man ) && serialize( 'loader' ) === base64_decode( (string) $man['option_value_b64'] ) && ! empty( $man['supersedes'] ), json_encode( [ $qid, $man ] ) );
+$GLOBALS['opts']['looks_serialized'] = 'a:0:{}';
+$qid = WPS_Quarantine::quarantine_and_remove_option( 'looks_serialized', [ 'type' => 'db_option', 'reason' => 'x' ] );
+check( 'a string that looks serialized is removed on the first pass, matched as WordPress stores it', null !== $qid && ! array_key_exists( 'looks_serialized', $GLOBALS['opts'] ) && false !== strpos( end( $wpdb->deletes ), addslashes( serialize( 'a:0:{}' ) ) ), json_encode( end( $wpdb->deletes ) ) );
+
+// ---- 5d. a manifest that cannot be written after something re-dropped the original (1.4.159).
+put( $P . '/evil-seven/x.php' );
+$before = array_map( 'basename', glob( WPS_Quarantine::store_dir() . '/*', GLOB_ONLYDIR ) ?: [] );
+$GLOBALS['redrop'] = $P . '/evil-seven/x.php';
+$id = WPS_Quarantine::quarantine( $P . '/evil-seven/x.php', [ 'type' => 'manual removal', 'reason' => 'x' ] );
+unset( $GLOBALS['redrop'] );
+$after = array_map( 'basename', glob( WPS_Quarantine::store_dir() . '/*', GLOB_ONLYDIR ) ?: [] );
+$new   = array_values( array_diff( $after, $before ) );
+check( 'the quarantine fails, the re-dropped file is left where it is', null === $id && is_file( $P . '/evil-seven/x.php' ) && false !== strpos( (string) file_get_contents( $P . '/evil-seven/x.php' ), 're-dropped' ) );
+check( 'and the moved original is kept in the store rather than deleted as if it had been put back', 1 === count( $new ) && [] !== glob( WPS_Quarantine::store_dir() . '/' . $new[0] . '/payload/*' ), json_encode( [ $new, $after ] ) );
 
 // ---- 6. the on-disk policy ban: both tiers go through the policy.
 $GLOBALS['opts']['wps_opts'] = [ 'policy_ban_enabled' => '1' ];
@@ -239,6 +271,18 @@ check( 'the tab opens and closes its divs evenly', substr_count( $html, '<div' )
 
 // ---- 8. the bulk handler is the operator's action, judged like "Delete this path".
 require dirname( __DIR__ ) . '/includes/class-admin.php';
+// ---- 6b. the bulk pass (1.4.159): paths an earlier pass dealt with do not use the cap, so a repeat reaches the rest.
+$all  = array_map( static fn( $i ) => '/p/' . $i . '.php', range( 1, 7 ) );
+$gone = [ '/p/1.php' => true, '/p/2.php' => true, '/p/3.php' => true ]; // quarantined by the first pass
+$plan = WPS_Admin::bulk_plan( $all, static fn( $p ) => isset( $gone[ $p ] ), 2 );
+check( 'handled paths are counted, not acted on, and do not use the cap', [ '/p/4.php', '/p/5.php' ] === $plan['todo'] && 3 === $plan['already'] && 2 === $plan['left'], json_encode( $plan ) );
+$plan = WPS_Admin::bulk_plan( $all, static fn( $p ) => false, 200 );
+check( 'with the cap not reached everything is acted on', 7 === count( $plan['todo'] ) && 0 === $plan['left'] && 0 === $plan['already'] );
+$plan = WPS_Admin::bulk_plan( [ '/a', '/a', ' /a ', '', '/b' ], static fn( $p ) => false, 200 );
+check( 'duplicates and blanks are dropped', [ '/a', '/b' ] === $plan['todo'], json_encode( $plan ) );
+$args = WPS_Admin::bulk_result_args( 'delete', 5, 1, 0, 3, 4 );
+check( 'the result carries what was not reached and what was already done', 3 === $args['left'] && 4 === $args['already'] && 5 === $args['done'] && 'delete' === $args['wps_bulk'], json_encode( $args ) );
+
 check( 'the bulk handler no longer carries a per-finding lookup', ! method_exists( 'WPS_Admin', 'finding_type_for' ) );
 check( 'the operator bulk type is refused on a Safe target with the Safe rule', 'operator_safe' === WPS_Remediation_Policy::decide( [ 'delete_path' => $P . '/kept/kept.php', 'type' => 'operator bulk removal' ] )['rule'] );
 put( $P . '/bulk/x.php' );

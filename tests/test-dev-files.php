@@ -50,7 +50,7 @@ check( 'the repository itself is not deleted', is_dir( $git . '/.git' ) );
 
 // ---- a repository inside the plugin folder is refused to the web
 check( 'no repository, nothing to protect', '' === WPS_Utils::protect_repo_dir( $dir ) && ! file_exists( $dir . '/.git' ) );
-check( 'a repository is reported', '.git' === WPS_Utils::protect_repo_dir( $git ) );
+check( 'a repository is reported as protected once both guard files are written', 'protected' === WPS_Utils::protect_repo_dir( $git ) );
 $ht = (string) @file_get_contents( $git . '/.git/.htaccess' );
 check( '.git/.htaccess denies for both Apache generations', false !== strpos( $ht, 'Require all denied' ) && false !== strpos( $ht, 'Deny from all' ), $ht );
 check( '.git/index.php is silent', "<?php\n// Silence is golden.\n" === (string) @file_get_contents( $git . '/.git/index.php' ) );
@@ -68,7 +68,13 @@ $target = sys_get_temp_dir() . '/wps-dev-target-' . bin2hex( random_bytes( 4 ) )
 file_put_contents( $target, 'precious' );
 symlink( $target, $linked . '/.git/.htaccess' );
 WPS_Utils::protect_repo_dir( $linked );
-check( 'a link where the .htaccess should be is not written through', 'precious' === file_get_contents( $target ) && is_link( $linked . '/.git/.htaccess' ) );
+check( 'a link where the .htaccess should be is not written through, and the repository is reported unprotected', 'unprotected' === WPS_Utils::protect_repo_dir( $linked ) && 'precious' === file_get_contents( $target ) && is_link( $linked . '/.git/.htaccess' ) );
+$blocked = plugin_copy( true );
+mkdir( $blocked . '/.git/.htaccess' ); // a folder in the way: the guard file cannot be written
+check( 'a deny file that cannot be written makes the repository unprotected, never "refused"', 'unprotected' === WPS_Utils::protect_repo_dir( $blocked ) );
+$noindex = plugin_copy( true );
+mkdir( $noindex . '/.git/index.php' ); // only the silent index cannot be written
+check( 'the deny file in place is protected even when the silent index.php cannot be written', 'protected' === WPS_Utils::protect_repo_dir( $noindex ) && false !== strpos( (string) file_get_contents( $noindex . '/.git/.htaccess' ), 'Require all denied' ) );
 check( 'the other protection file is still written beside it', is_file( $linked . '/.git/index.php' ) );
 $gitfile = plugin_copy( false );
 file_put_contents( $gitfile . '/.git', "gitdir: ../elsewhere/.git\n" );
@@ -84,7 +90,7 @@ WPS_Utils::remove_dev_files( $dir2 );
 check( 'a link inside tests/ is removed without touching what it points to', ! is_dir( $dir2 . '/tests' ) && is_file( $outside . '/keep.txt' ) );
 check( 'a missing or bogus directory is a no-op', [] === WPS_Utils::remove_dev_files( $dir . '/nope' ) && [] === WPS_Utils::remove_dev_files( '' ) );
 
-foreach ( [ $dir, $git, $dir2, $outside, $gitfile, $linked, $target ] as $d ) {
+foreach ( [ $dir, $git, $dir2, $outside, $gitfile, $linked, $target, $blocked, $noindex ] as $d ) {
 	exec( 'rm -rf ' . escapeshellarg( $d ) );
 }
 echo $fail ? "\n$fail FAILED\n" : "\nAll passed\n";

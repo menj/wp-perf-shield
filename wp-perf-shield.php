@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP Perf Shield
  * Description: Blocks wp-perf-analytics traffic-hijacking malware and all renamed variants. Includes real-time activation blocking, scheduled scanning, and one-click remediation.
- * Version: 1.4.158
+ * Version: 1.4.159
  * Author: MENJ
  * Author URI: https://github.com/menj
  * License: GPL-2.0+
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WPS_VERSION', '1.4.158' );
+define( 'WPS_VERSION', '1.4.159' );
 define( 'WPS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPS_URL', plugin_dir_url( __FILE__ ) );
 define( 'WPS_LOG_DIR', WPS_DIR . 'logs' );
@@ -313,8 +313,14 @@ function wps_tidy_install(): void {
 	if ( method_exists( 'WPS_Utils', 'remove_dev_files' ) ) {
 		WPS_Utils::remove_dev_files( WPS_DIR );
 	}
-	if ( method_exists( 'WPS_Utils', 'protect_repo_dir' ) && '' !== WPS_Utils::protect_repo_dir( WPS_DIR ) && class_exists( 'WPS_Logger' ) ) {
-		WPS_Logger::log_event( 'repo_dir_in_plugin', 'a git repository (.git) was uploaded inside the plugin folder; web access to it is refused on Apache, and it should be removed' );
+	if ( method_exists( 'WPS_Utils', 'protect_repo_dir' ) && class_exists( 'WPS_Logger' ) ) {
+		$repo = WPS_Utils::protect_repo_dir( WPS_DIR );
+		if ( 'protected' === $repo ) {
+			WPS_Logger::log_event( 'repo_dir_in_plugin', 'a git repository (.git) was uploaded inside the plugin folder; web access to it is refused on Apache, and it should be removed' );
+		} elseif ( 'unprotected' === $repo ) {
+			// 1.4.159: say so when the guard files could not be written, rather than claiming a refusal that is not there.
+			WPS_Logger::log_event( 'repo_dir_in_plugin', 'a git repository (.git) was uploaded inside the plugin folder and its guard files could NOT be written, so it is readable from the web now; remove the folder' );
+		}
 	}
 }
 

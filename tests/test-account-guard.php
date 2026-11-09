@@ -192,7 +192,7 @@ WPS_Account_Guard::register_hooks();
 check( 'the REST guard is registered before the write, not after', isset( $GLOBALS['hooks']['rest_pre_insert_post'] ) && ! isset( $GLOBALS['hooks']['rest_insert_post'] ) );
 
 // ---- 7. the refusal really ends an XML-RPC request (child process, no WPS_TESTING_NO_EXIT)
-$child = sys_get_temp_dir() . '/wps-ag-exit-' . getmypid() . '.php';
+$child = (string) tempnam( sys_get_temp_dir(), 'wps-ag-exit-' ); // created exclusively by tempnam, so nothing can plant a link there first
 file_put_contents( $child, '<?php define("ABSPATH","/x/"); define("WPS_OPTION","wps_opts"); define("DAY_IN_SECONDS",86400); define("XMLRPC_REQUEST",true);'
 	. '$GLOBALS["meta"]=[]; function get_user_meta($u,$k="",$s=false){ if(""===$k){ return array_map(static fn($v)=>[serialize($v)],$GLOBALS["meta"][$u]??[]); } return $GLOBALS["meta"][$u][$k]??""; }'
 	. 'function update_user_meta($u,$k,$v){ $GLOBALS["meta"][$u][$k]=$v; return true; } function delete_user_meta($u,$k){ return true; } function maybe_unserialize($v){ return @unserialize($v); }'

@@ -232,23 +232,73 @@ class WPS_Event_Log {
 		return self::$selftest_ns !== '' ? 'wps_event_chain_st_' . self::$selftest_ns : 'wps_event_chain';
 	}
 
-	/** @return array{head: string, count: int, genesis: string} */
+	/** @return array{head: string, count: int, genesis: string, breaks: int, last_break: ?array, v: int} */
 	private static function read_anchor(): array {
-		$default = [ 'head' => '', 'count' => 0, 'genesis' => '' ];
+		$default = [ 'head' => '', 'count' => 0, 'genesis' => '', 'breaks' => 0, 'last_break' => null, 'v' => 0 ];
 		$opt = function_exists( 'get_option' ) ? get_option( self::chain_option(), null ) : null;
 		if ( is_array( $opt ) && isset( $opt['head'], $opt['count'], $opt['genesis'] ) ) {
-			return [ 'head' => (string) $opt['head'], 'count' => (int) $opt['count'], 'genesis' => (string) $opt['genesis'] ];
+			return self::anchor_shape( $opt );
 		}
 		if ( self::$selftest_ns === '' ) {
 			$file = self::anchor_file();
 			if ( $file && is_file( $file ) ) {
 				$disk = json_decode( self::read_guarded( $file ), true );
 				if ( is_array( $disk ) && isset( $disk['head'], $disk['count'], $disk['genesis'] ) ) {
-					return [ 'head' => (string) $disk['head'], 'count' => (int) $disk['count'], 'genesis' => (string) $disk['genesis'] ];
+					return self::anchor_shape( $disk );
 				}
 			}
 		}
 		return $default;
+	}
+
+	/** @param array<string, mixed> $a @return array{head: string, count: int, genesis: string, breaks: int, last_break: ?array} */
+	private static function anchor_shape( array $a ): array {
+		return [
+			'head'       => (string) $a['head'],
+			'count'      => (int) $a['count'],
+			'genesis'    => (string) $a['genesis'],
+			'v'          => (int) ( $a['v'] ?? 0 ),               // 1.4.159: 2 once an append of this version wrote it; its count can be trusted
+			'breaks'     => (int) ( $a['breaks'] ?? 0 ),          // 1.4.159: truncations detected and recorded
+			'last_break' => isset( $a['last_break'] ) && is_array( $a['last_break'] ) ? $a['last_break'] : null,
+		];
+	}
+
+	/**
+	 * Does the table disagree with the anchor in a way only removed rows explain? '' when not.
+	 *
+	 * 1.4.159: an append used to re-anchor to whatever the table held, so rows deleted from the end
+	 * of the log were forgotten the moment the next event was written, and verify_chain() then
+	 * called the shortened log intact. The anchored head row being absent from the table, or the
+	 * table holding fewer chained rows than the anchor counted, is evidence of removal. The
+	 * anchored head row still present but no longer newest is not: that is an append whose anchor
+	 * write was lost, which the self-healing append was built for.
+	 *
+	 * @param array{head: string, count: int} $anchor
+	 */
+	private static function anchor_break( array $anchor, string $head ): string {
+		$db = self::db();
+		if ( ! $db || '' === $anchor['head'] ) {
+			return '';
+		}
+		$count = self::chained_row_count();
+		// An anchor written by an earlier version may carry a count a prune left behind, so its count
+		// is not evidence; one written by this version is. This also catches rows removed from the
+		// middle or the start of the log while the newest row is still there.
+		$counted = (int) ( $anchor['v'] ?? 0 ) >= 2;
+		if ( $anchor['head'] === $head ) {
+			return ( $counted && $count < (int) $anchor['count'] )
+				? 'the table holds ' . $count . ' signed events where the anchor counted ' . (int) $anchor['count'] . ': older records were removed from the log'
+				: '';
+		}
+		$present = (int) $db->get_var( $db->prepare( 'SELECT COUNT(*) FROM ' . self::table() . ' WHERE curr_hash = %s', $anchor['head'] ) );
+		if ( 0 === $present ) {
+			return 'the event the chain was anchored at (hash ' . substr( $anchor['head'], 0, 12 ) . ', ' . (int) $anchor['count'] . ' signed events then) is no longer in the table, which now ends at '
+				. ( '' === $head ? 'nothing' : 'hash ' . substr( $head, 0, 12 ) ) . ' with ' . $count . ' signed events: records were removed from the end of the log';
+		}
+		if ( $counted && $count < (int) $anchor['count'] ) {
+			return 'the table holds ' . $count . ' signed events where the anchor counted ' . (int) $anchor['count'] . ': records were removed from the log';
+		}
+		return '';
 	}
 
 	private static function write_anchor( array $anchor ): void {
@@ -352,7 +402,44 @@ class WPS_Event_Log {
 		$committed = false;
 
 		try {
-			$head                  = self::current_head();
+			$head   = self::current_head();
+			$anchor = self::read_anchor();
+
+			// 1.4.159: before this append heals the chain onto whatever the table holds, say so if
+			// the table lost rows since the anchor was written. The break is the first new link,
+			// signed like any other, and it is counted in the anchor so verify_chain() can show it.
+			$break = self::anchor_break( $anchor, $head );
+			if ( '' !== $break ) {
+				$brow = self::build_row( [
+					'event_type'  => 'chain_break_detected',
+					'action'      => 'chain_break_detected',
+					'severity'    => 'critical',
+					'risk_score'  => 200,
+					'object_type' => 'event_store',
+					'object_name' => self::table(),
+					'notes'       => substr( $break, 0, 2000 ),
+				] );
+				$brow['prev_hash']      = $head;
+				$brow['curr_hash']      = self::compute_hash( $brow, $head );
+				$brow['hmac_signature'] = hash_hmac( 'sha256', $brow['curr_hash'], self::hmac_key() );
+				if ( class_exists( 'WPS_Logger' ) && method_exists( 'WPS_Logger', 'file_event' ) ) {
+					WPS_Logger::file_event( 'chain_break_detected', $break ); // the file log is the copy the database cannot edit
+				}
+				if ( false !== $db->insert( self::table(), $brow ) ) {
+					// The break is in the table: count it and move the anchor onto it now, so that if the
+					// event insert below fails the next append does not find, and record, the same truncation.
+					$head                 = $brow['curr_hash'];
+					$anchor['head']       = $head;
+					$anchor['count']      = self::chained_row_count();
+					$anchor['v']          = 2;
+					$anchor['breaks']     = (int) $anchor['breaks'] + 1;
+					$anchor['last_break'] = [ 'at' => gmdate( 'Y-m-d H:i:s' ) . ' UTC', 'detail' => $break ];
+					self::write_anchor( $anchor );
+				}
+				// A failed break insert claims no break: the file log above holds it, and the next
+				// append will find the truncation again and retry.
+			}
+
 			$row['prev_hash']      = $head;
 			$row['curr_hash']      = self::compute_hash( $row, $head );
 			$row['hmac_signature'] = hash_hmac( 'sha256', $row['curr_hash'], self::hmac_key() );
@@ -366,9 +453,9 @@ class WPS_Event_Log {
 			// Advance the cached anchor. Safe under the lock; count is taken
 			// from the table so a formerly-lost increment cannot leave it
 			// permanently adrift.
-			$anchor          = self::read_anchor();
 			$anchor['head']  = $row['curr_hash'];
 			$anchor['count'] = self::chained_row_count();
+			$anchor['v']     = 2;
 			self::write_anchor( $anchor );
 
 			// Prune inside the lock too: it re-anchors genesis and deletes the
@@ -646,17 +733,21 @@ class WPS_Event_Log {
 	 *
 	 * @return array{status:string, verified:int, pre_chain:int, total:int,
 	 *               first_bad_id:?int, head_matches_anchor:bool,
-	 *               truncation_suspected:bool}
+	 *               truncation_suspected:bool, breaks:int, last_break:?array}
 	 */
 	public static function verify_chain(): array {
 		$out = [
 			'status' => 'empty', 'verified' => 0, 'pre_chain' => 0, 'total' => 0,
 			'first_bad_id' => null, 'head_matches_anchor' => true, 'truncation_suspected' => false,
+			'breaks' => 0, 'last_break' => null, // 1.4.159: truncations an append detected and recorded
 		];
 		if ( ! self::available() ) {
 			$out['status'] = 'unavailable';
 			return $out;
 		}
+		$anchor             = self::read_anchor();
+		$out['breaks']      = (int) $anchor['breaks'];
+		$out['last_break']  = $anchor['last_break'];
 		$db   = self::db();
 		$rows = $db->get_results( 'SELECT * FROM ' . self::table() . ' ORDER BY id ASC', 'ARRAY_A' );
 		if ( ! is_array( $rows ) || ! $rows ) {
@@ -664,7 +755,6 @@ class WPS_Event_Log {
 		}
 		$out['total'] = count( $rows );
 
-		$anchor = self::read_anchor();
 		$key    = self::hmac_key();
 		$prev   = $anchor['genesis'];
 		$last   = '';
@@ -729,6 +819,7 @@ class WPS_Event_Log {
 		$db->query( $db->prepare( 'DELETE FROM ' . self::table() . ' WHERE id < %d', (int) $edge ) );
 		$anchor            = self::read_anchor();
 		$anchor['genesis'] = is_array( $oldest ) ? (string) $oldest['prev_hash'] : '';
+		$anchor['count']   = self::chained_row_count(); // 1.4.159: the rows this prune removed are not missing rows
 		self::write_anchor( $anchor );
 	}
 

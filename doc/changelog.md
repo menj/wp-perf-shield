@@ -1,5 +1,24 @@
 # WP Perf Shield changelog
 
+## 1.4.159
+
+**Third whole-codebase review** (PR 36, review-only, `main` at 1.4.158 against an empty base). Seven inline findings, each checked against the code; all seven were real and are fixed, with tests that fail on 1.4.158.
+
+- **A truncated event log was forgotten at the next event (critical).** An append re-anchored the chain to whatever the table held, so rows deleted from the end of the log were erased from the anchor the moment another event was written, and `verify_chain()` then called the shortened log intact. An append now compares the anchor with the table first: an anchored head row that is gone, or fewer signed rows than anchored, is written as a signed `chain_break_detected` event (critical, risk 200), counted in the anchor (`breaks`, `last_break`), mirrored to the file log, and shown on the Events tab. An append whose anchor write was lost still heals quietly, and a prune brings the anchored count down with the table.
+- **A failed quarantine could delete the only copy (critical).** When the manifest could not be written after the move, the rollback treated "the original path exists" as "put back" and removed the store entry; if something had re-dropped a file at that path in the meantime, the quarantined original was lost. Put back now means this code moved it back; an occupied path keeps the store entry and logs `quarantine_rollback_failed`.
+- **The conditional option delete matched case-insensitively.** `option_value = %s` follows the table's collation, so a value rewritten with only its letter case changed still matched and was deleted unsnapshotted. It is `BINARY` now.
+- **A string that looks serialized never matched.** WordPress stores such a string serialized a second time; `as_stored()` returned it unchanged, so the delete missed on all three retries. It mirrors `maybe_serialize()` now.
+- **The bulk action stopped at 200 without saying so.** One pass handles `WPS_Admin::BULK_CAP` items; the result line now says how many selected items were not reached and to run the action again.
+- **The `.git` guard claimed a refusal it might not have.** `protect_repo_dir()` returned `.git` even when neither guard file could be written. It returns `protected` or `unprotected`; the event and the admin notice say which, and the notice is an error when the folder is readable.
+- **Predictable temporary names in two tests** (`test-account-guard.php`, `test-surface-block.php`) are `tempnam()` files now.
+
+### Review of this release (CodeAnt on PR 37)
+- A temporary file in `test-surface-block.php` was removed and its name reused between runs; it is created once and removed at the end.
+- **Seven nitpicks, all taken.** The bulk pass skips paths an earlier pass already dealt with without using up its 200, so repeating it reaches the rest (`WPS_Admin::bulk_plan()`; the result line says how many were already done). Rows removed from the middle or start of the log while the newest row is still there are recorded as a break too, using the anchor's count; an anchor written by an earlier version (its count may be stale after a prune) is upgraded quietly instead (`v` = 2 marks a trustworthy count). If the break row is written and the event row after it fails, the anchor already moves onto the break, so the same truncation is not recorded twice; if the break row cannot be written, no break is claimed in the anchor and the file log holds the record. `protect_repo_dir()` reports `protected` when the deny file is in place, whether or not the silent `index.php` could be written. The event-log test's fake database now holds real rows (inserts, deletes by id, the offset query, `get_results`), so the prune and `verify_chain()` assertions exercise pruning and hashing instead of reading a counter.
+
+### Tests
+- Extended: `test-removal-pipeline.php` (48: re-dropped original, BINARY compare, letter-case rewrite, serialized-looking string, bulk plan), `test-event-log.php` (24: truncation, older-row removal, upgrade of an old anchor, break insert and event insert failing, a real prune), `test-dev-files.php` (18: unprotected repository, protected without the silent index).
+
 ## 1.4.158
 
 **The operator's own repositories as a verification source.** The operator writes plugins and themes, publishes them at github.com/menj and uploads them to the site, and the scanner kept reporting them: a hidden folder, a self-concealing pattern, "cannot be checksum-verified". The first-party list (1.4.11) silenced one report and left the rest, because the scanner had no baseline for code that was never on wordpress.org. Now it has one.

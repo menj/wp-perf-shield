@@ -124,15 +124,13 @@ $code = '<?php define("ABSPATH","/x/"); define("WPS_OPTION","wps_opts"); define(
 	. 'function apply_filters($t,$v){return $v;} function get_transient(){return false;} function set_transient(){return true;} function is_user_logged_in(){return false;} function status_header($c){ echo "STATUS:$c;"; }'
 	. 'class WP_Error{} require ' . var_export( dirname( __DIR__ ) . '/includes/class-login-guard.php', true ) . ';'
 	. '$_SERVER["REMOTE_ADDR"]="198.51.100.7"; WPS_Login_Guard::refuse_blocked_surfaces(); echo "NOT REFUSED";';
-$tmpf = sys_get_temp_dir() . '/wps-sb-' . getmypid() . '.php';
+$tmpf = (string) tempnam( sys_get_temp_dir(), 'wps-sb-' ); // created exclusively by tempnam, so nothing can plant a link there first
 file_put_contents( $tmpf, $code );
 $out = (string) shell_exec( 'php ' . escapeshellarg( $tmpf ) . ' 2>&1' );
-@unlink( $tmpf );
 check( 'an XML-RPC request from a blocked address gets a 403 and the request ends', false !== strpos( $out, 'STATUS:403;' ) && false === strpos( $out, 'NOT REFUSED' ), $out );
 $code = str_replace( '$_SERVER["REMOTE_ADDR"]="198.51.100.7";', '$_SERVER["REMOTE_ADDR"]="203.0.113.9";', $code );
 file_put_contents( $tmpf, $code );
 $out = (string) shell_exec( 'php ' . escapeshellarg( $tmpf ) . ' 2>&1' );
-@unlink( $tmpf );
 check( 'an XML-RPC request from any other address is not refused', false !== strpos( $out, 'NOT REFUSED' ) && false === strpos( $out, 'STATUS:403' ), $out );
 
 // ---- 1.4.152: a signed-in administrator session on a blocked address is still refused.
@@ -149,7 +147,6 @@ $code = '<?php define("ABSPATH","/x/"); define("WPS_OPTION","wps_opts");'
 	. '$f = WPS_Login_Guard::refuse_blocked_upload( [ "name" => "a.jpg", "error" => 0 ] ); echo empty( $f["error"] ) ? ";UPLOAD-OK" : ";UPLOAD-REFUSED";';
 file_put_contents( $tmpf, $code );
 $out = (string) shell_exec( 'php ' . escapeshellarg( $tmpf ) . ' 2>&1' );
-@unlink( $tmpf );
 check( 'a signed-in administrator session on a blocked address is still refused REST writes and uploads', 'REFUSED;UPLOAD-REFUSED' === trim( $out ), $out );
 $code = str_replace( '"wps_opts"===$k ? []', '"wps_opts"===$k ? ["login_ip_allowlist"=>"198.51.100.7"]', $code );
 file_put_contents( $tmpf, $code );

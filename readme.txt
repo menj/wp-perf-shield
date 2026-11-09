@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.158
+Stable tag: 1.4.159
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.159 =
+Fixes from a third whole-codebase review. A truncated event log is now recorded as a signed break instead of being forgotten at the next event; a quarantine whose manifest cannot be written no longer deletes the only copy when the original path was refilled; the conditional option delete compares bytes and matches strings that look serialized; the bulk action says how many selected items it did not reach; a .git folder whose guard files cannot be written is reported as readable.
 
 = 1.4.158 =
 Your own plugins and themes are verified against your GitHub repositories: name your account under Settings, and every installed plugin or theme whose folder is a repository of yours is compared with it file by file (by git blob id). Files identical to the repository are never reported; a changed or added file still is. Themes are verifiable for the first time. Private repositories take an optional token.
@@ -710,6 +713,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.159 =
+Nothing to configure. The Events tab may show a "break in the chain" line if records were removed from the log; that is the new detection working.
 
 = 1.4.158 =
 Enter your GitHub account under Settings, "Your GitHub accounts", and findings on your own published code stop. Nothing else to configure.
