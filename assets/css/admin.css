@@ -1585,8 +1585,6 @@ th.wps-ev-ip { text-align: right; }
 
 /* Manual spam-report control in the blocked-IP table (1.4.27) */
 .wps-inline-form { display: inline; margin: 0; }
-.wps-report-btn { color: var(--wps-bad); font-size: 12px; }
-.wps-report-btn:hover { text-decoration: underline; }
 
 /* ------------------------------------------------------------------ *
  * Settings form (1.4.28)

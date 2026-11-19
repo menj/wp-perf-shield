@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.159
+Stable tag: 1.4.160
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -42,7 +42,7 @@ It combines real-time plugin activation blocking, hourly malware scanning, behav
 * Enqueues admin CSS and JavaScript from assets/css/admin.css and assets/js/admin.js.
 * Auto-deletes confirmed malware artifacts by default, with a Settings tab control for detect-only operation.
 * Auto-blocks IP addresses that attempt to upload known malware ZIPs or renamed ZIPs containing known malicious folders, hashes, or payload markers.
-* Protects sign-in against brute-force and low-and-slow subnet rotation: per-address and per-range thresholds with escalating repeat-offender blocks, permanent bans for attempts on non-existent accounts, a manual permanent range ban, XML-RPC multicall stripping, and optional Akismet reputation input and reporting — all without ever making the sign-in path wait on the network.
+* Protects sign-in against brute-force and low-and-slow subnet rotation: per-address and per-range thresholds with escalating repeat-offender blocks, permanent bans for attempts on non-existent accounts, a manual permanent range ban, XML-RPC multicall stripping, and optional Akismet reputation input (a question only; nothing is reported to Akismet) — all without ever making the sign-in path wait on the network.
 * Detects file-operation web shells by capability cluster - browsing, writing, deleting and uploading driven by raw request parameters - which contain no eval or shell_exec and so evade execution-focused scanning.
 * Detects php.ini and .user.ini files that re-enable shell execution or remove open_basedir and disable_functions restrictions.
 * Detects cloaked injectors that serve content to visitors while hiding from logged-in administrators and from search-engine, SEO and page-speed crawlers.
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.160 =
+Stops sending blocked addresses to Akismet's submit-spam, at Akismet's request. The comment-check question that weighs block duration is unchanged.
 
 = 1.4.159 =
 Fixes from a third whole-codebase review. A truncated event log is now recorded as a signed break instead of being forgotten at the next event; a quarantine whose manifest cannot be written no longer deletes the only copy when the original path was refilled; the conditional option delete compares bytes and matches strings that look serialized; the bulk action says how many selected items it did not reach; a .git folder whose guard files cannot be written is reported as readable.
@@ -713,6 +716,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.160 =
+Nothing is reported to Akismet any more. The two reporting settings and the Report buttons are removed; block durations still use Akismet's comment-check.
 
 = 1.4.159 =
 Nothing to configure. The Events tab may show a "break in the chain" line if records were removed from the log; that is the new detection working.

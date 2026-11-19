@@ -5293,23 +5293,21 @@ class WPS_Scanner {
 	 * to keep it out of search results.
 	 */
 	/**
-	 * 1.4.85: report the address that put malware on the server, when the
-	 * plugin actually recorded one.
+	 * 1.4.85: attribute malware to the address that put it on the server, when
+	 * the plugin actually recorded one. Since 1.4.160 nothing is sent to Akismet.
 	 *
-	 * A file on disk has no IP address, and Akismet does not accept file
-	 * hashes, so "report this virus to Akismet" cannot be done literally. What
-	 * CAN be done honestly is attribution: the plugin already records the
+	 * A file on disk has no IP address. What CAN be done honestly is
+	 * attribution: the plugin already records the
 	 * address of anyone caught uploading, and already keeps a hostile-IP list
 	 * with timestamps. When malware turns up whose file was written inside the
-	 * window an address was active, that address put it there, and reporting it
-	 * is grounded in the plugin's own evidence rather than a guess.
+	 * window an address was active, that address put it there, which is
+	 * grounded in the plugin's own evidence rather than a guess.
 	 *
 	 * Deliberately conservative on two points. It only considers addresses the
 	 * plugin ALREADY blocked for hostile behaviour - it does not go looking for
 	 * candidates - and it requires the file's modification time to fall inside
 	 * that address's recorded activity window plus a short margin. Without a
-	 * timing match nothing is reported, because a wrong report is not a small
-	 * error: it degrades that address for every site that queries Akismet.
+	 * timing match nothing is blocked.
 	 *
 	 * @param string $malware_path Absolute path of the confirmed malicious file.
 	 * @param string $what         Short description for the submission note.
@@ -5366,9 +5364,6 @@ class WPS_Scanner {
 	}
 
 	private static function report_malware_source( string $malware_path, string $what ): void {
-		if ( ! class_exists( 'WPS_Login_Guard' ) || ! method_exists( 'WPS_Login_Guard', 'report_attacker_ip' ) ) {
-			return;
-		}
 		if ( ! class_exists( 'WPS_Blocker' ) || ! method_exists( 'WPS_Blocker', 'get_blocked_ips' ) ) {
 			return;
 		}
@@ -5395,17 +5390,11 @@ class WPS_Scanner {
 			if ( $mtime < $from || $mtime > $to ) {
 				continue;
 			}
-			WPS_Login_Guard::report_attacker_ip(
-				$ip,
-				'was blocked on this site while ' . $what . ' was written to disk (' . gmdate( 'Y-m-d H:i', (int) $mtime ) . ' UTC)'
-			);
-
 			/*
-			 * 1.4.108: block the address as well as reporting it.
+			 * 1.4.108: block the address attributed here.
 			 *
-			 * Reporting to Akismet protects other sites. It does nothing for
-			 * this one, and the address attributed here is the address that
-			 * was active while malware was written to disk, which is a
+			 * It is the address that was active while malware was written to
+			 * disk, which is a
 			 * stronger basis for blocking than the failed sign-ins that
 			 * ordinarily earn a block. Whatever hold it already had may well
 			 * have expired by the time a scan found the file.
@@ -5428,7 +5417,7 @@ class WPS_Scanner {
 			if ( class_exists( 'WPS_Logger' ) ) {
 				WPS_Logger::log_event(
 					'malware_source_attributed',
-					$ip . ' active when ' . self::display_path( $malware_path ) . ' was written; reported to Akismet',
+					$ip . ' active when ' . self::display_path( $malware_path ) . ' was written',
 					$ip
 				);
 			}
@@ -12895,32 +12884,6 @@ class WPS_Scanner {
 				}
 			}
 
-			// 1.4.85: report the authors of confirmed spam comments to Akismet.
-			//
-			// This is the one place in the whole plugin where Akismet is being
-			// used for precisely what it is: these are comment-spam senders,
-			// their address is recorded against the comment, and submit-spam is
-			// the endpoint built to receive exactly this. Everything else the
-			// plugin reports - failed sign-ins, malware uploads, post injection
-			// - is an extension of Akismet's purpose; this is its centre, and
-			// it was going unused while the plugin sat on confirmed spam with
-			// the sender's address attached to it.
-			//
-			// The shared reporter still applies every safeguard: never a
-			// CDN/proxy/private address, never more than once per address, and
-			// nothing at all when reporting is switched off. Capped, because a
-			// spam wave can leave hundreds of comments and Akismet needs the
-			// senders, not a flood of duplicates.
-			if ( $cips && class_exists( 'WPS_Login_Guard' ) && method_exists( 'WPS_Login_Guard', 'report_attacker_ip' ) ) {
-				$sent = 0;
-				foreach ( array_keys( $cips ) as $cip ) {
-					if ( $sent >= 25 ) {
-						break;
-					}
-					WPS_Login_Guard::report_attacker_ip( (string) $cip, 'author of injected gambling/SEO-spam comment on this site' );
-					++$sent;
-				}
-			}
 			if ( $chits ) {
 				$found[] = [
 					'severity' => 'high',

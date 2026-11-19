@@ -1,5 +1,14 @@
 # WP Perf Shield changelog
 
+## 1.4.160
+
+**Akismet asked us to stop sending `submit-spam` for blocked addresses, and it was right.** `submit-spam` is for a specific piece of content Akismet previously checked and missed, sent back with the original fields. Every report here was a sentence the plugin generated about a block ("Automated WordPress login attack blocked by WP Perf Shield: ..."), so Akismet could not learn from it and has begun ignoring them.
+- **Removed:** `submit_spam`, `report_attacker_ip`, `report_ip_manually`, `report_single_attacker`, `maybe_report_spam`, `spam_reporting_enabled`, `report_all_blocks_enabled` and the `spam_reports` counter. Their callers are gone: failed sign-ins, the rotating-range members, malware uploads, external post writes, the account-takeover guard, the injected-comment sweep, and the Report and Report-all buttons in Diagnostics.
+- **Settings:** "Report attackers to Akismet" and "Report every blocked address" are removed. The text of "Ask Akismet about attackers" now says nothing is sent.
+- **Unchanged:** the `comment-check` call that can lengthen a block, and every block itself. The malware-source attribution still blocks the address for 30 days; it no longer reports it.
+
+Tests: `test-login-guard.php` now asserts nothing is posted to Akismet and that the reporting methods are gone; the submit-spam reply test in `test-review-1-4-155.php` is removed.
+
 ## 1.4.159
 
 **Third whole-codebase review** (PR 36, review-only, `main` at 1.4.158 against an empty base). Seven inline findings, each checked against the code; all seven were real and are fixed, with tests that fail on 1.4.158.

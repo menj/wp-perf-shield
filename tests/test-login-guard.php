@@ -5,8 +5,8 @@
  * Run from the command line only:  php tests/test-login-guard.php
  *
  * A bot username from an address that looks like shared infrastructure gets ordinary counting, not
- * a permanent block; Akismet reporting works with enrichment switched off; a failed report is not
- * remembered as sent; and a first range block holds for its base duration, not the ladder's.
+ * a permanent block; nothing is sent to Akismet's submit-spam (1.4.160); and a first range block holds for
+ * its base duration, not the ladder's.
  */
 if ( PHP_SAPI !== 'cli' ) {
 	exit( 1 );
@@ -87,29 +87,21 @@ $after = WPS_Login_Guard::stats();
 check( 'manual permanent blocks count in the total as well as the permanent counter', (int) $after['today_blocks'] === $before + 2 && (int) $after['today_permanent_blocks'] >= 3, json_encode( [ $before, $after['today_blocks'] ?? null, $after['today_permanent_blocks'] ?? null ] ) );
 check( 'the automatic permanent block earlier was counted once, not twice', 1 === $before, (string) $before );
 
-// ---- 2. reporting is governed by its own setting, not by enrichment.
-$GLOBALS['opts']['wps_opts'] = [ 'akismet_enrichment' => '0', 'login_report_spam' => '1' ];
+// ---- 2. nothing is sent to Akismet's submit-spam (Akismet asked for this, 1.4.160).
 Akismet::$posts = 0;
-WPS_Login_Guard::report_attacker_ip( '203.0.113.50', 'account-takeover post-write pattern' );
-check( 'with enrichment off and reporting on, the address is still reported', 1 === Akismet::$posts && 2 === events( 'akismet_spam_reported' ), json_encode( [ Akismet::$posts, WPS_Logger::$events ] ) );
-check( 'enrichment itself is off', ! WPS_Login_Guard::akismet_available() && WPS_Login_Guard::akismet_configured() );
-check( 'the operator\'s manual report is sent with enrichment off', 'reported' === WPS_Login_Guard::report_ip_manually( '203.0.113.52' ) && 2 === Akismet::$posts, (string) Akismet::$posts );
+$_SERVER['REMOTE_ADDR'] = '198.51.100.77';
+WPS_Login_Guard::on_failed( 'root' );
+WPS_Login_Guard::block_permanently( '203.0.113.70', 'operator ban' );
+check( 'a permanent block sends nothing to Akismet', 0 === Akismet::$posts, (string) Akismet::$posts );
+foreach ( [ 'report_attacker_ip', 'report_ip_manually', 'submit_spam', 'maybe_report_spam', 'report_single_attacker', 'spam_reporting_enabled', 'report_all_blocks_enabled' ] as $gone ) {
+	check( "the reporting method $gone no longer exists", ! method_exists( 'WPS_Login_Guard', $gone ) );
+}
+$GLOBALS['opts']['wps_opts'] = [ 'akismet_enrichment' => '0' ];
+check( 'enrichment itself can still be switched off while the key stays configured', ! WPS_Login_Guard::akismet_available() && WPS_Login_Guard::akismet_configured() );
 check( 'the settings line says enrichment is off, not that the key is missing', false !== strpos( WPS_Login_Guard::akismet_status(), 'enrichment switched off' ), WPS_Login_Guard::akismet_status() );
-$GLOBALS['opts']['wps_opts'] = [ 'akismet_enrichment' => '0', 'login_report_spam' => '0' ];
-WPS_Login_Guard::report_attacker_ip( '203.0.113.51', 'x' );
-check( 'with reporting off nothing is sent', 2 === Akismet::$posts );
-
-// ---- 3. a failed submission is not remembered as sent.
-$GLOBALS['opts']['wps_opts'] = [ 'login_report_spam' => '1' ];
-Akismet::$ok    = false;
-Akismet::$posts = 0;
-WPS_Login_Guard::report_attacker_ip( '203.0.113.60', 'first try' );
-check( 'the failed attempt is logged as failed', 1 === Akismet::$posts && false !== strpos( end( WPS_Logger::$events )[1], 'submission failed' ), json_encode( end( WPS_Logger::$events ) ) );
-Akismet::$ok = true;
-WPS_Login_Guard::report_attacker_ip( '203.0.113.60', 'second try' );
-check( 'the next attempt for the same address is sent, because the failure was not remembered', 2 === Akismet::$posts, (string) Akismet::$posts );
-WPS_Login_Guard::report_attacker_ip( '203.0.113.60', 'third try' );
-check( 'a successful report is remembered and not sent twice', 2 === Akismet::$posts );
+$GLOBALS['opts']['wps_opts'] = [];
+$src = (string) file_get_contents( dirname( __DIR__ ) . '/includes/class-login-guard.php' );
+check( 'the login guard source holds no submit-spam endpoint', false === strpos( $src, 'submit-spam' ) );
 
 // ---- 4. a first range block holds for its base duration; returns climb the ladder.
 $m = new ReflectionMethod( 'WPS_Login_Guard', 'block_network' );

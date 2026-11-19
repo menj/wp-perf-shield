@@ -205,11 +205,6 @@ final class WPS_Post_Guard {
 					]
 				);
 			}
-			// Conclusive abuse: contribute the address to Akismet (safeguarded,
-			// once per address).
-			if ( '' !== $ip && class_exists( 'WPS_Login_Guard' ) && method_exists( 'WPS_Login_Guard', 'report_attacker_ip' ) ) {
-				WPS_Login_Guard::report_attacker_ip( $ip, 'external post-write injection (' . $vector . ')' );
-			}
 		}
 
 		self::maybe_escalate( $ip );

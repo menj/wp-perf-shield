@@ -255,10 +255,6 @@ class WPS_Admin_Diagnostics {
 						<td class="wps-muted">&nbsp;&nbsp;Permanently blocked from signing in</td>
 						<td class="wps-right wps-mono<?php echo ( $wps_lg_stats['permanent_total'] ?? 0 ) ? ' wps-strong' : ''; ?>"><?php echo (int) ( $wps_lg_stats['permanent_total'] ?? 0 ); ?></td>
 					</tr>
-					<tr>
-						<td class="wps-muted">&nbsp;&nbsp;Reported to Akismet as spam (today / 7 days)</td>
-						<td class="wps-right wps-mono"><?php echo (int) ( $wps_lg_stats['today_spam_reports'] ?? 0 ); ?> / <?php echo (int) ( $wps_lg_stats['week_spam_reports'] ?? 0 ); ?></td>
-					</tr>
 					<?php
 					// Which rule decided a block. Range-rotation blocks are few
 					// because each one covers a whole /24; the single-address
@@ -1172,7 +1168,7 @@ class WPS_Admin_Diagnostics {
 		echo '<label class="wps-sm">Permanently block an address or range <input type="text" name="target" placeholder="e.g. 173.239.218.0/24 or 203.0.113.5" class="wps-mono wps-sm regular-text"></label> ';
 		echo '<button type="submit" class="button">Permanently block</button>';
 		echo '</form>';
-		echo '<p class="wps-sm wps-muted wps-p">A single address is also reported to Akismet. A whole range is not &ndash; that would flag its innocent neighbours &ndash; but the individual addresses that attack from a blocked range are reported as they are caught. A range is refused if it holds your own address or is broader than a /16.</p>';
+		echo '<p class="wps-sm wps-muted wps-p">A range is refused if it holds your own address or is broader than a /16.</p>';
 
 		if ( empty( $list ) ) {
 			echo '<p class="wps-muted wps-p0">Nothing on the permanent denylist yet.</p></div>';
@@ -1204,75 +1200,15 @@ class WPS_Admin_Diagnostics {
 	}
 
 	private static function render_blocked_ips_table( array $blocked_ips ): void {
-		$rep = isset( $_GET['wps_report'] ) ? sanitize_key( (string) wp_unslash( $_GET['wps_report'] ) ) : '';
-		if ( '' !== $rep ) {
-			$map = [
-				'reported' => [ 'good', 'Address reported to Akismet as spam. Thank you for contributing to the shared database.' ],
-				'already'  => [ 'muted', 'That address had already been reported.' ],
-				'no-key'   => [ 'warn', 'Akismet is not active or has no key, so the address could not be reported.' ],
-				'failed'   => [ 'warn', 'The report could not be sent - the address was not valid or Akismet did not accept it.' ],
-			];
-			if ( isset( $map[ $rep ] ) ) {
-				echo '<div class="wps-status wps-' . esc_attr( $map[ $rep ][0] ) . ' wps-mb6">' . esc_html( $map[ $rep ][1] ) . '</div>';
-			}
-		}
-		// 1.4.92: bulk report result.
-		if ( isset( $_GET['wps_bulk_report'] ) ) {
-			$b_sent    = isset( $_GET['sent'] ) ? (int) $_GET['sent'] : 0;
-			$b_skipped = isset( $_GET['skipped'] ) ? (int) $_GET['skipped'] : 0;
-			$b_already = isset( $_GET['already'] ) ? (int) $_GET['already'] : 0;
-			$b_failed  = isset( $_GET['failed'] ) ? (int) $_GET['failed'] : 0;
-			if ( -1 === $b_failed ) {
-				echo '<div class="wps-status wps-warn wps-mb6">Akismet is not active or has no key, so nothing was reported.</div>';
-			} else {
-				$parts = [ $b_sent . ' address' . ( 1 === $b_sent ? '' : 'es' ) . ' reported' ];
-				if ( $b_already ) {
-					$parts[] = $b_already . ' already reported';
-				}
-				if ( $b_skipped ) {
-					$parts[] = $b_skipped . ' skipped as ranges or shared infrastructure (Akismet takes single addresses, and reporting a CDN or proxy would flag every site behind it)';
-				}
-				if ( $b_failed > 0 ) {
-					$parts[] = $b_failed . ' not accepted';
-				}
-				echo '<div class="wps-status wps-' . ( $b_sent > 0 ? 'good' : 'muted' ) . ' wps-mb6">' . esc_html( implode( '; ', $parts ) ) . '.</div>';
-			}
-		}
-
 		if ( empty( $blocked_ips ) ) {
 			echo '<p class="wps-muted wps-p0">No IPs are currently auto-blocked.</p>';
 			return;
 		}
 
-		// 1.4.92: report everything at once.
-		//
-		// This list routinely runs past forty rows. A button per row is fine
-		// for one address and unusable for forty, which is how it was shipped.
-		// Nothing about the submission rules changes here - each address still
-		// goes through the same guarded path, ranges are still never submitted,
-		// and anything already reported is skipped.
-		$pending = 0;
-		foreach ( $blocked_ips as $bip => $bdetail ) {
-			if ( false !== strpos( (string) $bip, '/' ) ) {
-				continue;
-			}
-			if ( ! get_transient( 'wps_reported_' . md5( (string) $bip ) ) ) {
-				++$pending;
-			}
-		}
-		if ( $pending > 0 ) {
-			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="wps-inline-form wps-mb6">';
-			echo '<input type="hidden" name="action" value="wps_report_all_ips">';
-			echo wp_nonce_field( 'wps_report_all_ips', '_wpnonce', true, false );
-			echo '<button type="submit" class="button button-primary">Report all ' . (int) $pending . ' unreported address' . ( 1 === $pending ? '' : 'es' ) . ' to Akismet</button>';
-			echo ' <span class="wps-sm wps-muted">Ranges are never submitted, and anything already reported is skipped. Up to 50 per click.</span>';
-			echo '</form>';
-		}
-
 		echo '<div class="wps-scroll-x">';
 		echo '<table class="wps-sm wps-table wps-minw-760">';
 		echo '<thead><tr>';
-		foreach ( [ 'IP', 'Attempts', 'Last file', 'Last pathway', 'User', 'Last seen', 'Expires', 'Report' ] as $header ) {
+		foreach ( [ 'IP', 'Attempts', 'Last file', 'Last pathway', 'User', 'Last seen', 'Expires' ] as $header ) {
 			echo '<th>' . esc_html( $header ) . '</th>';
 		}
 		echo '</tr></thead><tbody>';
@@ -1291,22 +1227,6 @@ class WPS_Admin_Diagnostics {
 					: esc_html( gmdate( 'Y-m-d H:i:s', (int) $detail['expires'] ) . ' UTC' ) )
 				: 'manual';
 			echo '<td class="wps-nowrap">' . $expires_disp . '</td>';
-
-			// 1.4.27: manual report control, one per row.
-			$already = (bool) get_transient( 'wps_reported_' . md5( (string) $ip ) );
-			echo '<td class="wps-nowrap">';
-			if ( $already ) {
-				echo '<span class="wps-xs wps-muted">reported</span>';
-			} else {
-				echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="wps-inline-form">';
-				echo '<input type="hidden" name="action" value="wps_report_ip">';
-				echo '<input type="hidden" name="ip" value="' . esc_attr( (string) $ip ) . '">';
-				echo '<input type="hidden" name="user" value="' . esc_attr( (string) ( $detail['last_user'] ?? '' ) ) . '">';
-				echo wp_nonce_field( 'wps_report_ip', '_wpnonce', true, false );
-				echo '<button type="submit" class="button-link wps-report-btn">Report spam</button>';
-				echo '</form>';
-			}
-			echo '</td>';
 			echo '</tr>';
 		}
 

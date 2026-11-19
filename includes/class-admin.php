@@ -28,10 +28,8 @@ class WPS_Admin {
 		add_action( 'admin_menu', [ self::class, 'add_menu' ] );
 		add_action( 'admin_enqueue_scripts', [ self::class, 'enqueue_assets' ] );
 		add_action( 'admin_post_wps_verify_akismet', [ __CLASS__, 'handle_verify_akismet' ] );
-		add_action( 'admin_post_wps_report_ip', [ __CLASS__, 'handle_report_ip' ] );
 		add_action( 'admin_post_wps_unblock_permanent', [ __CLASS__, 'handle_unblock_permanent' ] );
 		add_action( 'admin_post_wps_permanent_block', [ __CLASS__, 'handle_permanent_block' ] );
-		add_action( 'admin_post_wps_report_all_ips', [ __CLASS__, 'handle_report_all_ips' ] );
 		add_action( 'admin_post_wps_bulk_findings', [ __CLASS__, 'handle_bulk_findings' ] );
 		add_action( 'admin_post_wps_mark_safe', [ __CLASS__, 'handle_mark_safe' ] );
 		add_action( 'admin_post_wps_revoke_safe', [ __CLASS__, 'handle_revoke_safe' ] );
@@ -182,8 +180,6 @@ class WPS_Admin {
 			'login_block_surfaces' => isset( $_POST['login_block_surfaces'] ) ? '1' : '0',
 			// 1.4.156: a forged Jetpack/WordPress.com agent on a failed XML-RPC sign-in is a permanent block.
 			'login_forged_agent_block' => isset( $_POST['login_forged_agent_block'] ) ? '1' : '0',
-			'login_report_spam'    => isset( $_POST['login_report_spam'] ) ? '1' : '0',
-			'akismet_report_all_blocks' => isset( $_POST['akismet_report_all_blocks'] ) ? '1' : '0',
 			// 1.4.60: was read by akismet_available() but never written, so the
 			// opt-out it implied was unreachable.
 			'akismet_enrichment'   => isset( $_POST['akismet_enrichment'] ) ? '1' : '0',
@@ -288,12 +284,6 @@ class WPS_Admin {
 	 * now rather than after the next attack.
 	 */
 	/**
-	 * 1.4.27: operator-initiated spam report for a blocked address.
-	 *
-	 * The trusted path: a human picked this row. It still checks a nonce and
-	 * the manage_options capability, and reports each address at most once.
-	 */
-	/**
 	 * 1.4.31: remove an address from the permanent sign-in denylist.
 	 *
 	 * A permanent block with no way to undo it is a trap, not a feature -
@@ -346,24 +336,6 @@ class WPS_Admin {
 	 * Scope is taken from the operator, not inferred. A file decision protects
 	 * that file; a directory decision protects what is inside it. Nothing is
 	 * broadened silently.
-	 */
-
-	/**
-	 * 1.4.92: report every unreported address in the block list at once.
-	 *
-	 * The list routinely runs to forty or more rows, each with its own button.
-	 * Asking an operator to click through that one at a time is not a feature,
-	 * it is a chore the interface should have absorbed.
-	 *
-	 * Every submission still goes through report_ip_manually(), so nothing is
-	 * relaxed by doing this in bulk: a CIDR range is rejected (Akismet takes
-	 * addresses, and submitting a range would flag its innocent neighbours), an
-	 * address already reported is skipped, and the per-address safeguards are
-	 * unchanged. Bulk here means fewer clicks, not looser rules.
-	 *
-	 * Capped per run so one click cannot become hundreds of API calls, with the
-	 * remainder reported by clicking again - a bounded action the operator can
-	 * see the end of.
 	 */
 
 	/**
@@ -495,77 +467,6 @@ class WPS_Admin {
 		];
 	}
 
-	public static function handle_report_all_ips(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( 'Insufficient permissions.' );
-		}
-		check_admin_referer( 'wps_report_all_ips' );
-
-		$sent = 0;
-		$skipped_ranges = 0;
-		$already = 0;
-		$failed = 0;
-		$cap = 50;
-		$tried = 0; // 1.4.155: the cap counts submissions attempted, not only those that succeeded
-
-		if ( class_exists( 'WPS_Blocker' ) && class_exists( 'WPS_Login_Guard' ) ) {
-			foreach ( WPS_Blocker::get_blocked_ips() as $ip => $detail ) {
-				if ( $tried >= $cap ) {
-					break;
-				}
-				$ip = (string) $ip;
-				// Ranges are never submitted. This is the same rule the
-				// automatic path enforces and it is not negotiable in bulk.
-				if ( false !== strpos( $ip, '/' ) ) {
-					++$skipped_ranges;
-					continue;
-				}
-				// The per-row button exempts the infrastructure guard on the
-				// grounds that a human clicking one address has looked at it.
-				// That reasoning does not survive bulk: nobody reviews forty
-				// rows individually, so the guard is reapplied here. Reporting
-				// a CDN edge would degrade it for every site behind it, and
-				// "the operator clicked something" is not informed consent to
-				// that when the click covered the whole list.
-				if ( method_exists( 'WPS_Login_Guard', 'ip_looks_like_infrastructure' )
-					&& WPS_Login_Guard::ip_looks_like_infrastructure( $ip )
-				) {
-					++$skipped_ranges;
-					continue;
-				}
-				$user = is_array( $detail ) ? (string) ( $detail['last_user'] ?? '' ) : '';
-				$res  = WPS_Login_Guard::report_ip_manually( $ip, $user );
-				if ( 'already' !== $res ) {
-					++$tried;
-				}
-				if ( 'reported' === $res ) {
-					++$sent;
-				} elseif ( 'already' === $res ) {
-					++$already;
-				} elseif ( 'no-key' === $res ) {
-					$failed = -1; // Akismet unavailable; stop rather than loop
-					break;
-				} else {
-					++$failed;
-				}
-			}
-		}
-
-		wp_safe_redirect( add_query_arg(
-			[
-				'page' => 'wp-perf-shield',
-				'tab'  => 'diagnostics',
-				'wps_bulk_report' => 1,
-				'sent' => (int) $sent,
-				'skipped' => (int) $skipped_ranges,
-				'already' => (int) $already,
-				'failed'  => (int) $failed,
-			],
-			admin_url( 'tools.php' )
-		) );
-		exit;
-	}
-
 	public static function handle_mark_safe(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( 'Insufficient permissions.' );
@@ -626,15 +527,11 @@ class WPS_Admin {
 		$result = 'invalid';
 		if ( class_exists( 'WPS_Login_Guard' ) && '' !== $target ) {
 			if ( false !== strpos( $target, '/' ) ) {
-				// A whole range. Cannot be reported to Akismet (per-address
-				// model); its attacking members are reported when the guard
-				// blocks them.
+				// A whole range.
 				$result = WPS_Login_Guard::block_permanently_cidr( $target, 'permanent range ban from Diagnostics', wp_get_current_user()->user_login ?? '' );
 			} elseif ( false !== filter_var( $target, FILTER_VALIDATE_IP ) ) {
 				if ( WPS_Login_Guard::block_permanently( $target, 'permanent ban from Diagnostics', wp_get_current_user()->user_login ?? '' ) ) {
 					$result = 'blocked';
-					// Trusted manual path: report the single address to Akismet.
-					WPS_Login_Guard::report_ip_manually( $target, '' );
 				} else {
 					$result = 'protected';
 				}
@@ -643,22 +540,6 @@ class WPS_Admin {
 		wp_safe_redirect(
 			add_query_arg(
 				[ 'page' => 'wp-perf-shield', 'tab' => 'diagnostics', 'wps_pban' => $result ],
-				admin_url( 'tools.php' )
-			)
-		);
-		exit;
-	}
-
-	public static function handle_report_ip(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( 'Insufficient permissions.' );
-		}
-		check_admin_referer( 'wps_report_ip' );		$ip   = isset( $_POST['ip'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['ip'] ) ) : '';
-		$user = isset( $_POST['user'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['user'] ) ) : '';
-		$result = class_exists( 'WPS_Login_Guard' ) ? WPS_Login_Guard::report_ip_manually( $ip, $user ) : 'failed';
-		wp_safe_redirect(
-			add_query_arg(
-				[ 'page' => 'wp-perf-shield', 'tab' => 'diagnostics', 'wps_report' => $result ],
 				admin_url( 'tools.php' )
 			)
 		);
@@ -950,7 +831,7 @@ class WPS_Admin {
 			'unattributed_plugin_found'   => 'Plugin appeared with no install recorded',
 			'plugin_reinstalled_repeatedly' => 'Plugin installed repeatedly',
 			'policy_install_blocked' => 'Banned plugin install refused',
-			'malware_source_attributed'   => 'Malware source attributed and reported',
+			'malware_source_attributed'   => 'Malware source attributed',
 			'malware_source_blocked' => 'Malware source address blocked',
 			'c2_request_blocked' => 'Outbound request to malware host blocked',
 			'c2_host_blocked' => 'Malware host blocked',
