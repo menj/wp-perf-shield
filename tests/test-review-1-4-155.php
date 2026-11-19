@@ -86,13 +86,6 @@ check( 'an ordinary request with harmless cookies passes', false === $r );
 $m = WPS_Post_Guard::remove_xmlrpc_post_writing_methods( [ 'wp.newPage' => 1, 'wp.editPage' => 1, 'wp.deletePage' => 1, 'wp.getPage' => 1, 'wp.newPost' => 1 ] );
 check( 'the page-writing XML-RPC methods are removed with the post ones', [ 'wp.getPage' ] === array_keys( $m ), json_encode( array_keys( $m ) ) );
 
-// ---- Akismet's answer decides success
-$sub = new ReflectionMethod( 'WPS_Login_Guard', 'submit_spam' );
-$sub->setAccessible( true );
-check( 'a thank-you reply is a successful submission', true === $sub->invoke( null, '203.0.113.5', 'x', 'note' ) );
-Akismet::$reply = [ [], 'Invalid API key.' ];
-check( 'any other reply is a failure, so the address is retried later', false === $sub->invoke( null, '203.0.113.5', 'x', 'note' ) );
-
 // ---- yesterday's counters are not today's
 $GLOBALS['opts']['wps_login_stats'] = [ 'day' => gmdate( 'Y-m-d', time() - DAY_IN_SECONDS ), 'blocks' => 7, 'attempts' => 9, 'history' => [] ];
 $st = WPS_Login_Guard::stats();

@@ -433,9 +433,6 @@ final class WPS_Account_Guard {
 		// on its own, and the account is actively being used against its
 		// owner right now - waiting for a tenth hit is waiting too long.
 		WPS_Blocker::record_ip_block( $ip, $reason, 7 * DAY_IN_SECONDS, [ 'source' => 'account-guard', 'scope' => 'address' ] );
-		if ( class_exists( 'WPS_Login_Guard' ) && method_exists( 'WPS_Login_Guard', 'report_attacker_ip' ) ) {
-			WPS_Login_Guard::report_attacker_ip( $ip, 'account-takeover post-write pattern' );
-		}
 	}
 
 	/**

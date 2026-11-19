@@ -206,37 +206,13 @@ class WPS_Admin_Settings {
 							</td>
 						</tr>
 						<tr>
-							<th><label for="login_report_spam">Report attackers to Akismet</label></th>
-							<td>
-								<label class="wps-toggle-row">
-									<input type="checkbox" id="login_report_spam" name="login_report_spam" value="1" <?php checked( ( $settings['login_report_spam'] ?? '1' ) !== '0' ); ?>>
-									<span>
-										<strong>Report confirmed attacking addresses back to Akismet as spam</strong><br>
-										<span class="description">When an address is blocked on conclusive evidence &ndash; many different usernames, a repeat offender, or a bot-only username &ndash; report it to Akismet so every site using Akismet benefits. <strong>On by default.</strong> This contributes to a shared database, so an address you report is flagged for every site using Akismet: the plugin therefore reports only addresses your own site has already proven to be attacking, never one blocked on a single mistyped password, and each address only once. Automatic reporting also stands down when the blocked address falls in a known CDN or proxy range (such as Cloudflare), since behind a proxy that address may not be the real attacker &ndash; you can still report those by hand from the blocked-addresses list in Diagnostics, where a human has looked first. Requires an active Akismet key.</span>
-									</span>
-								</label>
-							</td>
-						</tr>
-						<tr>
-							<th><label for="akismet_report_all_blocks">Report every blocked address</label></th>
-							<td>
-								<label class="wps-toggle-row">
-									<input type="checkbox" id="akismet_report_all_blocks" name="akismet_report_all_blocks" value="1" <?php checked( ( $settings['akismet_report_all_blocks'] ?? '1' ) !== '0' ); ?>>
-									<span>
-										<strong>Report every blocked address, not only the conclusive ones</strong><br>
-										<span class="description">Extends the setting above so that <em>any</em> address the login guard blocks is reported &ndash; including a first-offence block on a single username, the case otherwise held back as a possible mistyped password &ndash; and so that when a rotating range is blocked, the individual addresses that actually attacked from it are reported (never the whole range, which would flag innocent neighbours). <strong>On by default, at the operator's instruction.</strong> Be aware this is more aggressive: a wrongly-blocked address is then flagged for every site using Akismet. The two safeguards above still hold &ndash; a CDN or proxy address is never auto-reported, and each address is reported at most once. Turn this off to report only addresses proven to be attacking. Requires "Report attackers to Akismet" above to be on.</span>
-									</span>
-								</label>
-							</td>
-						</tr>
-						<tr>
 							<th><label for="akismet_enrichment">Ask Akismet about attackers</label></th>
 							<td>
 								<label class="wps-toggle-row">
 									<input type="checkbox" id="akismet_enrichment" name="akismet_enrichment" value="1" <?php checked( ( $settings['akismet_enrichment'] ?? '1' ) !== '0' ); ?>>
 									<span>
 										<strong>Consult Akismet when deciding how long to block an address</strong><br>
-										<span class="description">The opposite direction to the setting above: this asks Akismet whether an address is already known for abuse, and lengthens the block if it is. Nothing about your site is contributed by this &ndash; it is a question, not a report &ndash; so you can leave it on while turning reporting off, or the reverse. <strong>On by default.</strong> Your own site's evidence always sets the baseline duration; Akismet can only extend it, never shorten it. Requires an active Akismet key.</span>
+										<span class="description">Asks Akismet whether an address is already known for abuse, and lengthens the block if it is. Nothing about your site is sent to Akismet &ndash; it is a question, not a report. <strong>On by default.</strong> Your own site&rsquo;s evidence always sets the baseline; Akismet can only lengthen a block. Requires an active Akismet key.</span>
 									</span>
 								</label>
 							</td>

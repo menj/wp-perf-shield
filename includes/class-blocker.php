@@ -1909,14 +1909,6 @@ class WPS_Blocker {
         if ( ! $was_blocked ) {
             WPS_Logger::notify_admin( 'Malware upload IP auto-blocked', $ip . ' attempted to upload ' . $filename . "\n" . self::format_upload_context( $filename, $context ) );
         }
-
-        // 1.4.71: a malware upload is conclusive abuse — contribute the address
-        // to Akismet through the login guard's safeguarded reporter (never a
-        // CDN/proxy address, never a range, once per address).
-        // 1.4.155: not for a refusal on the upload route alone; that is no evidence of malware.
-        if ( 'Unsafe ZIP upload pathway' !== $reason && class_exists( 'WPS_Login_Guard' ) && method_exists( 'WPS_Login_Guard', 'report_attacker_ip' ) ) {
-            WPS_Login_Guard::report_attacker_ip( $ip, 'malware upload attempt: ' . substr( sanitize_file_name( $filename ), 0, 120 ) );
-        }
     }
 
     private static function auto_ip_block_enabled(): bool {

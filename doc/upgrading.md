@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.160
+
+**Nothing is reported to Akismet any more.** Akismet's `submit-spam` endpoint learns from a comment it previously checked and missed; this plugin sent a sentence it had written about a block, which Akismet cannot use, and Akismet has stopped accepting those reports. The settings "Report attackers to Akismet" and "Report every blocked address", the Report buttons in Diagnostics, and the "reported to Akismet" counter are removed. Saved values of the two settings are ignored. "Ask Akismet about attackers" is unchanged: it only asks whether an address is known for abuse and can lengthen a block, never shorten it. Blocking itself, including the permanent block and the 30-day block of an address active when malware was written, is unchanged.
+
 ## 1.4.159
 
 **The event log now notices when its newest records are deleted.** Before, deleting the last rows of the log left no trace once the next event was written. Now the next event is preceded by a signed `chain_break_detected` entry, the Events tab shows "n breaks in the chain recorded", and the file log keeps a copy the database cannot edit. If you see one, someone with database access removed records: treat it as evidence and look at who has that access. A site that has never had records removed shows nothing new.

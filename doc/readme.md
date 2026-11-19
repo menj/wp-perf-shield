@@ -163,7 +163,7 @@ Then close the ways back in: Users (the scanner's `check_hidden_admin_users` als
 | Escalation for repeat offenders (range) | 6 hours → 1 day → 3 days → 1 week, over a 14-day memory |
 | Manual permanent range ban | Operator can permanently deny an address or a whole subnet from **Diagnostics**; refused if it holds the operator or is broader than a /16 |
 | XML-RPC | `system.multicall` stripped by default so one request cannot carry many credential guesses, without breaking Jetpack or the mobile apps; full XML-RPC sign-in disable is a separate opt-in |
-| Akismet, when present | Adjusts **duration only** — never whether to block, so the sign-in path never waits on the network. Optionally reports blocked addresses back to Akismet (never a CDN/proxy address, never a whole range) |
+| Akismet, when present | Adjusts **duration only** — never whether to block, so the sign-in path never waits on the network. Sends nothing to Akismet's `submit-spam` (removed in 1.4.160, at Akismet's request); the only call is `comment-check`, to weigh the duration |
 
 WP Perf Shield will not lock you out:
 
@@ -206,7 +206,7 @@ Tabs follow the incident-response workflow, grouped into an action band, an obse
 - **Diagnostics**: attack attempts, hostile IPs, clearance actions, scan outcomes, daily activity, Source Trace, and operational status; the permanent sign-in denylist with a field to permanently block an address or range by hand; and the Event-chain self-test.
 - **Events**: incident summaries with cumulative risk and severity band, above the structured security event history.
 - **Logs**: read-only inspection of server access and error logs, with campaign-indicator and automated-login scans.
-- **Settings**: custom blocked slugs, the site-policy banned-plugins list, custom MD5/SHA-256 hashes, sign-in protection including XML-RPC and Akismet reporting controls, appearance, and behaviour toggles. Grouped into seven sub-tabs (Detection, Sign-in, XML-RPC & exposure, Posting & accounts, Response, Banned plugins, Appearance) inside one form with a single Save button.
+- **Settings**: custom blocked slugs, the site-policy banned-plugins list, custom MD5/SHA-256 hashes, sign-in protection including XML-RPC and Akismet duration controls, appearance, and behaviour toggles. Grouped into seven sub-tabs (Detection, Sign-in, XML-RPC & exposure, Posting & accounts, Response, Banned plugins, Appearance) inside one form with a single Save button.
 - **Docs**: the plugin's own documentation rendered inside wp-admin, so this reference, the changelog and the upgrade notes are readable without leaving the site.
 
 ## Logging
@@ -277,7 +277,7 @@ Each exits non-zero on failure. They do not replace running the plugin on a stag
 
 ## Version
 
-Current plugin version: `1.4.159`
+Current plugin version: `1.4.160`
 
 Author: [MENJ](https://github.com/menj)
 

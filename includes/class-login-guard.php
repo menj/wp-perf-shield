@@ -185,7 +185,6 @@ final class WPS_Login_Guard {
 		'permanent_blocks',
 		'network_blocks',
 		'multiuser_blocks',
-		'spam_reports',
 		'akismet_spam',
 		'akismet_clean',
 		'akismet_unavailable',
@@ -583,9 +582,6 @@ final class WPS_Login_Guard {
 			// 1.4.31: permanent rather than a cool-off. Recorded in its own
 			// store so it cannot be evicted by the rotating block cache.
 			if ( self::block_permanently( $ip, $reason, $username ) ) {
-				// Still reported to Akismet - a bot username is conclusive
-				// evidence and always was.
-				self::maybe_report_spam( $ip, $username, self::distinct_bad_usernames( $ip ), 1 );
 				return;
 			}
 
@@ -606,7 +602,6 @@ final class WPS_Login_Guard {
 				self::note( 'attempts' );
 				$reason = 'failed XML-RPC sign-in claiming to be ' . $vendor . ' from an address outside its network';
 				if ( self::block_permanently( $ip, $reason, $username ) ) {
-					self::maybe_report_spam( $ip, $username, self::distinct_bad_usernames( $ip ), 1 );
 					return;
 				}
 				self::block( $ip, $reason, $username );
@@ -762,22 +757,6 @@ final class WPS_Login_Guard {
 				]
 			);
 		}
-
-		// Last, after the block is recorded: contribute this address to
-		// Akismet when the evidence is conclusive.
-		//
-		// 1.4.60: this comment previously said "if the operator opted in",
-		// which contradicted the implementation - `akismet_enrichment` defaults
-		// to '1', so reporting is ON unless the operator turns it off. The
-		// default-enabled behaviour is intentional: every install contributes
-		// to the shared spam corpus out of the box, which is what makes the
-		// corpus worth consulting. The comment was wrong, not the code, and
-		// `readme.txt` has described it correctly throughout.
-		//
-		// Opt-OUT lives in Settings. Reporting failures are contained inside
-		// maybe_report_spam() so an unreachable Akismet cannot break the block
-		// that has already been recorded above.
-		self::maybe_report_spam( $ip, $username, $multiuser, $offence );
 	}
 
 	/**
@@ -868,17 +847,8 @@ final class WPS_Login_Guard {
 	/**
 	 * Whether Akismet may be CONSULTED to weigh a block duration.
 	 *
-	 * Distinct from `login_report_spam`, which governs whether confirmed
-	 * attackers are REPORTED to Akismet. The two are different data flows and
-	 * an operator may reasonably want one without the other: reporting sends
-	 * attacker data outward, enrichment only asks a question about an address.
-	 * Both default to enabled.
-	 *
-	 * 1.4.60: this docblock previously read "there is nothing to switch on",
-	 * directly above a line reading a switch - and that switch, `akismet_enrichment`,
-	 * had no settings control and no save handler, so it could never be set to
-	 * '0'. The code implied an operator control that did not exist. The control
-	 * is now real; the comment now matches it.
+	 * Only a comment-check question about an address. Nothing is sent to
+	 * Akismet's missed-spam endpoint (removed in 1.4.160). On by default.
 	 */
 	public static function akismet_available(): bool {
 		$s = get_option( WPS_OPTION, [] );
@@ -889,8 +859,7 @@ final class WPS_Login_Guard {
 	}
 
 	/**
-	 * Akismet is installed with a key, regardless of the enrichment setting (1.4.153). Reporting
-	 * has its own setting (`login_report_spam`) and must not be switched off by the enrichment one.
+	 * Akismet is installed with a key, regardless of the enrichment setting (1.4.153).
 	 */
 	public static function akismet_configured(): bool {
 		if ( ! class_exists( 'Akismet' ) || ! method_exists( 'Akismet', 'comment_check' ) ) {
@@ -1135,172 +1104,17 @@ final class WPS_Login_Guard {
 	}
 
 	// ---------------------------------------------------------------
-	//  Reporting confirmed attackers back to Akismet
+	//  Shared infrastructure guard
 	// ---------------------------------------------------------------
 
 	/**
-	 * 1.4.26: report a confirmed-bad address to Akismet's submit-spam.
+	 * 1.4.27: refuse to treat the client address as an attacker when it looks
+	 * like shared infrastructure.
 	 *
-	 * Everything Akismet learns is shared across every site that queries it,
-	 * so this contributes to a global corpus - which is the good version, and
-	 * also why it is dangerous. A wrongly-reported address has its reputation
-	 * degraded everywhere, and submit-ham only walks that back slowly. So this
-	 * fires ONLY on conclusive local evidence, never on an Akismet verdict,
-	 * and never on a plain N-failures-on-one-real-username block, which is the
-	 * mistyped-password case.
-	 *
-	 * Opt-in, off by default, reported once per address, and always after the
-	 * block is already recorded - never on the login path.
-	 */
-	private static function maybe_report_spam( string $ip, string $username, int $distinct, int $offence ): void {
-		if ( ! self::spam_reporting_enabled() ) {
-			return;
-		}
-		$conclusive = $distinct >= self::MULTIUSER_FLOOR
-			|| ( $offence >= 2 )
-			|| self::is_bot_username( $username );
-		// 1.4.68: with "report every blocked address" on (the operator's
-		// instruction), a first-offence single-username block is reported too -
-		// the case this used to hold back as a possible mistyped password. The
-		// infrastructure guard and the once-per-address limit inside
-		// report_single_attacker() still apply, so this can neither feed a CDN
-		// edge into the shared corpus nor submit the same address twice.
-		if ( ! $conclusive && ! self::report_all_blocks_enabled() ) {
-			return;
-		}
-		$note = $conclusive
-			? $distinct . ' distinct usernames, block #' . $offence
-			: 'blocked after failed sign-ins, block #' . $offence;
-		self::report_single_attacker( $ip, $username, $note );
-	}
-
-	/**
-	 * Report one attacking address to Akismet's submit-spam, with the two
-	 * safeguards that protect people who are not the attacker: never report an
-	 * address that looks like shared infrastructure (a CDN edge, a proxy, a
-	 * private range), and never report the same address twice. Shared by the
-	 * automatic per-address path, the range-member path, and internal callers;
-	 * the manual operator button uses report_ip_manually(), which is trusted
-	 * and skips the infrastructure guard.
-	 */
-	private static function report_single_attacker( string $ip, string $username, string $note ): void {
-		if ( ! self::akismet_configured() ) {
-			return;
-		}
-		if ( self::ip_looks_like_infrastructure( $ip ) ) {
-			if ( class_exists( 'WPS_Logger' ) ) {
-				WPS_Logger::log_event(
-					'akismet_spam_report_skipped',
-					$ip . ' not auto-reported: address is in a known proxy or private range (report it manually if you are sure)',
-					$ip
-				);
-			}
-			return;
-		}
-		$seen = 'wps_reported_' . md5( $ip );
-		if ( get_transient( $seen ) ) {
-			return;
-		}
-
-		$ok = self::submit_spam( $ip, $username, $note );
-		if ( $ok ) {
-			// 1.4.153: remembered only when the submission went through. Marked before, a failed call
-			// kept the address from being reported for fourteen days.
-			set_transient( $seen, 1, self::OFFENDER_TTL );
-		}
-		self::note( 'spam_reports' );
-		if ( class_exists( 'WPS_Logger' ) ) {
-			WPS_Logger::log_event(
-				'akismet_spam_reported',
-				$ip . ' reported to Akismet as spam (' . $note . ')' . ( $ok ? '' : ' [submission failed]' ),
-				$ip
-			);
-		}
-	}
-
-	/**
-	 * 1.4.68: whether to report every blocked address, not only the
-	 * conclusive ones. On by default at the operator's instruction; the
-	 * infrastructure and once-per-address safeguards are not affected by it.
-	 */
-	public static function report_all_blocks_enabled(): bool {
-		$s = get_option( WPS_OPTION, [] );
-		return ! is_array( $s ) || ( $s['akismet_report_all_blocks'] ?? '1' ) !== '0';
-	}
-
-	/**
-	 * Shared entry for the OTHER guards to contribute a caught address to
-	 * Akismet: malware-upload blocking (WPS_Blocker) and external-post-write
-	 * blocking (WPS_Post_Guard). These are conclusive abuse — a malware upload
-	 * or a REST post-injection attempt is nothing like a mistyped password — so
-	 * they report whenever reporting is enabled, without needing the aggressive
-	 * "report every blocked address" toggle. Every third-party safeguard still
-	 * applies through report_single_attacker(): never a CDN/proxy/private
-	 * address, never a range (this takes one address), and once per address.
-	 */
-	public static function report_attacker_ip( string $ip, string $note ): void {
-		if ( '' === $ip || ! self::spam_reporting_enabled() ) {
-			return;
-		}
-		self::report_single_attacker( $ip, '', $note );
-	}
-
-	/**
-	 * The submit-spam call itself, shared by the automatic and manual paths.
-	 *
-	 * Uses Akismet::http_post() to the submit-spam endpoint, the same route
-	 * Akismet's own spam reporting takes. Fails into false rather than
-	 * throwing, so neither caller has to guard it.
-	 */
-	private static function submit_spam( string $ip, string $username, string $note ): bool {
-		try {
-			if ( ! class_exists( 'Akismet' )
-				|| ! method_exists( 'Akismet', 'http_post' )
-				|| ! method_exists( 'Akismet', 'build_query' )
-				|| ! method_exists( 'Akismet', 'get_api_key' ) ) {
-				return false;
-			}
-			$key = (string) Akismet::get_api_key();
-			if ( '' === $key ) {
-				return false;
-			}
-			$body = [
-				'blog'            => get_option( 'home' ),
-				'user_ip'         => $ip,
-				'user_agent'      => (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ),
-				'comment_type'    => 'wps-login-attempt',
-				'comment_author'  => self::safe( $username ),
-				'comment_content' => 'Automated WordPress login attack blocked by WP Perf Shield: ' . $note . '.',
-			];
-			$resp = Akismet::http_post( Akismet::build_query( $body ), 'submit-spam' );
-			// 1.4.155: Akismet answers a good submission with a thank-you body; anything else failed.
-			$text = is_array( $resp ) ? (string) ( $resp[1] ?? '' ) : '';
-			return false !== stripos( $text, 'thank' );
-		} catch ( \Throwable $t ) {
-			return false;
-		}
-	}
-
-	public static function spam_reporting_enabled(): bool {
-		$s = get_option( WPS_OPTION, [] );
-		// 1.4.27: on by default, at the operator's instruction and against the
-		// recommendation recorded in doc/upgrading.md. The proxy guard below
-		// is what makes that defensible for sites this plugin also ships to,
-		// where REMOTE_ADDR may be a CDN's address rather than the visitor's.
-		return ! is_array( $s ) || ( $s['login_report_spam'] ?? '1' ) !== '0';
-	}
-
-	/**
-	 * 1.4.27: refuse to auto-report when the client address looks like shared
-	 * infrastructure rather than an attacker.
-	 *
-	 * Auto-reporting on by default is only safe if it cannot feed a CDN or
-	 * proxy address into Akismet's shared corpus. On a site behind Cloudflare
-	 * without the real IP restored, REMOTE_ADDR is Cloudflare's edge, and
-	 * reporting it would flag Cloudflare as a spam source for every site that
-	 * queries Akismet. So automatic reporting stands down when the address
-	 * falls in a known proxy or private range; a human using the manual button
-	 * is trusted to have looked, and is not subject to this guard.
+	 * On a site behind Cloudflare without the real IP restored, REMOTE_ADDR is
+	 * Cloudflare's edge, and blocking it would lock out every visitor. So
+	 * blocking stands down when the address falls in a known proxy or private
+	 * range.
 	 *
 	 * The ranges are the published Cloudflare networks plus RFC1918 and
 	 * loopback/link-local, which should never appear as a real remote client.
@@ -1356,40 +1170,6 @@ final class WPS_Login_Guard {
 		return ( ord( $ip_bin[ $bytes ] ) & $mask ) === ( ord( $net_bin[ $bytes ] ) & $mask );
 	}
 
-	/**
-	 * 1.4.27: manual, operator-initiated report of an already-blocked address.
-	 *
-	 * This is the trusted path. A human has looked at the block list and
-	 * chosen this address, so the conclusive-evidence gate and the
-	 * infrastructure guard - both of which exist to make AUTOMATIC reporting
-	 * safe - do not apply. What does apply: an active key, and reporting each
-	 * address at most once.
-	 *
-	 * @return string One of 'reported', 'already', 'no-key', 'failed'.
-	 */
-	public static function report_ip_manually( string $ip, string $username = '' ): string {
-		$ip = trim( $ip );
-		if ( '' === $ip || false === filter_var( $ip, FILTER_VALIDATE_IP ) ) {
-			return 'failed';
-		}
-		if ( ! self::akismet_configured() ) { // 1.4.153: the operator's own report needs a key, not enrichment
-			return 'no-key';
-		}
-		$seen = 'wps_reported_' . md5( $ip );
-		if ( get_transient( $seen ) ) {
-			return 'already';
-		}
-		$ok = self::submit_spam( $ip, $username, 'reported manually by the operator from the block list' );
-		if ( $ok ) {
-			set_transient( $seen, 1, self::OFFENDER_TTL );
-			self::note( 'spam_reports' );
-			if ( class_exists( 'WPS_Logger' ) ) {
-				WPS_Logger::log_event( 'akismet_spam_reported', $ip . ' reported to Akismet as spam (manual)', $ip );
-			}
-			return 'reported';
-		}
-		return 'failed';
-	}
 
 	// ---------------------------------------------------------------
 	//  Permanent sign-in denylist
@@ -1865,22 +1645,6 @@ final class WPS_Login_Guard {
 					'notes'       => $reason . '; sign-in blocked for this range for ' . (int) ( $duration / 60 ) . ' minutes',
 				]
 			);
-		}
-
-		// 1.4.68: contribute the individual addresses that actually attacked
-		// from this range - never the CIDR itself, which would flag innocent
-		// neighbours in a shared range. Each member still passes the
-		// infrastructure guard and the once-per-address limit, and the count is
-		// capped so one wide sweep cannot become a flood of submissions.
-		if ( self::spam_reporting_enabled() && self::report_all_blocks_enabled() ) {
-			$reported = 0;
-			foreach ( array_keys( $distinct ) as $member ) {
-				if ( $reported >= 20 ) {
-					break;
-				}
-				self::report_single_attacker( (string) $member, $username, 'address in blocked rotating range ' . $net );
-				++$reported;
-			}
 		}
 	}
 
