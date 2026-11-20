@@ -746,3 +746,6 @@ Twice now (1.4.94, 1.4.149) a check set `auto_delete` and shipped with a test th
 
 ### No submit-spam (1.4.160)
 Decision: the plugin never calls Akismet's `submit-spam`. It is a correction channel for content Akismet already scored, and the plugin has no such content: a block has an address and a reason, not a comment Akismet missed. Sending a generated description is noise in a shared corpus and cost a site nothing until Akismet said so. If a real correction is ever wanted (a comment Akismet cleared and a moderator later marked as spam), Akismet's own plugin already sends it with the original fields; this plugin does not duplicate that. `comment-check` stays: it asks a question and sends no judgement. Digest 1.4.160: removed `WPS_Login_Guard::submit_spam` and six wrappers.
+
+### Akismet request fields (1.4.161)
+Decision: send every parameter Akismet documents that the plugin can truthfully fill, and name the ones it cannot (user_role, author email and URL, comment context, recheck, honeypot) so the omissions are a decision and not an accident. Server variables go through an allowlist, never a blocklist: HTTP headers minus credential-bearing ones, plus a short request-line list; no filesystem paths. `user_role` is never sent because "administrator" forces a false answer. Digest 1.4.161: `WPS_Login_Guard::akismet_request()` and `akismet_server_vars()`.

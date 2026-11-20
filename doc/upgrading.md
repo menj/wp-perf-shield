@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.161
+
+**Akismet gets more of the request.** When the plugin asks Akismet about an address (the "Ask Akismet about attackers" setting), the question now carries the site address, the referrer, the site language and charset, and the request's HTTP headers and request line, as Akismet's documentation asks. Cookies, Authorization headers, nonces and filesystem paths are never sent. The answer is used exactly as before: it can lengthen a block and never shorten it below your own evidence. Nothing to configure.
+
 ## 1.4.160
 
 **Nothing is reported to Akismet any more.** Akismet's `submit-spam` endpoint learns from a comment it previously checked and missed; this plugin sent a sentence it had written about a block, which Akismet cannot use, and Akismet has stopped accepting those reports. The settings "Report attackers to Akismet" and "Report every blocked address", the Report buttons in Diagnostics, and the "reported to Akismet" counter are removed. Saved values of the two settings are ignored. "Ask Akismet about attackers" is unchanged: it only asks whether an address is known for abuse and can lengthen a block, never shorten it. Blocking itself, including the permanent block and the 30-day block of an address active when malware was written, is unchanged.

@@ -1,5 +1,14 @@
 # WP Perf Shield changelog
 
+## 1.4.161
+
+**Akismet comment-check: every documented parameter the plugin can supply.** Akismet's documentation says its verdicts improve with more of the original request, and asks for the server variables too. The plugin sent six fields. It now sends `blog`, `user_ip`, `user_agent`, `referrer`, `permalink`, `comment_type`, `comment_author`, an empty `comment_content`, `blog_lang`, `blog_charset`, `is_test`, plus an allowlist of server variables: the request's HTTP headers and `REMOTE_ADDR`, `REQUEST_METHOD`, `REQUEST_URI`, `SERVER_NAME`, `SERVER_PROTOCOL`, `SERVER_PORT`, `HTTPS`, `CONTENT_TYPE` and `CONTENT_LENGTH`.
+- **Never sent:** cookies, `Authorization`, proxy authorization, the REST nonce header, `PHP_AUTH_PW`, `DOCUMENT_ROOT` and `SCRIPT_FILENAME`. An empty referrer is left out.
+- **Left out on purpose:** `user_role` (a sign-in failure has no user, and "administrator" makes Akismet answer false), `comment_author_email` and `comment_author_url` (the login form has neither), `comment_date_gmt` (optional for a live check), `comment_context`, `recheck_reason` and the honeypot fields (no parent post, no recheck, no honeypot).
+- The named parameters always win over a server variable of the same name. The verdict is used exactly as before.
+
+Tests: `test-login-guard.php` runs the real request builder against a fake Akismet and checks each parameter, the credential exclusions, the path exclusions and the blank referrer (12 new).
+
 ## 1.4.160
 
 **Akismet asked us to stop sending `submit-spam` for blocked addresses, and it was right.** `submit-spam` is for a specific piece of content Akismet previously checked and missed, sent back with the original fields. Every report here was a sentence the plugin generated about a block ("Automated WordPress login attack blocked by WP Perf Shield: ..."), so Akismet could not learn from it and has begun ignoring them.

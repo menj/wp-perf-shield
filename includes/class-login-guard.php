@@ -800,21 +800,7 @@ final class WPS_Login_Guard {
 		}
 
 		try {
-			$result = Akismet::comment_check(
-				[
-					// Passed explicitly rather than left to Akismet's own
-					// request-scoped lookup: that default is correct only
-					// while this runs inline, and would silently score the
-					// wrong address if it ever ran deferred.
-					'user_ip'              => $ip,
-					'user_agent'           => (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ),
-					'comment_type'         => $type,
-					'comment_author'       => self::safe( $author ),
-					'comment_content'      => '',
-					'permalink'            => $permalink,
-					'is_test'              => defined( 'WP_DEBUG' ) && WP_DEBUG ? 'true' : 'false',
-				]
-			);
+			$result = Akismet::comment_check( self::akismet_request( $ip, $author, $type, $permalink ) );
 		} catch ( \Throwable $t ) {
 			return '';
 		}
@@ -825,6 +811,75 @@ final class WPS_Login_Guard {
 		$verdict = $result->is_spam ? 'spam' : 'ham';
 		set_transient( $cache, $verdict, self::VERDICT_TTL );
 		return $verdict;
+	}
+
+	/**
+	 * 1.4.161: the comment-check request, filled with every parameter Akismet's
+	 * documentation lists that this plugin can truthfully supply.
+	 *
+	 * Akismet scores better with more of the original request, and its
+	 * documentation asks for the server variables too. What is sent:
+	 *
+	 *   blog, user_ip, user_agent, referrer, permalink, comment_type,
+	 *   comment_author (the username tried), an empty comment_content,
+	 *   blog_lang, blog_charset, is_test, and an allowlist of the request's
+	 *   own server variables (the HTTP headers, minus anything that carries a
+	 *   credential, plus the request line and the connecting address).
+	 *
+	 * What is left out, and why: user_role (a sign-in failure has no user, and
+	 * "administrator" makes Akismet answer false), comment_author_email and
+	 * comment_author_url (the login form has neither; a username that happens
+	 * to be an address is already sent as comment_author), comment_date_gmt
+	 * (optional when the check runs as the request happens), comment_context
+	 * (tags of a parent post; there is none), recheck_reason and the honeypot
+	 * fields (no recheck, no honeypot).
+	 *
+	 * @return array<string, string>
+	 */
+	private static function akismet_request( string $ip, string $author, string $type, string $permalink ): array {
+		$req = [
+			'blog'            => (string) get_option( 'home' ),
+			'user_ip'         => $ip,
+			'user_agent'      => (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ),
+			'referrer'        => (string) ( $_SERVER['HTTP_REFERER'] ?? '' ),
+			'permalink'       => $permalink,
+			'comment_type'    => $type,
+			'comment_author'  => self::safe( $author ),
+			'comment_content' => '',
+			'blog_lang'       => function_exists( 'get_bloginfo' ) ? (string) get_bloginfo( 'language' ) : '',
+			'blog_charset'    => function_exists( 'get_bloginfo' ) ? (string) get_bloginfo( 'charset' ) : '',
+			'is_test'         => defined( 'WP_DEBUG' ) && WP_DEBUG ? 'true' : 'false',
+		];
+		// Empty optional values are left out rather than sent blank.
+		foreach ( [ 'referrer', 'blog_lang', 'blog_charset' ] as $optional ) {
+			if ( '' === $req[ $optional ] ) {
+				unset( $req[ $optional ] );
+			}
+		}
+		return $req + self::akismet_server_vars();
+	}
+
+	/**
+	 * The request's server variables that are safe to share with Akismet: the
+	 * HTTP headers except those that carry a credential, and a short list of
+	 * request-line fields. No filesystem paths, no cookies, no Authorization.
+	 *
+	 * @return array<string, string>
+	 */
+	private static function akismet_server_vars(): array {
+		$never = [ 'HTTP_COOKIE', 'HTTP_COOKIE2', 'HTTP_AUTHORIZATION', 'HTTP_PROXY_AUTHORIZATION', 'HTTP_X_WP_NONCE' ];
+		$extra = [ 'REMOTE_ADDR', 'REQUEST_METHOD', 'REQUEST_URI', 'SERVER_NAME', 'SERVER_PROTOCOL', 'SERVER_PORT', 'HTTPS', 'CONTENT_TYPE', 'CONTENT_LENGTH' ];
+		$out   = [];
+		foreach ( $_SERVER as $key => $value ) {
+			if ( ! is_string( $key ) || ! is_scalar( $value ) ) {
+				continue;
+			}
+			if ( ( 0 !== strpos( $key, 'HTTP_' ) && ! in_array( $key, $extra, true ) ) || in_array( $key, $never, true ) ) {
+				continue;
+			}
+			$out[ $key ] = substr( (string) $value, 0, 512 );
+		}
+		return $out;
 	}
 
 	/**
