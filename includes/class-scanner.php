@@ -1085,15 +1085,20 @@ class WPS_Scanner {
 							$theme_dir = $seg !== '' ? $themes_real . '/' . $seg : dirname( $norm );
 
 							$family = self::sig_family( $sig );
+							// 1.4.164: the active theme and its parent are never proposed for automatic
+							// removal. check_theme_for_backdoor() reports them for review instead.
+							$is_active_theme = self::is_protected_auto_delete_path( $theme_dir );
 							$found[] = [
 								'severity'    => 'critical',
 								'type'        => 'Malware signature in theme file (' . $family . ')',
 								'subject'     => $seg . '/' . basename( $norm ),
 								'path'        => $file->getPathname(),
-								'action'      => 'Delete the infected file. If this is not a theme you recognise or use, remove the whole theme folder.',
+								'action'      => $is_active_theme
+									? 'This is the active theme, so nothing was removed automatically. Review the file: clean it or restore the theme from a trusted copy.'
+									: 'Delete the infected file. If this is not a theme you recognise or use, remove the whole theme folder.',
 								'match'       => $sig,
-								'auto_delete' => true,
-								'delete_path' => $theme_dir,
+								'auto_delete' => ! $is_active_theme,
+								'delete_path' => $is_active_theme ? $file->getPathname() : $theme_dir,
 							];
 							break;
 						}
@@ -16763,7 +16768,7 @@ class WPS_Scanner {
 
 	private static function is_protected_auto_delete_path( string $target ): bool {
 		$real = realpath( $target );
-		if ( ! $real || ! is_file( $real ) ) {
+		if ( ! $real ) {
 			return false;
 		}
 		if ( ! function_exists( 'get_template_directory' ) || ! function_exists( 'get_stylesheet_directory' ) ) {
@@ -16775,6 +16780,19 @@ class WPS_Scanner {
 			get_stylesheet_directory(),
 		] ) ) ) );
 		if ( empty( $theme_dirs ) ) {
+			return false;
+		}
+
+		// 1.4.164: a folder is protected when it is an active theme or holds one. The all-themes
+		// signature walk (1.3.97) proposes the whole theme folder for removal, and this check used to
+		// look at files only, so one signature string in the active theme quarantined the site's
+		// theme outright. Automatic removal never takes the active theme or its parent.
+		if ( is_dir( $real ) ) {
+			foreach ( $theme_dirs as $dir ) {
+				if ( $dir && ( $dir === $real || WPS_Utils::path_is_inside( $dir, $real ) ) ) {
+					return true;
+				}
+			}
 			return false;
 		}
 
