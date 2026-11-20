@@ -1,5 +1,17 @@
 # WP Perf Shield changelog
 
+## 1.4.164
+
+**From the operator's themes folder** (12 renamed copies of Hello Elementor, each with a Tiny File Manager shell, next to the operator's own BMK theme; nothing run, read only).
+- **The scanner already removed all 14 planted files**, so no new detection was needed for the shells. It also targeted the whole active `BMK` theme: `BMK/inc/security.php` is the operator's malware-suppression code, it lists the wp-perf-analytics cookie `_wp_perf_ok` in a docblock and an array, the signature check read that as the dropper, and the finding's removal target was the theme folder. The removal policy allowed it, and `functions.php` requires that file, so the site would have gone down.
+- **Theme findings remove the file, not the folder.** `delete_path` for a signature hit in a theme is the matching file. The action text says so.
+- **A file that only lists indicators is not malware** (`indicators_are_only_listed`). Read with PHP's tokenizer, and true only when nothing in the file runs, decodes, writes or reaches out (no call to `eval`, `exec`, `base64_decode`, `file_put_contents`, `curl_init`, `wp_remote_*` and the like, no include or require, no backtick, no call through a variable; `array_map` and its kin only with a literal callback that is not itself on the list, or a closure) and every token carrying an indicator is a comment or an element of an array literal. An indicator as a function argument, an assignment, a comparison or an array index is code, and keeps the finding. Every signature in the file is tested, not only the first hit.
+- **Own code is quiet** (`is_operator_own_folder`): a folder under "Your own plugins", verified against "Your GitHub accounts", or a theme whose Author URI is this site's own domain. It silences only the listing-only finding (and the EtherHiding resolver report for the same kind of file); logged as `own_indicator_listing`. Anyone else's listing-only file is a medium, review-only finding ("Indicator strings listed in a defensive file").
+- **New check `check_timestamp_named_themes`:** a theme folder ending in a ten-digit Unix timestamp from 2017 to 2033 is reported (high, report only). The active theme and its parent are never reported. All 12 decoys in the sample matched; `twentytwentyfive`, `theme-2024` and `shop-12345` do not.
+- **Result on the sample, with the site's domain set:** BMK produces no findings from any check; the 14 planted files are still removed; the 12 decoy folders are reported.
+
+Tests: `test-own-code-listing.php` (23, with seven ways of writing code that uses an indicator, all still critical). Registered checks: 123 (was 122).
+
 ## 1.4.163
 
 **Findings from other code: the `wps_external_findings` filter.** A scan now asks the filter for findings after automatic remediation has run, so contributed findings are listed for the operator and never removed by the plugin on its own.

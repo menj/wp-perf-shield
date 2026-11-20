@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.163
+Stable tag: 1.4.164
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.164 =
+A signature hit in a theme removes the file, not the whole theme. A file that only lists indicators is reported for review, or not at all in your own theme. Theme folders named with a timestamp are reported.
 
 = 1.4.163 =
 Other code on the site can add findings to the scan through the `wps_external_findings` filter. They are listed for review and never removed automatically.
@@ -725,6 +728,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.164 =
+Stops the scanner targeting a whole theme (including your own) because one file names a malware indicator. Recommended.
 
 = 1.4.163 =
 The BMK theme's malware scan now reports into WP Perf Shield. Nothing to configure.

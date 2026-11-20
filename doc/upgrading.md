@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.164
+
+**Your own detection code is no longer mistaken for the malware it names, and a theme is no longer removed whole.** A theme or plugin file that only lists indicators (in a comment or an array of names) and runs no decoding, command, write or network code is reported for review and never removed. If the folder is yours, it is not reported at all: a theme whose Author URI is this site's own domain counts as yours, as does anything under "Your own plugins" or verified against "Your GitHub accounts". Code that uses an indicator is judged exactly as before. When a theme file does match a signature, only that file is removed; the theme folder stays. Theme folders named with a Unix timestamp (`config_1791852300`) are reported, never removed. Nothing to configure.
+
 ## 1.4.163
 
 **Other scanners can report here.** Code elsewhere on the site, such as the BMK theme's malware scan, can add its findings to WP Perf Shield's list through the new `wps_external_findings` filter. They appear on the Overview tab with the name of the component that reported them. WP Perf Shield never removes them automatically; where a finding offers "Delete this path", the removal policy and the quarantine handle it like any other. Nothing to configure.

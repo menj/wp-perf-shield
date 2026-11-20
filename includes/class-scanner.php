@@ -609,6 +609,7 @@ class WPS_Scanner {
 			'check_probe_marker_files' => [ __CLASS__, 'check_probe_marker_files' ], // 1.4.133: deep_check_<hex>.txt / upload_test_<hex>.txt write-access probes
 			'check_gambling_doorway_page' => [ __CLASS__, 'check_gambling_doorway_page' ], // 1.4.134: static slot/togel landing page planted in uploads, wp-content or the web root
 			'check_trojanized_plugin_tools' => [ __CLASS__, 'check_trojanized_plugin_tools' ], // 1.4.149: miner dropper, mass defacer, wp-config reader, mass-copy and uploader shells planted inside a genuine plugin
+			'check_timestamp_named_themes' => [ __CLASS__, 'check_timestamp_named_themes' ], // 1.4.164: decoy theme copies named <name>-<unix timestamp>; report only
 			'check_embedded_js_injector' => [ __CLASS__, 'check_embedded_js_injector' ], // 1.4.135: plugin that keeps a large encoded script and prints it to visitors on every page
 			'check_medusa_fm_kit' => [ __CLASS__, 'check_medusa_fm_kit' ], // 1.4.140: Medusa FM kit files (encrypted loader, index/.htaccess self-heal, early crawler router) by their own markers
 			'check_mass_post_sitemap' => [ __CLASS__, 'check_mass_post_sitemap' ], // 1.4.140: static sitemap listing hundreds of consecutive ?p=<id> URLs from one day (a spam kit's post flood)
@@ -1034,6 +1035,14 @@ class WPS_Scanner {
 						// Path-signature whitelist: suppress if this exact (path, sig)
 						// pair is verified clean. Other signatures still scan normally.
 						if ( self::is_whitelisted_match( $file->getPathname(), $sig ) ) continue;
+						// 1.4.164: a file that only LISTS indicators (a detection list, a comment) is not malware.
+						if ( self::indicators_are_only_listed( $contents, $all_sigs ) ) {
+							$listing = self::listing_finding( $file->getPathname(), $contents, $sig );
+							if ( null !== $listing ) {
+								$found[] = $listing;
+							}
+							break;
+						}
 						$family = self::sig_family( $sig );
 						$found[] = [
 							'severity'    => 'critical',
@@ -1078,6 +1087,15 @@ class WPS_Scanner {
 						if ( strpos( $contents, $sig ) !== false ) {
 							if ( self::is_whitelisted_match( $file->getPathname(), $sig ) ) continue;
 
+							// 1.4.164: a file that only LISTS indicators (a detection list, a comment) is not malware.
+							if ( self::indicators_are_only_listed( $contents, $all_sigs ) ) {
+								$listing = self::listing_finding( $file->getPathname(), $contents, $sig );
+								if ( null !== $listing ) {
+									$found[] = $listing;
+								}
+								break;
+							}
+
 							// Theme folder = themes_root/<first path segment>.
 							$norm = str_replace( '\\', '/', $file->getPathname() );
 							$rest = ltrim( substr( $norm, strlen( $themes_real ) ), '/' );
@@ -1090,10 +1108,12 @@ class WPS_Scanner {
 								'type'        => 'Malware signature in theme file (' . $family . ')',
 								'subject'     => $seg . '/' . basename( $norm ),
 								'path'        => $file->getPathname(),
-								'action'      => 'Delete the infected file. If this is not a theme you recognise or use, remove the whole theme folder.',
+								'action'      => 'The infected file is removed. The rest of the theme is left in place, because one file does not make the whole theme malware and the theme may be one you use. If this is not a theme you recognise or use, remove the whole theme folder.',
 								'match'       => $sig,
 								'auto_delete' => true,
-								'delete_path' => $theme_dir,
+								// 1.4.164: the file, not the theme folder. A signature hit used to take the whole theme
+								// (an operator's active child theme included) with it.
+								'delete_path' => $file->getPathname(),
 							];
 							break;
 						}
@@ -9588,6 +9608,278 @@ class WPS_Scanner {
 		return null;
 	}
 
+	/** Functions that run, decode, write or reach out. A file that calls none of them only describes things. */
+	private const EXECUTION_PRIMITIVES = [
+		'eval', 'assert', 'create_function', 'system', 'exec', 'shell_exec', 'passthru', 'popen', 'proc_open', 'pcntl_exec',
+		'base64_decode', 'gzinflate', 'gzuncompress', 'gzdecode', 'str_rot13', 'convert_uudecode', 'hex2bin', 'unserialize',
+		'file_put_contents', 'fwrite', 'fputs', 'move_uploaded_file', 'unlink', 'rename', 'copy', 'mkdir', 'chmod', 'touch',
+		'curl_init', 'curl_exec', 'fsockopen', 'stream_socket_client',
+		'wp_remote_get', 'wp_remote_post', 'wp_remote_request', 'wp_safe_remote_get', 'wp_safe_remote_post',
+		'preg_replace', 'extract', 'parse_str',
+	];
+
+	/** Functions that call a callback they are given. Safe with a literal callback that is not itself a primitive, or a closure. */
+	private const CALLBACK_FUNCTIONS = [ 'array_map', 'array_filter', 'array_walk', 'usort', 'uasort', 'uksort', 'call_user_func', 'call_user_func_array' ];
+
+	/**
+	 * 1.4.164: is every indicator in this file merely LISTED?
+	 *
+	 * A signature match deletes a plugin or theme, so the one case it must not fire on is code that
+	 * names an indicator in order to defend against it. The operator's own BMK theme carries a
+	 * "malware suppression" file whose job is to block the wp-perf-analytics dropper; it holds the
+	 * dropper's cookie name in a docblock and in an array of names, and the signature check read that
+	 * as the dropper and targeted the whole active theme.
+	 *
+	 * True only when, by PHP's own tokenizer, both of these hold:
+	 *   - nothing in the file runs, decodes, writes or reaches out: no call to a function in
+	 *     EXECUTION_PRIMITIVES, no eval, include or require, no backtick, no call through a variable;
+	 *   - every token that carries an indicator is a comment, or a string that is an element of an
+	 *     array literal (not an argument, not an index, not an assignment, not a comparison).
+	 * Anything else, including a file the tokenizer cannot read, keeps the finding it earned.
+	 *
+	 * @param string[] $sigs Every signature the scan looks for; all of them are tested, not only the first hit.
+	 */
+	private static function indicators_are_only_listed( string $contents, array $sigs ): bool {
+		if ( ! function_exists( 'token_get_all' ) ) {
+			return false;
+		}
+		try {
+			$tokens = @token_get_all( $contents );
+		} catch ( \Throwable $t ) {
+			return false;
+		}
+		if ( ! is_array( $tokens ) || ! $tokens ) {
+			return false;
+		}
+		$skip    = [ T_WHITESPACE, T_COMMENT, T_DOC_COMMENT ];
+		$silent  = array_flip( [ T_EVAL, T_INCLUDE, T_INCLUDE_ONCE, T_REQUIRE, T_REQUIRE_ONCE ] );
+		$n       = count( $tokens );
+		$stack   = [];
+		$prev    = null; // previous significant token
+		$listed  = 0;
+		for ( $i = 0; $i < $n; $i++ ) {
+			$t    = $tokens[ $i ];
+			$id   = is_array( $t ) ? $t[0] : null;
+			$text = is_array( $t ) ? $t[1] : $t;
+			if ( null !== $id && in_array( $id, $skip, true ) ) {
+				if ( T_WHITESPACE !== $id && self::text_has_any( $text, $sigs ) ) {
+					++$listed;
+				}
+				continue;
+			}
+			if ( null !== $id && isset( $silent[ $id ] ) ) {
+				return false;
+			}
+			if ( '`' === $t ) {
+				return false;
+			}
+			// The next significant token, for call detection and for the end of an array element.
+			$next = null;
+			for ( $k = $i + 1; $k < $n; $k++ ) {
+				$nt = $tokens[ $k ];
+				if ( is_array( $nt ) && in_array( $nt[0], $skip, true ) ) {
+					continue;
+				}
+				$next = $nt;
+				break;
+			}
+			$next_text = is_array( $next ) ? $next[1] : $next;
+			if ( T_STRING === $id && '(' === $next_text && in_array( strtolower( $text ), self::EXECUTION_PRIMITIVES, true ) ) {
+				return false;
+			}
+			if ( T_VARIABLE === $id && '(' === $next_text ) {
+				return false; // a call through a variable hides what runs
+			}
+			if ( T_STRING === $id && '(' === $next_text && in_array( strtolower( $text ), self::CALLBACK_FUNCTIONS, true ) ) {
+				// The callback is the first argument (the second for usort and its kin, which take the array first).
+				$want = in_array( strtolower( $text ), [ 'usort', 'uasort', 'uksort', 'array_walk' ], true ) ? 1 : 0;
+				$seen = -1;
+				$cb   = null;
+				$level = 0;
+				for ( $k = $i + 2; $k < $n; $k++ ) {
+					$ct = $tokens[ $k ];
+					if ( is_array( $ct ) && in_array( $ct[0], $skip, true ) ) {
+						continue;
+					}
+					$ctext = is_array( $ct ) ? $ct[1] : $ct;
+					if ( -1 === $seen ) {
+						$seen = 0;
+					}
+					if ( 0 === $level && ',' === $ctext ) {
+						++$seen;
+						continue;
+					}
+					if ( in_array( $ctext, [ '(', '[' ], true ) ) {
+						++$level;
+					} elseif ( in_array( $ctext, [ ')', ']' ], true ) ) {
+						if ( 0 === $level ) {
+							break;
+						}
+						--$level;
+					}
+					if ( $seen === $want && null === $cb ) {
+						$cb = $ct;
+					}
+				}
+				$ok = false;
+				if ( is_array( $cb ) && T_CONSTANT_ENCAPSED_STRING === $cb[0] ) {
+					$ok = ! in_array( strtolower( trim( $cb[1], '\'"' ) ), self::EXECUTION_PRIMITIVES, true );
+				} elseif ( is_array( $cb ) && in_array( $cb[0], [ T_FUNCTION, T_FN ], true ) ) {
+					$ok = true; // a closure: its body is read by this same pass
+				}
+				if ( ! $ok ) {
+					return false;
+				}
+			}
+			if ( '(' === $t ) {
+				$stack[] = ( is_array( $prev ) && T_ARRAY === $prev[0] ) ? 'a' : 'c';
+			} elseif ( '[' === $t ) {
+				$after_value = is_array( $prev ) ? in_array( $prev[0], [ T_VARIABLE, T_STRING ], true ) : in_array( $prev, [ ')', ']', '}' ], true );
+				$stack[]     = $after_value ? 'i' : 'a';
+			} elseif ( ')' === $t || ']' === $t ) {
+				array_pop( $stack );
+			}
+			if ( self::text_has_any( $text, $sigs ) ) {
+				$in_array = $stack && 'a' === end( $stack );
+				$element  = T_CONSTANT_ENCAPSED_STRING === $id && $in_array && in_array( $next_text, [ ',', ')', ']' ], true )
+					&& ( null === $prev || in_array( is_array( $prev ) ? $prev[1] : $prev, [ ',', '(', '[' ], true ) );
+				if ( ! $element ) {
+					return false;
+				}
+				++$listed;
+			}
+			$prev = $t;
+		}
+		return $listed > 0;
+	}
+
+	/** @param string[] $needles */
+	private static function text_has_any( string $text, array $needles ): bool {
+		foreach ( $needles as $needle ) {
+			if ( '' !== $needle && false !== strpos( $text, $needle ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * 1.4.164: is this plugin or theme folder the operator's own?
+	 *
+	 * Yes when the operator declared it ("Your own plugins"), when it is verified against one of the
+	 * operator's repositories, or when it is a theme whose Author URI is this site's own domain: a
+	 * site's own theme says who wrote it, and that is the site. It is used only to stay quiet about a
+	 * file that LISTS indicators (indicators_are_only_listed); no other finding is affected.
+	 */
+	private static function is_operator_own_folder( string $path ): bool {
+		$norm = str_replace( '\\', '/', $path );
+		$slug = '';
+		$kind = '';
+		foreach ( [ 'plugins' => defined( 'WP_PLUGIN_DIR' ) ? WP_PLUGIN_DIR : '', 'themes' => defined( 'WP_CONTENT_DIR' ) ? WP_CONTENT_DIR . '/themes' : '' ] as $k => $root ) {
+			$root = rtrim( str_replace( '\\', '/', (string) $root ), '/' );
+			if ( '' !== $root && 0 === strpos( $norm, $root . '/' ) ) {
+				$slug = strtolower( (string) strtok( substr( $norm, strlen( $root ) + 1 ), '/' ) );
+				$kind = $k;
+				$dir  = $root . '/' . strtok( substr( $norm, strlen( $root ) + 1 ), '/' );
+				break;
+			}
+		}
+		if ( '' === $slug ) {
+			return false;
+		}
+		if ( in_array( $slug, self::first_party_slugs(), true ) ) {
+			return true;
+		}
+		if ( class_exists( 'WPS_Own_Repos' ) && in_array( $slug, array_map( 'strtolower', WPS_Own_Repos::verified_slugs() ), true ) ) {
+			return true;
+		}
+		if ( 'themes' === $kind && is_readable( $dir . '/style.css' ) ) {
+			$head = (string) @file_get_contents( $dir . '/style.css', false, null, 0, 8192 );
+			$home = function_exists( 'home_url' ) ? (string) home_url() : (string) get_option( 'home' );
+			if ( preg_match( '/^[ \t\/*#@]*Author URI:\s*(\S+)/mi', $head, $m ) && '' !== $home ) {
+				$a = strtolower( (string) parse_url( trim( $m[1] ), PHP_URL_HOST ) );
+				$h = strtolower( (string) parse_url( $home, PHP_URL_HOST ) );
+				$a = preg_replace( '/^www\./', '', $a );
+				$h = preg_replace( '/^www\./', '', (string) $h );
+				return '' !== $a && $a === $h;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * 1.4.164: the finding for a file that only lists indicators. Null when the folder is the
+	 * operator's own (logged, not reported); otherwise a review-only finding, never a removal.
+	 *
+	 * @return array<string, mixed>|null
+	 */
+	private static function listing_finding( string $path, string $contents, string $sig ): ?array {
+		if ( self::is_operator_own_folder( $path ) ) {
+			if ( class_exists( 'WPS_Logger' ) ) {
+				WPS_Logger::log_event( 'own_indicator_listing', self::display_path( $path ) . ' lists indicators and runs none of them; own code, not reported' );
+			}
+			return null;
+		}
+		return [
+			'severity' => 'medium',
+			'type'     => 'Indicator strings listed in a defensive file',
+			'subject'  => self::display_path( $path ) . ' names "' . $sig . '" only as a list entry or in a comment',
+			'path'     => $path,
+			'action'   => 'The file runs no decoding, command, write or network code, and the indicator appears only as a list entry or a comment, so it looks like detection code and not the malware it names. Nothing is removed. If it is your own, add its folder to "Your own plugins" in Settings.',
+		];
+	}
+
+	/**
+	 * 1.4.164: decoy theme copies named <name>-<unix timestamp>.
+	 *
+	 * Recovered shape: twelve copies of one stock theme, each renamed `config_1791852300`,
+	 * `post-1791852298`, `home-1792360827` and the like (the number is the moment the folder was
+	 * made, 13 to 18 October 2026), each holding a Tiny File Manager shell under a misspelt name.
+	 * The shell is removed by its own checks; the folder around it is a dormant theme nobody
+	 * installed. A folder name that ends in a ten-digit timestamp is reported, never removed, and the
+	 * active theme and its parent are never reported.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_timestamp_named_themes(): array {
+		$found = [];
+		$root  = defined( 'WP_CONTENT_DIR' ) ? WP_CONTENT_DIR . '/themes' : '';
+		if ( '' === $root || ! is_dir( $root ) ) {
+			return $found;
+		}
+		$live = [];
+		foreach ( [ 'get_stylesheet', 'get_template' ] as $fn ) {
+			if ( function_exists( $fn ) ) {
+				$live[] = strtolower( (string) $fn() );
+			}
+		}
+		try {
+			foreach ( new DirectoryIterator( $root ) as $d ) {
+				if ( $d->isDot() || ! $d->isDir() ) {
+					continue;
+				}
+				$name = $d->getFilename();
+				if ( ! preg_match( '/^[a-z0-9][a-z0-9_-]*[-_](1[5-9]\d{8})$/i', $name, $m ) || in_array( strtolower( $name ), $live, true ) ) {
+					continue;
+				}
+				$when    = gmdate( 'Y-m-d', (int) $m[1] );
+				$found[] = [
+					'severity' => 'high',
+					'type'     => 'Theme folder named with a timestamp (decoy copy)',
+					'subject'  => self::display_path( $d->getPathname() ) . ' (' . $when . ')',
+					'path'     => $d->getPathname(),
+					'action'   => 'A theme folder whose name ends in a Unix timestamp is made by a script, not installed from a theme directory. It is not the active theme. Check whether you installed it; if you did not, delete the folder, and look for how files were written to wp-content/themes on ' . $when . '. Nothing is removed automatically.',
+				];
+				if ( class_exists( 'WPS_Logger' ) ) {
+					WPS_Logger::log_event( 'timestamp_theme_found', self::display_path( $d->getPathname() ) );
+				}
+			}
+		} catch ( \Throwable $t ) {
+			return $found;
+		}
+		return $found;
+	}
+
 	private static function check_headless_plugin_folder(): array {
 		$found = [];
 		if ( defined( 'WP_PLUGIN_DIR' ) && is_dir( WP_PLUGIN_DIR ) ) {
@@ -15258,6 +15550,15 @@ class WPS_Scanner {
 					$raw = @file_get_contents( $path );
 					if ( $raw === false ) continue;
 					$src = class_exists( 'WPS_Utils' ) ? WPS_Utils::normalised( $path, $raw ) : $raw;
+
+					// 1.4.164: the operator's own detection code names these indicators in order to block them.
+					// Quiet only for a PHP file in the operator's own folder that merely lists them (see
+					// indicators_are_only_listed); everything else is judged exactly as before.
+					if ( $ext === 'php'
+						&& self::indicators_are_only_listed( $raw, array_merge( $rpc_primitives, $contracts, $endpoints, [ 'navigator.clipboard', 'clipboardData', 'powershell', 'IEX(', 'iex(', 'atob(', 'fromCharCode', 'charCodeAt' ] ) )
+						&& self::is_operator_own_folder( $path ) ) {
+						continue;
+					}
 
 					// Signal 1: a JSON-RPC read primitive.
 					$primitive = '';
