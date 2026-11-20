@@ -1,5 +1,14 @@
 # WP Perf Shield changelog
 
+## 1.4.164
+
+**Automatic removal never takes the active theme folder.** On a test copy of bismikaallahuma.org a scan quarantined the whole active BMK theme. The all-themes signature walk (1.3.97) matched `_wp_perf_ok` in the theme's own block list for that cookie, set `auto_delete`, and named the theme folder as `delete_path`. `is_protected_auto_delete_path()` returned false for any directory, so the folder passed.
+- **Fix in the guard:** a directory is protected when it is the active stylesheet or template directory, or contains one (so `wp-content/themes` itself is covered). Files keep the existing rules: critical files in the active theme stay protected, ordinary ones can still be removed one at a time.
+- **Fix in the walk:** a match inside the active theme sets `auto_delete` false, names the single file as `delete_path`, and says in the action text that nothing was removed automatically.
+- Decoy theme folders (`config_1791852300` and the like) are not protected and are removed as before.
+
+Tests: `test-active-theme-protection.php` (7 checks).
+
 ## 1.4.163
 
 **Findings from other code: the `wps_external_findings` filter.** A scan now asks the filter for findings after automatic remediation has run, so contributed findings are listed for the operator and never removed by the plugin on its own.
