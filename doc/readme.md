@@ -163,7 +163,7 @@ Then close the ways back in: Users (the scanner's `check_hidden_admin_users` als
 | Escalation for repeat offenders (range) | 6 hours → 1 day → 3 days → 1 week, over a 14-day memory |
 | Manual permanent range ban | Operator can permanently deny an address or a whole subnet from **Diagnostics**; refused if it holds the operator or is broader than a /16 |
 | XML-RPC | `system.multicall` stripped by default so one request cannot carry many credential guesses, without breaking Jetpack or the mobile apps; full XML-RPC sign-in disable is a separate opt-in |
-| Akismet, when present | Adjusts **duration only** — never whether to block, so the sign-in path never waits on the network. Sends nothing to Akismet's `submit-spam` (removed in 1.4.160, at Akismet's request); the only call is `comment-check`, to weigh the duration, sent with every documented parameter the plugin can supply (see 1.4.161 in the changelog) |
+| Akismet, when present | Adjusts **duration only** — never whether to block, so the sign-in path never waits on the network. Sends nothing to Akismet's `submit-spam` (removed in 1.4.160, at Akismet's request); the only call is `comment-check`, to weigh the duration, sent with every documented parameter the plugin can supply (see 1.4.161 and 1.4.162 in the changelog) |
 
 WP Perf Shield will not lock you out:
 
@@ -277,7 +277,7 @@ Each exits non-zero on failure. They do not replace running the plugin on a stag
 
 ## Version
 
-Current plugin version: `1.4.161`
+Current plugin version: `1.4.162`
 
 Author: [MENJ](https://github.com/menj)
 

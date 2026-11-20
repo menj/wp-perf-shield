@@ -749,3 +749,6 @@ Decision: the plugin never calls Akismet's `submit-spam`. It is a correction cha
 
 ### Akismet request fields (1.4.161)
 Decision: send every parameter Akismet documents that the plugin can truthfully fill, and name the ones it cannot (user_role, author email and URL, comment context, recheck, honeypot) so the omissions are a decision and not an accident. Server variables go through an allowlist, never a blocklist: HTTP headers minus credential-bearing ones, plus a short request-line list; no filesystem paths. `user_role` is never sent because "administrator" forces a false answer. Digest 1.4.161: `WPS_Login_Guard::akismet_request()` and `akismet_server_vars()`.
+
+### Akismet's own source is the reference (1.4.162)
+Decision: the Akismet integration is written against the real plugin's source, not against a stub. Reading 5.7.2 found that an error comes back as `is_spam = false` plus an `error` property, which a stub returning a bare object had hidden since the integration was written. An answer with `error` set is no verdict. When Akismet ships a new major version, read `Akismet::comment_check()` again before changing anything here. Digest 1.4.162: `akismet_verdict()` rejects results with `error`; `akismet_request()` no longer repeats `blog`, `blog_lang` or `blog_charset`.

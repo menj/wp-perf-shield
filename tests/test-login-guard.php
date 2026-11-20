@@ -55,7 +55,8 @@ class Akismet {
 	public static $posts = 0;
 	public static function get_api_key() { return 'abc123'; }
 	public static $last = [];
-	public static function comment_check( $args = [] ) { self::$last = $args; return (object) [ 'is_spam' => false ]; }
+	public static $reply = null;
+	public static function comment_check( $args = [] ) { self::$last = $args; return self::$reply ?? (object) [ 'is_spam' => false ]; }
 	public static function build_query( $b ) { return http_build_query( $b ); }
 	public static function http_post( $q, $path ) { ++self::$posts; if ( ! self::$ok ) { throw new RuntimeException( 'network down' ); } return [ [], 'Thanks for making the web a better place.' ]; }
 }
@@ -125,11 +126,11 @@ $av = new ReflectionMethod( 'WPS_Login_Guard', 'akismet_verdict' );
 $av->setAccessible( true );
 $av->invoke( null, '203.0.113.9', 'root' );
 $q = Akismet::$last;
-foreach ( [ 'blog', 'user_ip', 'user_agent', 'referrer', 'permalink', 'comment_type', 'comment_author', 'comment_content', 'blog_lang', 'blog_charset', 'is_test' ] as $k ) {
+foreach ( [ 'user_ip', 'user_agent', 'referrer', 'permalink', 'comment_type', 'comment_author', 'comment_content', 'is_test' ] as $k ) {
 	check( "comment-check carries $k", array_key_exists( $k, $q ), json_encode( array_keys( $q ) ) );
 }
 check( 'the request says what it is', 'wps-login-attempt' === $q['comment_type'] && 'root' === $q['comment_author'] && '' === $q['comment_content'] && '203.0.113.9' === $q['user_ip'] );
-check( 'language and charset come from the site', 'en-US' === $q['blog_lang'] && 'UTF-8' === $q['blog_charset'] );
+check( 'blog, language and charset are left to Akismet, which adds them itself', ! isset( $q['blog'], $q['blog_lang'], $q['blog_charset'] ) );
 check( 'the HTTP headers and request line are passed on', 'text/html' === ( $q['HTTP_ACCEPT'] ?? '' ) && 'POST' === ( $q['REQUEST_METHOD'] ?? '' ) && '/wp-login.php' === ( $q['REQUEST_URI'] ?? '' ) && 'example.test' === ( $q['SERVER_NAME'] ?? '' ) && '203.0.113.9' === ( $q['REMOTE_ADDR'] ?? '' ) );
 check( 'no cookie, credential or password variable is sent', ! array_intersect_key( $q, array_flip( [ 'HTTP_COOKIE', 'HTTP_AUTHORIZATION', 'PHP_AUTH_PW' ] ) ), json_encode( array_keys( $q ) ) );
 check( 'no filesystem path is sent', ! isset( $q['DOCUMENT_ROOT'] ) && ! isset( $q['SCRIPT_FILENAME'] ) );
@@ -139,6 +140,18 @@ unset( $_SERVER['HTTP_REFERER'] );
 $GLOBALS['trans'] = [];
 $av->invoke( null, '203.0.113.9', 'root' );
 check( 'an empty referrer is left out, not sent blank', ! array_key_exists( 'referrer', Akismet::$last ) );
+
+
+// ---- 6. a failed Akismet call is not a clean verdict (1.4.162).
+$GLOBALS['trans'] = [];
+Akismet::$reply = (object) [ 'is_spam' => false, 'error' => '12345' ];
+check( 'a reply carrying an error header gives no verdict', '' === $av->invoke( null, '203.0.113.20', 'root' ) );
+check( 'and the failure is not cached as a clean answer', false === get_transient( 'wps_akv_' . md5( '203.0.113.20' ) ) );
+Akismet::$reply = (object) [ 'is_spam' => true ];
+check( 'a spam answer without an error still counts', 'spam' === $av->invoke( null, '203.0.113.21', 'root' ) );
+Akismet::$reply = null;
+$GLOBALS['trans'] = [];
+check( 'a clean answer without an error still counts', 'ham' === $av->invoke( null, '203.0.113.22', 'root' ) );
 
 
 // ---- 4. a first range block holds for its base duration; returns climb the ladder.

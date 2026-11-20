@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.162
+
+**An Akismet error no longer shortens a block.** When Akismet rejected a call (a bad key, a rate limit), the plugin read the empty answer as "not known for spam" and cached it for a day. On a first failed sign-in with one username that set a 15-minute block. A call that returns an error now gives no verdict at all, and the block falls back to your own evidence. Nothing to configure.
+
 ## 1.4.161
 
 **Akismet gets more of the request.** When the plugin asks Akismet about an address (the "Ask Akismet about attackers" setting), the question now carries the site address, the referrer, the site language and charset, and the request's HTTP headers and request line, as Akismet's documentation asks. Cookies, Authorization headers, nonces and filesystem paths are never sent. The answer is used exactly as before: it can lengthen a block and never shorten it below your own evidence. Nothing to configure.
