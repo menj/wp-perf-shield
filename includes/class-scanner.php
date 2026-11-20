@@ -12775,6 +12775,10 @@ class WPS_Scanner {
 			if ( self::is_inert_error_page( $contents ) ) {
 				return self::VERIFIED_STATIC_PAGE;
 			}
+			$vouched = self::vouched_drop_in_publisher( $name, $contents );
+			if ( '' !== $vouched ) {
+				return $vouched;
+			}
 			$label = self::match_drop_in_publisher( $contents );
 			if ( '' !== $label && '' !== self::error_page_executable_primitive( $contents ) ) {
 				return '';
@@ -12782,6 +12786,61 @@ class WPS_Scanner {
 			return $label;
 		}
 		return self::match_drop_in_publisher( $contents );
+	}
+
+	/**
+	 * 1.4.165: an error-page drop-in vouched for by the component that wrote it.
+	 *
+	 * The BMK theme writes maintenance.php, php-error.php and db-error.php as
+	 * full themed pages: a few lines of PHP that send the status and read a
+	 * saved HTML page from wp-content. They cannot pass is_inert_error_page()
+	 * (they read a file and echo it), and a label in the file would clear
+	 * anything carrying the label. So the writer vouches by hash through the
+	 * `wps_vouched_drop_ins` filter:
+	 *
+	 *     [ 'php-error.php' => [ 'sha256' => '...', 'source' => 'BMK theme',
+	 *                            'reads' => [ '/abs/wp-content/x/500.tpl.html' => '...' ] ] ]
+	 *
+	 * All of these must hold or the vouch counts for nothing: the drop-in's
+	 * sha256 matches exactly; it contains none of the executable primitives
+	 * error_page_executable_primitive() looks for; every file it reads is an
+	 * .html or .htm file inside wp-content whose sha256 also matches (at most
+	 * four). The vouch is as strong as the writer's record of what it wrote,
+	 * and an edit to the drop-in or to the page it serves voids it.
+	 *
+	 * @return string Publisher label, or '' when the vouch is absent or fails.
+	 */
+	public static function vouched_drop_in_publisher( string $name, string $contents ): string {
+		if ( '' === $contents || ! in_array( $name, self::ERROR_PAGE_DROP_INS, true ) || ! function_exists( 'apply_filters' ) ) {
+			return '';
+		}
+		$list  = apply_filters( 'wps_vouched_drop_ins', [] );
+		$entry = is_array( $list ) && isset( $list[ $name ] ) && is_array( $list[ $name ] ) ? $list[ $name ] : null;
+		if ( ! $entry ) {
+			return '';
+		}
+		$want = isset( $entry['sha256'] ) && is_string( $entry['sha256'] ) ? strtolower( $entry['sha256'] ) : '';
+		if ( ! preg_match( '/^[0-9a-f]{64}$/', $want ) || ! hash_equals( $want, hash( 'sha256', $contents ) ) ) {
+			return '';
+		}
+		if ( '' !== self::error_page_executable_primitive( $contents ) ) {
+			return '';
+		}
+		$reads = isset( $entry['reads'] ) && is_array( $entry['reads'] ) ? $entry['reads'] : [];
+		if ( count( $reads ) > 4 ) {
+			return '';
+		}
+		$content_dir = defined( 'WP_CONTENT_DIR' ) ? realpath( WP_CONTENT_DIR ) : false;
+		foreach ( $reads as $file => $hash ) {
+			$real = is_string( $file ) ? realpath( $file ) : false;
+			if ( ! $real || ! $content_dir || ! is_file( $real ) || ! WPS_Utils::path_is_inside( $real, $content_dir )
+				|| ! preg_match( '/\.html?$/i', $real ) || ! is_string( $hash ) || ! preg_match( '/^[0-9a-f]{64}$/i', $hash )
+				|| ! hash_equals( strtolower( $hash ), (string) hash_file( 'sha256', $real ) ) ) {
+				return '';
+			}
+		}
+		$source = isset( $entry['source'] ) && is_string( $entry['source'] ) ? trim( substr( preg_replace( '/[^A-Za-z0-9 ._-]/', '', strip_tags( $entry['source'] ) ), 0, 60 ) ) : '';
+		return 'Vouched by ' . ( '' !== $source ? $source : 'another component' ) . ' (sha256 verified)';
 	}
 
 	public static function match_drop_in_publisher( string $contents ): string {
@@ -13069,6 +13128,9 @@ class WPS_Scanner {
 			$is_error_page = in_array( $name, self::ERROR_PAGE_DROP_INS, true );
 			if ( $is_error_page && self::is_inert_error_page( $contents ) ) {
 				continue; // a static page that verifiably runs nothing needs no publisher
+			}
+			if ( $is_error_page && '' !== self::vouched_drop_in_publisher( $name, $contents ) ) {
+				continue; // 1.4.165: hash-vouched by the component that wrote it, and runs nothing dangerous
 			}
 			if ( $matched_publisher !== null ) {
 				// A publisher label is a string in the file, and a string

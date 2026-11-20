@@ -1,5 +1,15 @@
 # WP Perf Shield changelog
 
+## 1.4.165
+
+**Hash-vouched error-page drop-ins: the `wps_vouched_drop_ins` filter.** The BMK theme writes the three error-page drop-ins as short PHP that sends the status and reads a saved, themed HTML page from `wp-content/bismika-notices/`. They cannot pass `is_inert_error_page()` (they read a file and echo it), so all three were reported as "unknown publisher" on every scan. A label in the file would clear anything that carried the label, which 1.4.118 already refused.
+- **Shape:** `[ 'php-error.php' => [ 'sha256' => …, 'source' => 'BMK theme', 'reads' => [ abs path => sha256 ] ] ]`, for `maintenance.php`, `php-error.php` and `db-error.php` only.
+- **Every condition must hold:** the drop-in's sha256 matches exactly; `error_page_executable_primitive()` finds nothing in it; each file it reads (at most 4) is an `.html` or `.htm` file inside wp-content whose sha256 matches.
+- **Checked in both places:** `effective_drop_in_publisher()` (so `WPS_Dropin_Guard` agrees) and `check_drop_ins()`. The verdict reads "Vouched by BMK theme (sha256 verified)".
+- A correct hash cannot clear code: a drop-in with `eval( $_COOKIE[…] )` appended stays a finding even when the vouch carries its exact hash.
+
+Tests: `test-vouched-drop-ins.php` (10 checks), run against the drop-in BMK actually writes.
+
 ## 1.4.164
 
 **Automatic removal never takes the active theme folder.** On a test copy of bismikaallahuma.org a scan quarantined the whole active BMK theme. The all-themes signature walk (1.3.97) matched `_wp_perf_ok` in the theme's own block list for that cookie, set `auto_delete`, and named the theme folder as `delete_path`. `is_protected_auto_delete_path()` returned false for any directory, so the folder passed.
