@@ -750,6 +750,9 @@ Decision: the plugin never calls Akismet's `submit-spam`. It is a correction cha
 ### Akismet request fields (1.4.161)
 Decision: send every parameter Akismet documents that the plugin can truthfully fill, and name the ones it cannot (user_role, author email and URL, comment context, recheck, honeypot) so the omissions are a decision and not an accident. Server variables go through an allowlist, never a blocklist: HTTP headers minus credential-bearing ones, plus a short request-line list; no filesystem paths. `user_role` is never sent because "administrator" forces a false answer. Digest 1.4.161: `WPS_Login_Guard::akismet_request()` and `akismet_server_vars()`.
 
+### Hash-vouched error-page drop-ins (1.4.165)
+Decision: a component that writes an error-page drop-in may vouch for it by sha256 through `wps_vouched_drop_ins`, naming the files the drop-in reads and their hashes. The vouch is accepted only when every hash matches and the drop-in has no executable primitive; it never clears code. Labels stay worthless (1.4.118). The vouch is exactly as strong as the writer's record, which is why the read files are hashed too: a clean drop-in serving an altered page is still an altered page. First user: the BMK theme's `inc/notices/notices.php`. Digest 1.4.165: `WPS_Scanner::vouched_drop_in_publisher()`.
+
 ### The active theme is never auto-removed (1.4.164)
 Decision: automatic removal never targets the active stylesheet or template directory, or a directory that holds one. A whole-folder removal is right for a decoy theme and catastrophic for the live one, and a single string match cannot tell the two apart. A match in the active theme becomes a review finding whose `delete_path` is the one file. Digest 1.4.164: `is_protected_auto_delete_path()` covers directories; the 1.3.97 all-themes walk checks it before setting `auto_delete`.
 
