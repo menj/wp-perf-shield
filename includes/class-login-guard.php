@@ -808,6 +808,11 @@ final class WPS_Login_Guard {
 		if ( ! is_object( $result ) || ! isset( $result->is_spam ) ) {
 			return '';
 		}
+		// 1.4.162: Akismet 5.7.2 reports a failed call (rejected key, rate limit) as is_spam = false with the
+		// reason in `error`. Read as a clean verdict it would shorten a block and be cached for a day.
+		if ( ! empty( $result->error ) ) {
+			return '';
+		}
 		$verdict = $result->is_spam ? 'spam' : 'ham';
 		set_transient( $cache, $verdict, self::VERDICT_TTL );
 		return $verdict;
@@ -838,7 +843,6 @@ final class WPS_Login_Guard {
 	 */
 	private static function akismet_request( string $ip, string $author, string $type, string $permalink ): array {
 		$req = [
-			'blog'            => (string) get_option( 'home' ),
 			'user_ip'         => $ip,
 			'user_agent'      => (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ),
 			'referrer'        => (string) ( $_SERVER['HTTP_REFERER'] ?? '' ),
@@ -846,15 +850,11 @@ final class WPS_Login_Guard {
 			'comment_type'    => $type,
 			'comment_author'  => self::safe( $author ),
 			'comment_content' => '',
-			'blog_lang'       => function_exists( 'get_bloginfo' ) ? (string) get_bloginfo( 'language' ) : '',
-			'blog_charset'    => function_exists( 'get_bloginfo' ) ? (string) get_bloginfo( 'charset' ) : '',
 			'is_test'         => defined( 'WP_DEBUG' ) && WP_DEBUG ? 'true' : 'false',
 		];
 		// Empty optional values are left out rather than sent blank.
-		foreach ( [ 'referrer', 'blog_lang', 'blog_charset' ] as $optional ) {
-			if ( '' === $req[ $optional ] ) {
-				unset( $req[ $optional ] );
-			}
+		if ( '' === $req['referrer'] ) {
+			unset( $req['referrer'] );
 		}
 		return $req + self::akismet_server_vars();
 	}

@@ -1,5 +1,14 @@
 # WP Perf Shield changelog
 
+## 1.4.162
+
+**Read from Akismet 5.7.2 (uploaded copy, 47 files, nothing run; no risky calls, no extra files).**
+- **Bug that predates 1.4.161:** `Akismet::comment_check()` answers a failed call (rejected key, rate limit) as `is_spam = false` with the reason in `error`. The plugin took that as a clean verdict, cached it for 24 hours, and a clean verdict can shorten a first single-username block to 15 minutes. A result with `error` set now gives no verdict and is not cached.
+- **Correction to 1.4.161:** Akismet adds `blog`, `blog_lang`, `blog_charset`, `user_ip` and `user_agent` itself, so the plugin no longer sends the first three a second time. Akismet adds no server variables, so the allowlisted headers and request line are still passed from here, and its `akismet_request_args` filter still sees them.
+- **Confirmed:** the call signature `comment_check( $comment_data )` and the `is_spam` result object match the real plugin.
+
+Tests: `test-login-guard.php` (4 new for the error case; the 1.4.161 field checks updated).
+
 ## 1.4.161
 
 **Akismet comment-check: every documented parameter the plugin can supply.** Akismet's documentation says its verdicts improve with more of the original request, and asks for the server variables too. The plugin sent six fields. It now sends `blog`, `user_ip`, `user_agent`, `referrer`, `permalink`, `comment_type`, `comment_author`, an empty `comment_content`, `blog_lang`, `blog_charset`, `is_test`, plus an allowlist of server variables: the request's HTTP headers and `REMOTE_ADDR`, `REQUEST_METHOD`, `REQUEST_URI`, `SERVER_NAME`, `SERVER_PROTOCOL`, `SERVER_PORT`, `HTTPS`, `CONTENT_TYPE` and `CONTENT_LENGTH`.
