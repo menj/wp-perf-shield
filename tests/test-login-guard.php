@@ -36,8 +36,9 @@ function wp_json_encode( $v ) { return json_encode( $v ); }
 function wp_strip_all_tags( $s ) { return strip_tags( (string) $s ); }
 function sanitize_text_field( $s ) { return trim( strip_tags( (string) $s ) ); }
 function esc_html( $s ) { return $s; }
-function get_bloginfo( $k ) { return 'x'; }
+function get_bloginfo( $k ) { return [ 'language' => 'en-US', 'charset' => 'UTF-8' ][ $k ] ?? 'x'; }
 function home_url( $p = '' ) { return 'http://example.test' . $p; }
+function wp_login_url() { return 'http://example.test/wp-login.php'; }
 class WPS_Logger {
 	public static $events = [];
 	public static function log_event( $t, $s, $ip = '' ) { self::$events[] = [ $t, $s ]; }
@@ -53,7 +54,8 @@ class Akismet {
 	public static $ok    = true;
 	public static $posts = 0;
 	public static function get_api_key() { return 'abc123'; }
-	public static function comment_check() { return 'false'; }
+	public static $last = [];
+	public static function comment_check( $args = [] ) { self::$last = $args; return (object) [ 'is_spam' => false ]; }
 	public static function build_query( $b ) { return http_build_query( $b ); }
 	public static function http_post( $q, $path ) { ++self::$posts; if ( ! self::$ok ) { throw new RuntimeException( 'network down' ); } return [ [], 'Thanks for making the web a better place.' ]; }
 }
@@ -102,6 +104,42 @@ check( 'the settings line says enrichment is off, not that the key is missing', 
 $GLOBALS['opts']['wps_opts'] = [];
 $src = (string) file_get_contents( dirname( __DIR__ ) . '/includes/class-login-guard.php' );
 check( 'the login guard source holds no submit-spam endpoint', false === strpos( $src, 'submit-spam' ) );
+
+// ---- 5. the comment-check request carries every documented parameter the plugin can supply (1.4.161).
+$_SERVER['REMOTE_ADDR']       = '203.0.113.9';
+$_SERVER['HTTP_USER_AGENT']   = 'curl/8.0';
+$_SERVER['HTTP_REFERER']      = 'https://example.test/wp-login.php';
+$_SERVER['HTTP_ACCEPT']       = 'text/html';
+$_SERVER['HTTP_COOKIE']       = 'wordpress_logged_in_x=secret';
+$_SERVER['HTTP_AUTHORIZATION'] = 'Basic c2VjcmV0';
+$_SERVER['PHP_AUTH_PW']       = 'secret';
+$_SERVER['DOCUMENT_ROOT']     = '/var/www/private';
+$_SERVER['SCRIPT_FILENAME']   = '/var/www/private/wp-login.php';
+$_SERVER['REQUEST_METHOD']    = 'POST';
+$_SERVER['REQUEST_URI']       = '/wp-login.php';
+$_SERVER['SERVER_NAME']       = 'example.test';
+$GLOBALS['opts']['wps_opts']  = [];
+$GLOBALS['trans']             = [];
+Akismet::$last = [];
+$av = new ReflectionMethod( 'WPS_Login_Guard', 'akismet_verdict' );
+$av->setAccessible( true );
+$av->invoke( null, '203.0.113.9', 'root' );
+$q = Akismet::$last;
+foreach ( [ 'blog', 'user_ip', 'user_agent', 'referrer', 'permalink', 'comment_type', 'comment_author', 'comment_content', 'blog_lang', 'blog_charset', 'is_test' ] as $k ) {
+	check( "comment-check carries $k", array_key_exists( $k, $q ), json_encode( array_keys( $q ) ) );
+}
+check( 'the request says what it is', 'wps-login-attempt' === $q['comment_type'] && 'root' === $q['comment_author'] && '' === $q['comment_content'] && '203.0.113.9' === $q['user_ip'] );
+check( 'language and charset come from the site', 'en-US' === $q['blog_lang'] && 'UTF-8' === $q['blog_charset'] );
+check( 'the HTTP headers and request line are passed on', 'text/html' === ( $q['HTTP_ACCEPT'] ?? '' ) && 'POST' === ( $q['REQUEST_METHOD'] ?? '' ) && '/wp-login.php' === ( $q['REQUEST_URI'] ?? '' ) && 'example.test' === ( $q['SERVER_NAME'] ?? '' ) && '203.0.113.9' === ( $q['REMOTE_ADDR'] ?? '' ) );
+check( 'no cookie, credential or password variable is sent', ! array_intersect_key( $q, array_flip( [ 'HTTP_COOKIE', 'HTTP_AUTHORIZATION', 'PHP_AUTH_PW' ] ) ), json_encode( array_keys( $q ) ) );
+check( 'no filesystem path is sent', ! isset( $q['DOCUMENT_ROOT'] ) && ! isset( $q['SCRIPT_FILENAME'] ) );
+check( 'user_role is never sent, since "administrator" makes Akismet answer false', ! isset( $q['user_role'] ) );
+check( 'the server variables cannot overwrite the named parameters', '203.0.113.9' === $q['user_ip'] && 'wps-login-attempt' === $q['comment_type'] );
+unset( $_SERVER['HTTP_REFERER'] );
+$GLOBALS['trans'] = [];
+$av->invoke( null, '203.0.113.9', 'root' );
+check( 'an empty referrer is left out, not sent blank', ! array_key_exists( 'referrer', Akismet::$last ) );
+
 
 // ---- 4. a first range block holds for its base duration; returns climb the ladder.
 $m = new ReflectionMethod( 'WPS_Login_Guard', 'block_network' );

@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.160
+Stable tag: 1.4.161
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.161 =
+The Akismet comment-check now carries every documented parameter the plugin can supply: blog, referrer, language, charset and the request's own headers, with cookies and credentials removed.
 
 = 1.4.160 =
 Stops sending blocked addresses to Akismet's submit-spam, at Akismet's request. The comment-check question that weighs block duration is unchanged.
@@ -716,6 +719,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.161 =
+Gives Akismet more of the original request when it is asked about a blocked address. Nothing to configure.
 
 = 1.4.160 =
 Nothing is reported to Akismet any more. The two reporting settings and the Report buttons are removed; block durations still use Akismet's comment-check.
