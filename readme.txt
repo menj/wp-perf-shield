@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.162
+Stable tag: 1.4.163
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.163 =
+Other code on the site can add findings to the scan through the `wps_external_findings` filter. They are listed for review and never removed automatically.
 
 = 1.4.162 =
 A failed Akismet call (rejected key, rate limit) is no longer read as a clean verdict. Checked against Akismet 5.7.2.
@@ -722,6 +725,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.163 =
+The BMK theme's malware scan now reports into WP Perf Shield. Nothing to configure.
 
 = 1.4.162 =
 Stops an Akismet error being treated as "not known for spam", which could shorten a block for a day.

@@ -59,6 +59,10 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.163
+
+**Other scanners can report here.** Code elsewhere on the site, such as the BMK theme's malware scan, can add its findings to WP Perf Shield's list through the new `wps_external_findings` filter. They appear on the Overview tab with the name of the component that reported them. WP Perf Shield never removes them automatically; where a finding offers "Delete this path", the removal policy and the quarantine handle it like any other. Nothing to configure.
+
 ## 1.4.162
 
 **An Akismet error no longer shortens a block.** When Akismet rejected a call (a bad key, a rate limit), the plugin read the empty answer as "not known for spam" and cached it for a day. On a first failed sign-in with one username that set a 15-minute block. A call that returns an error now gives no verdict at all, and the block falls back to your own evidence. Nothing to configure.
