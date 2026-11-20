@@ -1,5 +1,15 @@
 # WP Perf Shield changelog
 
+## 1.4.163
+
+**Findings from other code: the `wps_external_findings` filter.** A scan now asks the filter for findings after automatic remediation has run, so contributed findings are listed for the operator and never removed by the plugin on its own.
+- **Shape:** each entry needs `type` and `subject`; `severity` (critical, high, medium, low; anything else becomes high), `path`, `action`, `source` and `delete_path` are optional.
+- **Checks:** text is stripped of tags and capped. A `path` must resolve inside the WordPress root or the entry is dropped; a `delete_path` must resolve inside wp-content or the button is not offered. A path a WP Perf Shield finding already covers is not reported twice. The type names the source: "Web shell (reported by BMK theme)".
+- **Removal:** "Delete this path" on a contributed finding goes through `remediate_manually()`, so the removal policy and the quarantine apply exactly as they do to the plugin's own findings.
+- **First contributor:** the BMK theme for bismikaallahuma.org, whose scan covers decoy theme folders (renamed Hello Elementor copies such as `config_1791852300`) and Tiny File Manager shells under misspelt names, which `check_theme_for_backdoor()` does not reach because it reads only the active theme.
+
+Tests: `test-external-findings.php` (9 checks).
+
 ## 1.4.162
 
 **Read from Akismet 5.7.2 (uploaded copy, 47 files, nothing run; no risky calls, no extra files).**

@@ -732,6 +732,12 @@ class WPS_Scanner {
 		// and report the job done.
 		$findings = self::group_duplicate_findings( $findings );
 
+		// 1.4.163: findings from other code on the site (the operator's BMK theme scan, for one) join
+		// the list here, after auto_remediate(), so the operator reviews them and nothing reported by
+		// another component is ever removed automatically. "Delete this path" still goes through the
+		// removal policy like any other finding.
+		$findings = array_merge( $findings, self::external_findings( $findings ) );
+
 		// 1.4.47: the normalisation cache is scan-scoped; let it go.
 		if ( class_exists( 'WPS_Utils' ) ) {
 			WPS_Utils::clear_normalised_cache();
@@ -16799,6 +16805,95 @@ class WPS_Scanner {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * 1.4.163: findings contributed by other code through the `wps_external_findings` filter.
+	 *
+	 * Each entry needs `type` and `subject`; `severity` (critical, high, medium, low; default
+	 * high), `path`, `action`, `source` and `delete_path` are optional. Text is stripped of
+	 * tags and capped. A path must resolve inside the WordPress root, and `delete_path` inside
+	 * wp-content, or it is dropped. An entry whose path a WP Perf Shield finding already covers
+	 * is left out, so one file is reported once.
+	 *
+	 * @param array<int, array<string, mixed>> $existing The scan's own findings.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function external_findings( array $existing = [] ): array {
+		if ( ! function_exists( 'apply_filters' ) ) {
+			return [];
+		}
+		$raw = apply_filters( 'wps_external_findings', [] );
+		if ( ! is_array( $raw ) ) {
+			return [];
+		}
+		$root    = realpath( ABSPATH );
+		$content = defined( 'WP_CONTENT_DIR' ) ? realpath( WP_CONTENT_DIR ) : false;
+		$within  = static function ( $path, $base ): bool {
+			if ( ! is_string( $path ) || '' === $path || ! $base ) {
+				return false;
+			}
+			$real = realpath( $path );
+			if ( ! $real ) {
+				return false;
+			}
+			$real = str_replace( '\\', '/', $real );
+			$base = rtrim( str_replace( '\\', '/', $base ), '/' ) . '/';
+			return 0 === strpos( $real . ( is_dir( $real ) ? '/' : '' ), $base );
+		};
+		$clean = static function ( $v, int $max ): string {
+			$v = is_scalar( $v ) ? (string) $v : '';
+			$v = function_exists( 'wp_strip_all_tags' ) ? wp_strip_all_tags( $v ) : strip_tags( $v );
+			return substr( trim( $v ), 0, $max );
+		};
+		$seen = [];
+		foreach ( $existing as $f ) {
+			$p = (string) ( $f['path'] ?? '' );
+			if ( '' !== $p && ( $r = realpath( $p ) ) ) {
+				$seen[ $r ] = true;
+			}
+		}
+		$out = [];
+		foreach ( $raw as $f ) {
+			if ( ! is_array( $f ) ) {
+				continue;
+			}
+			$type    = $clean( $f['type'] ?? '', 200 );
+			$subject = $clean( $f['subject'] ?? '', 500 );
+			if ( '' === $type || '' === $subject ) {
+				continue;
+			}
+			$severity = strtolower( $clean( $f['severity'] ?? 'high', 10 ) );
+			if ( ! in_array( $severity, [ 'critical', 'high', 'medium', 'low' ], true ) ) {
+				$severity = 'high';
+			}
+			$source = $clean( $f['source'] ?? 'external', 60 );
+			$entry  = [
+				'severity' => $severity,
+				'type'     => $type . ' (reported by ' . $source . ')',
+				'subject'  => $subject,
+				'action'   => $clean( $f['action'] ?? '', 1000 ),
+				'source'   => $source,
+			];
+			$path = $f['path'] ?? '';
+			if ( '' !== $path ) {
+				if ( ! $within( $path, $root ) ) {
+					continue;
+				}
+				$real = realpath( $path );
+				if ( isset( $seen[ $real ] ) ) {
+					continue;
+				}
+				$seen[ $real ]  = true;
+				$entry['path'] = $real;
+			}
+			$del = $f['delete_path'] ?? '';
+			if ( '' !== $del && $within( $del, $content ) ) {
+				$entry['delete_path'] = realpath( $del );
+			}
+			$out[] = $entry;
+		}
+		return $out;
 	}
 
 	/**
