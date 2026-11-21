@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.164
+Stable tag: 1.4.165
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -125,8 +125,11 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 
 == Changelog ==
 
+= 1.4.165 =
+A theme or plugin that writes the error-page drop-ins can vouch for them by sha256 through the `wps_vouched_drop_ins` filter. The BMK theme does, so its themed 500, 503 and database pages are no longer listed as unknown drop-ins.
+
 = 1.4.164 =
-A signature hit in a theme removes the file, not the whole theme. A file that only lists indicators is reported for review, or not at all in your own theme. Theme folders named with a timestamp are reported.
+Automatic removal never takes the active theme folder. A signature match inside the active theme is now reported for review, with the single file offered for removal.
 
 = 1.4.163 =
 Other code on the site can add findings to the scan through the `wps_external_findings` filter. They are listed for review and never removed automatically.
@@ -729,8 +732,11 @@ UI and structure release driven by the workspace design preferences. Complete de
 
 == Upgrade Notice ==
 
+= 1.4.165 =
+The BMK theme's error pages stop appearing as unknown drop-ins. Nothing to configure.
+
 = 1.4.164 =
-Stops the scanner targeting a whole theme (including your own) because one file names a malware indicator. Recommended.
+Fixes a case where one matched string in the active theme could move the whole theme into quarantine. Update now.
 
 = 1.4.163 =
 The BMK theme's malware scan now reports into WP Perf Shield. Nothing to configure.
