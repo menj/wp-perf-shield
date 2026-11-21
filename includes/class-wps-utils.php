@@ -1017,4 +1017,75 @@ class WPS_Utils {
 		}
 		return isset( self::$composer_installed[ $installed ][ strtolower( $name ) ] ) ? $name : '';
 	}
+
+	/** File extensions that name a picture. A picture is data; PHP inside one is never legitimate. */
+	public const MEDIA_EXTS = [ 'jpg', 'jpeg', 'jpe', 'png', 'gif', 'webp', 'avif', 'bmp', 'ico', 'heic' ];
+
+	/**
+	 * Code that proves a `<?php` inside a picture is a program and not stray bytes: a request value, a
+	 * function that runs, decodes, writes or includes, a WordPress bootstrap, or the account and post
+	 * functions a backdoor uses. Random compressed image data never produces `<?php` followed, within
+	 * four kilobytes, by one of these.
+	 */
+	private const MEDIA_CODE_RX = '/\$_(?:GET|POST|REQUEST|COOKIE|FILES|SERVER)\b|\b(?:eval|assert|system|exec|shell_exec|passthru|popen|proc_open|include|include_once|require|require_once|base64_decode|gzinflate|str_rot13|file_put_contents|fwrite|move_uploaded_file|unlink|hash_equals|wp_create_user|wp_set_password|wp_insert_post|wp_set_current_user|set_role|call_user_func|curl_exec)\s*[(\$\'"]|wp-load\.php|php:\/\/input/i';
+
+	/**
+	 * 1.4.166: is there PHP hidden in this picture?
+	 *
+	 * Recovered shape (`img-9d5783.jpg`, 2,306 bytes): a valid JPEG header whose comment segment is
+	 * `<?php`, followed by a script gated by a request key that creates or resets an administrator,
+	 * publishes posts with the HTML filters removed, and deletes itself. It is a JPEG to every image
+	 * check and PHP to any server that executes it. Nothing detected it.
+	 *
+	 * Reads at most 256 KB of the file (all of a small one, the first and last 128 KB of a large one:
+	 * a polyglot keeps its code in the metadata or appends it).
+	 *
+	 * @return array{level:string, why:string} level is 'confirmed' (code follows), 'review' (a bare
+	 *         `<?php` in readable text) or '' (nothing).
+	 */
+	public static function media_php_scan( string $path ): array {
+		$size = @filesize( $path );
+		if ( false === $size || $size < 16 ) {
+			return [ 'level' => '', 'why' => '' ];
+		}
+		$fh = @fopen( $path, 'rb' );
+		if ( ! $fh ) {
+			return [ 'level' => '', 'why' => '' ];
+		}
+		$chunks = [];
+		if ( $size <= 262144 ) {
+			$chunks[] = (string) fread( $fh, $size );
+		} else {
+			$chunks[] = (string) fread( $fh, 131072 );
+			fseek( $fh, -131072, SEEK_END );
+			$chunks[] = (string) fread( $fh, 131072 );
+		}
+		fclose( $fh );
+		return self::media_php_scan_bytes( $chunks );
+	}
+
+	/**
+	 * @param string[] $chunks Byte strings from one file (its head, its tail, or all of it).
+	 * @return array{level:string, why:string}
+	 */
+	public static function media_php_scan_bytes( array $chunks ): array {
+		$review = '';
+		foreach ( $chunks as $c ) {
+			if ( ! preg_match_all( '/<\?(?:php\b|=)/i', $c, $m, PREG_OFFSET_CAPTURE ) ) {
+				continue;
+			}
+			foreach ( array_slice( $m[0], 0, 5 ) as $hit ) {
+				$after = substr( $c, $hit[1], 4096 );
+				if ( preg_match( self::MEDIA_CODE_RX, $after, $mm ) ) {
+					return [ 'level' => 'confirmed', 'why' => 'PHP code (' . trim( $mm[0] ) . ') inside a picture' ];
+				}
+				$sample = substr( $after, 5, 48 );
+				if ( '' === $review && 0 === strncasecmp( $hit[0], '<?php', 5 ) && strlen( $sample ) >= 8
+					&& ( preg_match_all( '/[\x20-\x7e\r\n\t]/', $sample ) / strlen( $sample ) ) >= 0.9 ) {
+					$review = 'a PHP open tag followed by readable text inside a picture';
+				}
+			}
+		}
+		return '' !== $review ? [ 'level' => 'review', 'why' => $review ] : [ 'level' => '', 'why' => '' ];
+	}
 }

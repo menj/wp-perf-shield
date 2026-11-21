@@ -59,6 +59,12 @@ Behavioural findings are observations and are never auto-remediated - only conte
 
 *(Corrected in 1.4.48: this paragraph previously went on to say that a tamper guard would restore the plugin if something removed it. That guard was withdrawn in 1.4.15, and is written up at the top of this file. 1.4.44 corrected the same claim in `readme.txt` and `doc/readme.md` and missed this copy, so the promise stood for four further releases. WP Perf Shield does not restore itself, and malware that disables it succeeds silently.)*
 
+## 1.4.166
+
+**PHP hidden in pictures is found and removed.** A file named like a photo that starts with a valid image header and then carries PHP code is a program wearing a picture's name. The scan removes it, and an upload of one is refused (also inside a zip). A bare `<?php` in a picture with no recognisable code is reported for review. Empty PHP files and ones that only silence errors in uploads are removed. Nothing to configure.
+
+**Your own detection code is no longer mistaken for the malware it names, and a theme is no longer removed whole.** A theme or plugin file that only lists indicators (in a comment or an array of names) and runs no decoding, command, write or network code is reported for review and never removed. If the folder is yours it is not reported at all: a theme whose Author URI is this site's own domain counts as yours, as does anything under "Your own plugins" or verified against "Your GitHub accounts". Code that uses an indicator is judged exactly as before. When a theme file matches a signature, only that file is removed, and the theme folder stays. Theme folders named with a Unix timestamp (`config_1791852300`) are reported, never removed.
+
 ## 1.4.165
 
 **The BMK theme's error pages are recognised.** The theme writes `maintenance.php`, `php-error.php` and `db-error.php` so that a 500, a 503 or a database failure shows a page in the site's own design. Every scan listed all three as drop-ins from an unknown publisher, because they read a saved page from wp-content instead of carrying it inline. The theme now tells WP Perf Shield the exact sha256 of each drop-in and of the page it serves, and WP Perf Shield accepts them only while both match and the drop-in contains no executable code. Edit either file and the finding comes back. Nothing to configure.

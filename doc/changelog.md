@@ -1,5 +1,29 @@
 # WP Perf Shield changelog
 
+## 1.4.166
+
+**From the operator's whole site (uploads.zip 498 MB, themes.zip, plugins.zip; read only, nothing run).** Result: one live backdoor, 12 decoy themes with 14 shells, 5 blank PHP stubs; the 28 installed plugins are the expected set and none carries malware.
+
+### What was found
+- **A backdoor with a JPEG header (`uploads/img-9d5783.jpg`, 2,306 bytes).** A valid JPEG start and JFIF header whose comment segment is `<?php`, then a script gated by a request parameter and a hard-coded key (`hash_equals`). Its actions: `ping` (replies a fixed string), `access` (creates the administrator `elewis`, or resets that account's password and promotes it, and returns the new password), `post` (publishes a post with the HTML filters removed, optionally sticky), `regoff` (switches registration off, default role subscriber) and `selfdestruct` (deletes itself). **No check detected it.** Nothing in the plugins, themes or uploads loads it by name; it runs only if a request reaches it as PHP.
+- **The decoy themes (themes.zip, same 1,745 files as the earlier upload):** 12 renamed Hello Elementor copies, each with a Tiny File Manager shell under a misspelt name. Already removed by earlier checks; unchanged.
+- **Five blank PHP files in uploads** named like the decoys (`front_page_template_1792001961.php`, `search_template_1792001765.php`, `2026/10/mb_convert.php`, `2026/10/content.php`) and `search-pic.php` (`<?php error_reporting(0);`): four zero bytes, one 25. Attacker residue with the payload blanked. Reported before, never removed.
+- **Benign, for the record:** `uploads/wazan_chart1.jpg` is a saved copy of an old homepage (HTML, your own theme's CSS, old ad hosts) with a `.jpg` name; the 44 other "media files containing `<?=`" were random three-byte coincidences in compressed data; the `.redirect_blocked.log` is the BMK redirect guard's own log; a 1.1 MB `wpo-plugins-tables-list.json`, three Rank Math sitemap HTML files and a ContentBerg import log are what they say.
+- **The site runs WP Perf Shield 1.4.148 as a git checkout** (`.git` and `tests` present), 18 releases behind this one.
+
+### Changes
+- **New check `check_media_with_php`** (`WPS_Utils::media_php_scan`): a picture-extension file under uploads, themes, plugins or mu-plugins with `<?php` (or `<?=`) followed within 4 KB by code (a request superglobal, a function that runs, decodes, writes or includes, `wp-load.php`, the account and post functions a backdoor uses). Reads at most 256 KB per file (all of a small one, the first and last 128 KB of a large one). Confirmed: critical, removed. A bare `<?php` followed by readable text: high, report only. Random image data containing `<?=` is not reported (tested).
+- **Upload filter and zip ban:** an upload of such a picture is refused with a hostile-address record; a zip carrying one, or the backdoor's ping reply or access key, is refused.
+- **Blank PHP in uploads is removed** (`is_blank_php_stub`): empty, or only comments, `error_reporting`, `ini_set`, `set_time_limit`, `ignore_user_abort`. `index.php` "Silence is golden" is still left alone. A PHP file that does anything is still review only.
+- **Removal policy:** `PHP code hidden in an image file` and `Blank PHP file in uploads directory` are confirmed types.
+
+### Folded in from the unreleased 1.4.164 (the operator's themes folder)
+- **Theme findings remove the file, not the folder** (main's 1.4.164 spared only the active theme; any other theme still lost its whole folder to one hit).
+- **A file that only lists indicators is not malware** (`indicators_are_only_listed`, read with PHP's tokenizer: nothing in the file runs, decodes, writes or reaches out, and every indicator is a comment or an array element). The operator's BMK theme carries such a file (its malware-suppression code names the wp-perf-analytics cookie `_wp_perf_ok`); it was read as the dropper, and the finding's target was the theme folder. In an own folder (declared, repository-verified, or a theme whose Author URI is this site's domain) it is not reported; elsewhere it is a medium finding, review only. `check_etherhiding_resolver` is quiet about the same kind of file in an own folder.
+- **New check `check_timestamp_named_themes`:** theme folders ending in a ten-digit Unix timestamp (2017 to 2033), report only; the active theme and its parent are never reported.
+
+Tests: `test-media-php.php` (24: a synthetic JPEG-headed backdoor, a tail-appended payload, real pictures, image noise with `<?=`, blank stubs, the zip ban and the upload filter) and `test-own-code-listing.php` (23: seven ways of writing code that uses an indicator, all still critical). Registered checks: 124.
+
 ## 1.4.165
 
 **Hash-vouched error-page drop-ins: the `wps_vouched_drop_ins` filter.** The BMK theme writes the three error-page drop-ins as short PHP that sends the status and reads a saved, themed HTML page from `wp-content/bismika-notices/`. They cannot pass `is_inert_error_page()` (they read a file and echo it), so all three were reported as "unknown publisher" on every scan. A label in the file would clear anything that carried the label, which 1.4.118 already refused.

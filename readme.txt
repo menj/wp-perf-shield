@@ -5,7 +5,7 @@ Tags: security, malware, scanner, hardening, remediation
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.165
+Stable tag: 1.4.166
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -124,6 +124,9 @@ No. Some repairs require SSH, WP-CLI, SFTP, or hosting-panel access. The plugin 
 6. Events tab for the full retained security log.
 
 == Changelog ==
+
+= 1.4.166 =
+Finds and removes PHP hidden inside picture files (a JPEG-headed backdoor that created administrators), refuses such uploads, removes blank PHP stubs in uploads, and stops treating a file that only lists malware indicators as malware. A theme signature hit removes the file, not the theme. Theme folders named with a timestamp are reported.
 
 = 1.4.165 =
 A theme or plugin that writes the error-page drop-ins can vouch for them by sha256 through the `wps_vouched_drop_ins` filter. The BMK theme does, so its themed 500, 503 and database pages are no longer listed as unknown drop-ins.
@@ -731,6 +734,9 @@ UI and structure release driven by the workspace design preferences. Complete de
 * Earlier 1.3.x releases: incremental IoC catalogue growth, scanner and forensics coverage, remediation and hardening actions, hostile-IP blocking, structured logging, and admin-UI improvements. See `doc/changelog.md` for the complete per-version detail.
 
 == Upgrade Notice ==
+
+= 1.4.166 =
+Adds detection of PHP hidden in images and stops the scanner targeting a whole theme (including your own) because one file names a malware indicator. Recommended.
 
 = 1.4.165 =
 The BMK theme's error pages stop appearing as unknown drop-ins. Nothing to configure.

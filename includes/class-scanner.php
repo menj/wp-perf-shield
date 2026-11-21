@@ -610,6 +610,7 @@ class WPS_Scanner {
 			'check_gambling_doorway_page' => [ __CLASS__, 'check_gambling_doorway_page' ], // 1.4.134: static slot/togel landing page planted in uploads, wp-content or the web root
 			'check_trojanized_plugin_tools' => [ __CLASS__, 'check_trojanized_plugin_tools' ], // 1.4.149: miner dropper, mass defacer, wp-config reader, mass-copy and uploader shells planted inside a genuine plugin
 			'check_timestamp_named_themes' => [ __CLASS__, 'check_timestamp_named_themes' ], // 1.4.164: decoy theme copies named <name>-<unix timestamp>; report only
+			'check_media_with_php' => [ __CLASS__, 'check_media_with_php' ], // 1.4.166: PHP hidden in a picture (a JPEG-headed admin-creating backdoor)
 			'check_embedded_js_injector' => [ __CLASS__, 'check_embedded_js_injector' ], // 1.4.135: plugin that keeps a large encoded script and prints it to visitors on every page
 			'check_medusa_fm_kit' => [ __CLASS__, 'check_medusa_fm_kit' ], // 1.4.140: Medusa FM kit files (encrypted loader, index/.htaccess self-heal, early crawler router) by their own markers
 			'check_mass_post_sitemap' => [ __CLASS__, 'check_mass_post_sitemap' ], // 1.4.140: static sitemap listing hundreds of consecutive ?p=<id> URLs from one day (a spam kit's post flood)
@@ -1355,6 +1356,17 @@ class WPS_Scanner {
 						'path'        => $file->getPathname(),
 						'action'      => 'Known malware signature found inside uploads. Auto-delete is safe for this confirmed executable payload.',
 						'match'       => $match,
+						'auto_delete' => true,
+						'delete_path' => $file->getPathname(),
+					];
+				} elseif ( is_string( $contents ) && self::is_blank_php_stub( $contents ) ) {
+					// 1.4.166: empty or error-silencing only. Nothing to review; the slot is what matters.
+					$found[] = [
+						'severity'    => 'medium',
+						'type'        => 'Blank PHP file in uploads directory',
+						'subject'     => $file->getFilename() . ' (' . strlen( $contents ) . ' bytes)',
+						'path'        => $file->getPathname(),
+						'action'      => 'An empty PHP file, or one that only silences errors, has no place in uploads. It does nothing, and it is the slot a dropper fills next, so it is removed.',
 						'auto_delete' => true,
 						'delete_path' => $file->getPathname(),
 					];
@@ -9883,6 +9895,100 @@ class WPS_Scanner {
 			return $found;
 		}
 		return $found;
+	}
+
+	/**
+	 * 1.4.166: PHP hidden inside a picture, anywhere under wp-content.
+	 *
+	 * A picture is data. When one carries `<?php` followed by code, it is a program wearing a picture's
+	 * name (`img-9d5783.jpg`: a JPEG header, then a key-gated script that created an administrator
+	 * account, published posts with the HTML filters removed, and deleted itself). Confirmed ones are
+	 * removed; a bare `<?php` in readable text is reported for review. See WPS_Utils::media_php_scan().
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function check_media_with_php(): array {
+		$found = [];
+		$roots = [];
+		$up    = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : [];
+		if ( is_array( $up ) && empty( $up['error'] ) && ! empty( $up['basedir'] ) && is_dir( $up['basedir'] ) ) {
+			$roots[] = rtrim( $up['basedir'], '/\\' );
+		}
+		foreach ( [ 'themes', 'plugins', 'mu-plugins' ] as $sub ) {
+			if ( defined( 'WP_CONTENT_DIR' ) && is_dir( WP_CONTENT_DIR . '/' . $sub ) ) {
+				$roots[] = WP_CONTENT_DIR . '/' . $sub;
+			}
+		}
+		$self_dir = defined( 'WPS_DIR' ) ? ( realpath( WPS_DIR ) ?: '' ) : '';
+		$n        = 0;
+		foreach ( array_unique( $roots ) as $root ) {
+			try {
+				$iter = new RecursiveIteratorIterator(
+					new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ),
+					RecursiveIteratorIterator::LEAVES_ONLY
+				);
+				foreach ( $iter as $f ) {
+					if ( self::out_of_time() || ++$n > 40000 ) {
+						return $found;
+					}
+					if ( ! ( $f instanceof SplFileInfo ) || ! $f->isFile() ) {
+						continue;
+					}
+					if ( ! in_array( strtolower( $f->getExtension() ), WPS_Utils::MEDIA_EXTS, true ) ) {
+						continue;
+					}
+					$path = $f->getPathname();
+					$real = realpath( $path ) ?: $path;
+					if ( ( '' !== $self_dir && 0 === strpos( $real, $self_dir ) ) || ( class_exists( 'WPS_Quarantine' ) && WPS_Quarantine::is_quarantine_path( $path ) ) ) {
+						continue;
+					}
+					$r = WPS_Utils::media_php_scan( $path );
+					if ( '' === $r['level'] ) {
+						continue;
+					}
+					$confirmed = 'confirmed' === $r['level'];
+					$entry     = [
+						'severity' => $confirmed ? 'critical' : 'high',
+						'type'     => $confirmed ? 'PHP code hidden in an image file' : 'PHP open tag inside an image file (review required)',
+						'subject'  => self::display_path( $path ) . ' (' . $f->getSize() . ' bytes): ' . $r['why'],
+						'path'     => $path,
+						'action'   => $confirmed
+							? 'A picture never holds PHP. This file is a program with an image header, so it passes every image check and runs as PHP wherever the server is told to execute it, or when another file includes it. It is removed. Treat the site as compromised: look for the administrator accounts and posts it could have made, find how it was written, and reset passwords and salts.'
+							: 'A picture should never contain a PHP open tag. No code follows it that this check recognises, so nothing is removed; open the file and decide.',
+					];
+					if ( $confirmed ) {
+						$entry['auto_delete'] = true;
+						$entry['delete_path'] = $path;
+					} else {
+						$entry['delete_path'] = $path;
+					}
+					$found[] = $entry;
+					if ( class_exists( 'WPS_Logger' ) ) {
+						WPS_Logger::log_event( 'media_php_found', self::display_path( $path ) . ' ' . $r['level'] );
+					}
+				}
+			} catch ( \Throwable $t ) {
+				continue;
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * 1.4.166: is this PHP file empty, or only silences errors?
+	 *
+	 * Four zero-byte `.php` files and a 25-byte `<?php error_reporting(0);` were sitting in one site's
+	 * uploads, left by an attacker whose payload had been blanked. They do nothing, they have no
+	 * business there, and they are the slot a re-dropper fills next.
+	 */
+	private static function is_blank_php_stub( string $contents ): bool {
+		if ( strlen( $contents ) > 256 ) {
+			return false;
+		}
+		$c = preg_replace( '#/\*.*?\*/|(?://|\#)[^\n]*#s', '', $contents );
+		$c = preg_replace( '/<\?php|<\?=|\?>/i', '', (string) $c );
+		$c = preg_replace( '/@?\s*(?:error_reporting|set_time_limit|ignore_user_abort)\s*\(\s*(?:0|true|false|-1|E_ALL)?\s*\)\s*;?|@?\s*ini_set\s*\(\s*[\'"][a-z_.]+[\'"]\s*,\s*[\'"]?[-\w]*[\'"]?\s*\)\s*;?/i', '', (string) $c );
+		return '' === trim( (string) $c );
 	}
 
 	private static function check_headless_plugin_folder(): array {

@@ -216,6 +216,9 @@ final class WPS_Remediation_Policy {
 		// 1.4.149 release reported the files inside the trojanized plugin and the policy refused to remove them.
 		'Attack tool planted in a plugin, theme or uploads folder',
 		'Hidden gambling-link injector',
+		// 1.4.166: a picture that carries PHP and code is a program; and an empty PHP file in uploads is attacker residue.
+		'PHP code hidden in an image file',
+		'Blank PHP file in uploads directory',
 	];
 
 	/*

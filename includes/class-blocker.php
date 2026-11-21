@@ -19,6 +19,8 @@ class WPS_Blocker {
         'Folder Mass Defacer by',
         'Coded by Fallag Gassrini',
         'botnet-iranian',
+        'OKC3C274',                                          // 1.4.166: ping reply of the JPEG-headed admin-creating backdoor
+        '5620304d049fa66e9453bc6ddfba1ecaf983a7502799dfbd',  // 1.4.166: its hard-coded access key
     ];
 
     //  Pattern lists 
@@ -1283,6 +1285,18 @@ class WPS_Blocker {
             return $file;
         }
 
+        // 1.4.166: a picture that carries PHP and code is a program (a JPEG header, then a backdoor).
+        if ( in_array( strtolower( pathinfo( $filename, PATHINFO_EXTENSION ) ), WPS_Utils::MEDIA_EXTS, true )
+            && ! empty( $file['tmp_name'] ) && is_string( $file['tmp_name'] ) && is_readable( $file['tmp_name'] ) ) {
+            $media = WPS_Utils::media_php_scan( $file['tmp_name'] );
+            if ( 'confirmed' === $media['level'] ) {
+                WPS_Logger::log_event( 'upload_blocked', self::format_upload_context( $filename, $context, 'PHP inside a picture' ), $ip );
+                self::record_upload_offender( $ip, $filename, $context, 'PHP code hidden in an image' );
+                $file['error'] = 'This image contains PHP code and was blocked by WP Perf Shield.';
+                return $file;
+            }
+        }
+
         foreach ( self::get_blocked_slugs() as $slug ) {
             if ( strpos( $name, strtolower( $slug ) ) !== false ) {
                 WPS_Logger::log_event( 'upload_blocked', self::format_upload_context( $filename, $context ), $ip );
@@ -1372,9 +1386,11 @@ class WPS_Blocker {
                     return 'entry=' . self::short_log_value( $entry );
                 }
 
+                $entry_ext = strtolower( pathinfo( $entry, PATHINFO_EXTENSION ) );
+                $is_media  = in_array( $entry_ext, WPS_Utils::MEDIA_EXTS, true );
                 $is_php = strtolower( pathinfo( $entry, PATHINFO_EXTENSION ) ) === 'php';
                 // 1.4.149: the kit hides markers in .htaccess, .txt and script-like files; read those for its markers only.
-                if ( ! $is_php && ! in_array( strtolower( pathinfo( $entry, PATHINFO_EXTENSION ) ), [ 'htaccess', 'txt', 'html', 'htm', 'phtml', 'phar', 'inc', 'js' ], true ) && '.htaccess' !== strtolower( basename( $entry ) ) ) {
+                if ( ! $is_php && ! $is_media && ! in_array( $entry_ext, [ 'htaccess', 'txt', 'html', 'htm', 'phtml', 'phar', 'inc', 'js' ], true ) && '.htaccess' !== strtolower( basename( $entry ) ) ) {
                     continue;
                 }
 
@@ -1402,6 +1418,13 @@ class WPS_Blocker {
 
                 if ( $is_self_package && self::zip_entry_is_wp_perf_shield_indicator_file( $entry ) ) {
                     continue;
+                }
+
+                if ( $is_media ) {
+                    $media = WPS_Utils::media_php_scan_bytes( [ strlen( $contents ) > 262144 ? substr( $contents, 0, 131072 ) : $contents, strlen( $contents ) > 262144 ? substr( $contents, -131072 ) : '' ] );
+                    if ( 'confirmed' === $media['level'] ) {
+                        return 'signature=PHP inside a picture entry=' . self::short_log_value( $entry );
+                    }
                 }
 
                 if ( ! $is_php ) {
